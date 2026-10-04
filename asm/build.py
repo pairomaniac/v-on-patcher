@@ -233,9 +233,17 @@ def check_link(vp, blobs):
     """Every blob links for every build, and every pin the site table
     relies on is where the assembly put it. A blob whose cave only exists
     at apply time is linked there instead, so a KeyError on a missing cave
-    is expected; a missing symbol is not."""
+    is expected; a missing symbol is not. A blob some builds' annex carries
+    and this one's does not belongs to a patch not ported to it, and is not
+    linked for it."""
+    annexed = set()
+    for build in vp.BUILDS.values():
+        annexed.update(build.annex[2] if build.annex else ())
     for build in vp.BUILDS.values():
         for name in blobs:
+            if (name in annexed and build.annex
+                    and name not in build.annex[2]):
+                continue
             try:
                 vp.link(name, build, blobs=blobs)
             except ValueError:
@@ -271,7 +279,7 @@ SOURCES = [
     ('CREDITS', 'credits.asm'), ('NAMEENTRY', 'nameentry.asm'),
     ('CAMSKIP', 'camskip.asm'), ('OVERLAY', 'overlay.asm'),
     ('TITLEVER', 'titlever.asm'), ('ACTIVATE', 'activate.asm'),
-    ('LOCKLINE', 'lockline.asm'),
+    ('LOCKLINE', 'lockline.asm'), ('BOSSES', 'bosses.asm'),
 ]
 
 

@@ -237,6 +237,21 @@ The offsets and internals of every patch are in [NOTES.md](docs/NOTES.md).
       for a second. Stock has no way past them
     - the initials screen after them takes those buttons too, and either
       weapon trigger. A and Select are 1P's, so 2P skips with **RT**
+- **Playable bosses** - Jaguarandi and Z-Gradt in a one-player game, once
+  unlocked. Beat Jaguarandi on Very Hard without losing a match in the run
+  and it joins the machine select; finish the game the same way after that
+  and Z-Gradt joins too. Each unlock gets a screen of its own, and they are
+  kept in `bosses.bin` beside the game. An unlocked boss stands in the row
+  after Raiden with a portrait of its own (the row moves left to make room)
+  and the countdown runs 20 seconds longer. With Machine Color Select on, a
+  boss can wear any of the colours. The report after stage 5 turns the boss
+  itself. One player only, on purpose - they are too strong for a fair
+  two-player fight. Unticked by default, and only on the English retail and
+  USA OEM builds so far.
+- **Pre-unlock the bosses** - both bosses selectable from the start: writes
+  `bosses.bin` with both unlocked. Needs Playable bosses, never lowers
+  progress already made, and is left alone by **Restore original**.
+  Unticked by default.
 
 ### About
 

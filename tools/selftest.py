@@ -26,9 +26,9 @@ import sys
 # Everything ticked, per build: retail, the Japanese rerelease, the OEM,
 # the Japanese original.
 EXPECTED_ALL = {
-    'a464b0ff32d5bab499f265e45658504e': '4c9ba9fa514ba7a2c4a3c1b989ff719c',
+    'a464b0ff32d5bab499f265e45658504e': '391a31313716d0bc2c2cc816974fdaac',
     'd19320bdc3381a48228990907910a391': '0180355d2a61697dc661f5cad735837e',
-    '4c70f780a7f0d98d74be62304fb99021': 'c4cf5d54055c3c906f26182a0e62868d',
+    '4c70f780a7f0d98d74be62304fb99021': 'c437afc4123ff938679e00d5f3c17aae',
     '9764d946ffc8cee94788707c91753478': '9d8f0a3cff422ec2ff296abcb6385fa2',
 }
 
@@ -89,6 +89,9 @@ def apply(vp, original, keys, build):
     buf, _applied, skipped = vp.apply_selected(bytearray(original),
                                                dict.fromkeys(keys, True),
                                                build)
+    # Skipped as it should be: a patch whose prerequisite is not ticked.
+    skipped = [(key, why) for key, why in skipped
+               if key not in vp.NEEDS or vp.NEEDS[key] in keys]
     if skipped:
         raise AssertionError('skipped %s: %s' % (skipped[0][0], skipped[0][1]))
     return buf
@@ -211,7 +214,7 @@ def main(path):
     if hits != 1:
         bad += 1
 
-    keys = list(table)
+    keys = [key for key in table if vp.feature_supported(key, build)]
     failures, tested = [], 0
     trials = [set(c) for r in (1, 2) for c in itertools.combinations(keys, r)]
     random.seed(1)

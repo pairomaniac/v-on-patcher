@@ -141,6 +141,12 @@ HAND = {'d19320bdc3381a48228990907910a391': ({           # Japanese rerelease
     0x000958aa: 0x0009574a,                           # jmp +0 at loop exit
     0x006035ac: 0x00602fac,                           # .rsrc, whole section is -0x600
     0x0000023f: 0x0000023f, 0x000000a8: 0x000000a8,   # PE header: same section order
+    0x001861c1: 0x00185c91,                           # bosses: confirm, A and B, in
+    0x0019f8c1: 0x0019f391, 0x001a0e84: 0x001a0954,   # functions that do not align
+    0x0004996c: 0x000498cc,                           # bosses: the ending, A
+    0x0000594e: 0x0000594e,                           # bosses: Z-Gradt's clone, B
+    0x0001b104: 0x0001b064, 0x0001b117: 0x0001b077,   # bosses: two model loads
+    0x000f3e48: 0x000f3ce8, 0x000f3ecd: 0x000f3d6d,   # bosses: Z-Gradt's gold, B
 }, {
     0x004977c6: 0x00497664,                           # kbpage: the 2P-key accept label
 }), '9764d946ffc8cee94788707c91753478': ({            # Japanese original

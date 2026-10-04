@@ -75,6 +75,8 @@ python3 net/build.py              # only if you touched net/ - recompiles the DL
 python3 tools/uibuild.py          # only if you touched asm/ui.asm - the resolution blob;
                                   # then the other builds' tables and the pinned
                                   # MD5s: HIRES.md, Rebuilding
+python3 tools/portraits.py        # only if you touched assets/portrait_*.png - the
+                                  # bosses' select portraits (needs Pillow)
 
 python3 tools/check.py            # the checks CI runs, in two seconds
 python3 v-on-patcher.py               # does the window still open?

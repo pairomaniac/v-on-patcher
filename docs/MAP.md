@@ -14,7 +14,7 @@ table (NOTES.md, *The builds*).
 | `asm/` | assembly sources for the blobs, `build.py` links them into `v-on-patcher.py` |
 | `asm/ui.asm` | the widescreen blob, built separately by `tools/uibuild.py` |
 | `net/` | `dpctrl.c` the netplay DLL, `rendezvous.py` the matchcode server |
-| `tools/` | the checks (`check.py` runs them all), the generators (`uibuild`, `hiresport`, `assets`, `map`), the by-hand tools, `bundle.py`, which assembles the Windows release's `_internal/`, and `package.py`, which CI uses to zip a build into the two release zips |
+| `tools/` | the checks (`check.py` runs them all), the generators (`uibuild`, `hiresport`, `assets`, `portraits`, `map`), the by-hand tools, `bundle.py`, which assembles the Windows release's `_internal/`, and `package.py`, which CI uses to zip a build into the two release zips |
 | `launcher/` | the Windows release's `v-on-patcher.exe`: `launcher.c` runs `_internal\pythonw.exe _internal\v-on-patcher.py` and reports a crash, `build.bat` compiles it with MSVC, and `v-on-patcher.exe`, when present, is the signed copy every release ships |
 | `maps/` | per-build function maps and port tables, from `tools/maps.sh` |
 | `docs/` | this and the other documents; `docs/README.md` is the index |
@@ -32,17 +32,17 @@ is stale, so the line numbers are current.
 | 1–38 | header, imports, PE helpers | `#!/usr/bin/env python3` |
 | 39–2639 | widescreen: the layouts, `UI_CODE`, the port tables, the site builder | `# The resolution patch: the` |
 | 2640–2779 | widescreen apply: `hires_install`, section append, F4 table | `def hires_install(buf, width` |
-| 2780–2858 | disc images table, `Build` class, annex order | `DISC_IMAGES = {` |
-| 2859–3555 | the four builds: symbols, caves, site maps | `RETAIL = Build('English reta` |
-| 3556–4430 | generated site maps for the other three builds (`tools/buildsites.py`) | `# SITES JPRE BEGIN` |
-| 4431–5413 | the blobs, `BLOBS`, and `link()` | `BLOBS = {` |
-| 5414–5823 | banner and credit bitmaps, tile expansion | `LEVERS_CODE = link('LEVERS',` |
-| 5824–6543 | the patch table: `FEATURES`, `BY_KEY`, labels, tips, apply order | `FEATURES = [` |
-| 6544–7391 | ripping (`RAW = 2352`) and installing (`LOGICAL = 2048`) | `# --- ripping --------------` |
-| 7392–8218 | netplay setup, `SYNC_SITES`, cnc-ddraw, CD audio | `# --- netplay --------------` |
-| 8219–8702 | `Patcher`: reading a file, applying, restoring | `class Patcher:` |
-| 8703–9270 | the logo and icon (`tools/assets.py`), then the window strings | `# ASSETS BLOB BEGIN - tools/` |
-| 9271–11271 | the window (`run_tk`), the CLI, `main` | `def run_tk():` |
+| 2780–2863 | disc images table, `Build` class, annex order | `DISC_IMAGES = {` |
+| 2864–4112 | the four builds: symbols, caves, site maps | `RETAIL = Build('English reta` |
+| 4113–5721 | generated site maps for the other three builds (`tools/buildsites.py`) | `# SITES JPRE BEGIN` |
+| 5722–16774 | the blobs, `BLOBS`, and `link()` | `BLOBS = {` |
+| 16775–17646 | banner and credit bitmaps, tile expansion | `LEVERS_CODE = link('LEVERS',` |
+| 17647–18710 | the patch table: `FEATURES`, `BY_KEY`, labels, tips, apply order | `FEATURES = [` |
+| 18711–19558 | ripping (`RAW = 2352`) and installing (`LOGICAL = 2048`) | `# --- ripping --------------` |
+| 19559–20392 | netplay setup, `SYNC_SITES`, cnc-ddraw, CD audio | `# --- netplay --------------` |
+| 20393–20914 | `Patcher`: reading a file, applying, restoring | `class Patcher:` |
+| 20915–21482 | the logo and icon (`tools/assets.py`), then the window strings | `# ASSETS BLOB BEGIN - tools/` |
+| 21483–23488 | the window (`run_tk`), the CLI, `main` | `def run_tk():` |
 <!-- REGIONS END -->
 
 ## 3. `v_on.exe`

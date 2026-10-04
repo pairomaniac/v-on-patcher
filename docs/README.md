@@ -10,6 +10,7 @@ working on the patcher.
 | [DEVELOPING.md](DEVELOPING.md) | setup, the daily loop, the checks and what each catches, adding a blob, a site or a build, netplay development, releasing, signing and the Windows build, troubleshooting |
 | [NOTES.md](NOTES.md) | how each patch works inside the game: the patch table with every site, the builds and how their offsets map, and a section per patch on what the game does and why the change is what it is |
 | [TEXT.md](TEXT.md) | the three ways the game draws text, where each string the patcher touches lives, and how the title banner and the credit line are made |
+| [BOSSES.md](BOSSES.md) | the playable bosses: what a player gets - unlocking, the select, the game - and how it works, the select's palette rows above all |
 | [HIRES.md](HIRES.md) | the resolution patch: what it rewrites, the blob, the game's scenes as read off it, the multi-build port and its record, what is queued |
 | [../asm/README.md](../asm/README.md) | the assembly sources, how they become bytes in the patcher, and a section per file |
 | [../net/README.md](../net/README.md) | the netplay DLL and the rendezvous server |
