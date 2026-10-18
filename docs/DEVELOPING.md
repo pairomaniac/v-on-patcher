@@ -44,7 +44,9 @@ committed as `net/dpctrl.dll`.
 regenerates `UI_REFS` in `tools/uibuild.py` and drives the build-mapping
 tools (`vomap`, `votrans`, `hiresport`); `python3-unicorn` runs the
 resolution blob in the `uiemu` check; the `ui` check compares a
-fingerprint only where nasm is absent.
+fingerprint only where nasm is absent. Pillow bakes the bosses' portraits
+(`tools/portraits.py`) and is what the `portraits` check compares with;
+without it that check passes with a note.
 
 xvfb is the display the `gui` check needs; without it that check skips
 itself and says so.
@@ -116,6 +118,7 @@ wrong on the build it is for; before tagging, give all four.
 | `asm` | `asm/` reassembles to the committed blobs, every blob links for every build, and the two placeholders the apply-time sections fill occur exactly once each |
 | `ui` | `asm/ui.asm` matches the committed resolution blob: reassembled with nasm when it is installed (always, on CI), by the recorded fingerprint of the source when it is not |
 | `net` | `net/dpctrl.dll` was built from the current `net/dpctrl.c`, by hash - two mingw versions do not produce identical bytes - and is the file `v-on-patcher.py` expects |
+| `portraits` | `portraits.py --check`: the bosses' select portraits in `v-on-patcher.py` are what `assets/portrait_*.png` bake to. Without Pillow it says so and passes, having tested nothing; CI has Pillow |
 | `disc` | `disctest.py`: the disc reader, on ISO9660 images the test builds itself - one per sector layout, plus a cue that names the wrong one. Extraction is byte-exact, the `ssp.ini` rules give the retail and OEM file lists, and every refusal names what is wrong. Needs no game and no disc, so CI runs it |
 | `gui` | `guitest.py`: the window, opened under xvfb and driven without its loop - which button is offered for which source, that a copy holds both down until it finishes, and that the two columns end level whatever is open. None of these raise on their own, so each asserts the property. Needs a display; with none it skips and prints a note rather than passing quietly |
 | `lint` | pyflakes |

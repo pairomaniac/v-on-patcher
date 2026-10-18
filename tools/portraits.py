@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
 """Bake the bosses' select portraits in assets/ into the patcher.
 
-    python3 tools/portraits.py
+    python3 tools/portraits.py            # bake them in
+    python3 tools/portraits.py --check    # the committed blob matches the PNGs
 
 assets/portrait_jaguarandi.png and assets/portrait_z-gradt.png, 48x64
 each, framed as the eight's are, go between the BOSS PORTRAITS markers in
 v-on-patcher.py as the select's 16-bit colour (RGB565), row by row. Pure
 black is the tiles' transparent colour, so it becomes the near-black the
-eight's portraits are backed with. Needs Pillow.
+eight's portraits are backed with. Needs Pillow; --check without it says
+so and passes, having tested nothing.
 """
 
 import os
 import re
 import sys
-
-from PIL import Image
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -39,7 +39,9 @@ def rgb565(image):
     return bytes(out)
 
 
-def main():
+def bake():
+    """The block the markers hold, from the PNGs. Returns (block, bytes)."""
+    from PIL import Image
     data = b''
     for name in SOURCES:
         image = Image.open(os.path.join(ASSETS, name)).convert('RGB')
@@ -49,13 +51,33 @@ def main():
         data += rgb565(image)
     text = data.hex()
     lines = [text[i:i + WIDTH] for i in range(0, len(text), WIDTH)]
-    block = (BEGIN + 'BOSS_PORTRAITS = bytes.fromhex(\n'
-             + '\n'.join("    '%s'" % l for l in lines) + ')\n' + END)
+    return (BEGIN + 'BOSS_PORTRAITS = bytes.fromhex(\n'
+            + '\n'.join("    '%s'" % l for l in lines) + ')\n' + END), data
+
+
+def main():
+    check = '--check' in sys.argv
+    try:
+        block, data = bake()
+    except ImportError:
+        if check:
+            print('Pillow is not installed, so the portraits were not '
+                  'rebaked and nothing was compared: pip install pillow')
+            return 0
+        raise SystemExit('baking needs Pillow: pip install pillow')
     with open(PATCHER, encoding='utf-8') as fh:
         source = fh.read()
     pattern = re.compile(re.escape(BEGIN) + '.*?' + re.escape(END), re.S)
-    if not pattern.search(source):
+    found = pattern.search(source)
+    if not found:
         raise SystemExit('no BOSS PORTRAITS markers in v-on-patcher.py')
+    if check:
+        if found.group(0) == block:
+            print('the committed portraits match assets/portrait_*.png')
+            return 0
+        print('the committed portraits differ from assets/portrait_*.png: '
+              'run python3 tools/portraits.py and commit')
+        return 1
     source = pattern.sub(lambda _m: block, source, count=1)
     with open(PATCHER, 'w', encoding='utf-8', newline='\n') as fh:
         fh.write(source)

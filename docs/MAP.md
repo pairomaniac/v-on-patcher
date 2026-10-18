@@ -17,6 +17,7 @@ table (NOTES.md, *The builds*).
 | `tools/` | the checks (`check.py` runs them all), the generators (`uibuild`, `hiresport`, `assets`, `portraits`, `map`), the by-hand tools, `bundle.py`, which assembles the Windows release's `_internal/`, and `package.py`, which CI uses to zip a build into the two release zips |
 | `launcher/` | the Windows release's `v-on-patcher.exe`: `launcher.c` runs `_internal\pythonw.exe _internal\v-on-patcher.py` and reports a crash, `build.bat` compiles it with MSVC, and `v-on-patcher.exe`, when present, is the signed copy every release ships |
 | `maps/` | per-build function maps and port tables, from `tools/maps.sh` |
+| `assets/` | art baked into the script: the logo and icon by `tools/assets.py`, the bosses' select portraits (`portrait_*.png`) by `tools/portraits.py`; `icon.ico` for the launcher; `readme/`, the README's pictures |
 | `docs/` | this and the other documents; `docs/README.md` is the index |
 | `.github/workflows/build.yml` | CI: the checks, the two zips, signing, the release |
 

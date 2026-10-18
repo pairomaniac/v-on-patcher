@@ -74,6 +74,8 @@ CHECKS = [
      [PY, 'tools/uibuild.py', '--check'], False, False),
     ('net', 'net/dpctrl.dll matches net/dpctrl.c',
      [PY, 'net/build.py', '--check'], False, False),
+    ('portraits', 'assets/portrait_*.png match the committed blob',
+     [PY, 'tools/portraits.py', '--check'], False, False),
     ('disc', 'the disc reader, on images built for the test',
      [PY, 'tools/disctest.py'], False, False),
     ('gui', 'the window, driven headlessly',

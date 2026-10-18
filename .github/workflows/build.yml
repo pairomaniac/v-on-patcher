@@ -36,7 +36,7 @@ jobs:
           sudo apt-get install -y nasm
           nasm -v
 
-      - run: pip install pyflakes
+      - run: pip install pyflakes pillow
 
       # The window checks need a display. xvfb is what gives them one; with
       # nothing here tools/guitest.py skips itself and says so, which would
