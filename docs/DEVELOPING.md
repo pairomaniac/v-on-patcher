@@ -252,6 +252,14 @@ committed:
    `credittest.py` on an install of it once its artwork MD5 is in `art`.
    Then someone has to play it.
 
+A build that takes only some patches names them in `patches=`, with a
+reason in `reasons=` for any whose row needs a better word than "not
+ported"; `unsupported()` is what the window, the apply and the selftest
+ask. Its site map then needs only those patches' sites, and is written by
+hand when the map would place too few; the PowerVR build's is, after the
+generated ones. A blob it carries that no other build does, like its F5
+template, goes in its own `annex=` tuple.
+
 Two things to check by eye before anyone runs it. A site placed by its
 bytes may be in the wrong function: ten bytes of `cmp [ebp-8], 0x1a; jge`
 occur in more than one place, and only the disassembly says which copy has

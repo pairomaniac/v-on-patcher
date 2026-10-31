@@ -89,9 +89,11 @@ def apply(vp, original, keys, build):
     buf, _applied, skipped = vp.apply_selected(bytearray(original),
                                                dict.fromkeys(keys, True),
                                                build)
-    # Skipped as it should be: a patch whose prerequisite is not ticked.
+    # Skipped as it should be: a patch whose prerequisite is not ticked,
+    # or one the build does not take.
     skipped = [(key, why) for key, why in skipped
-               if key not in vp.NEEDS or vp.NEEDS[key] in keys]
+               if (key not in vp.NEEDS or vp.NEEDS[key] in keys)
+               and not vp.unsupported(build, key)]
     if skipped:
         raise AssertionError('skipped %s: %s' % (skipped[0][0], skipped[0][1]))
     return buf

@@ -245,6 +245,11 @@ def check_link(vp, blobs):
         for name in blobs:
             if name in anywhere and name not in carried(build):
                 continue
+            # A build that takes only some patches has no cave for the
+            # blobs of the rest.
+            if (build.patches is not None and name not in carried(build)
+                    and name not in build.caves):
+                continue
             try:
                 vp.link(name, build, blobs=blobs)
             except ValueError:
