@@ -158,6 +158,46 @@ build that reports a failed surface recreate with a message box, which the
 ALT+TAB patch silences. Dropping the English `v_on.exe` into a Japanese
 install does not work: it looks for `escrgame.bin`.
 
+**The PowerVR build** (June 1997, `0x33B3B0AE`) is `vonpvr.exe`, drawn by
+a PowerVR PCX1 or PCX2 through `sgl.dll`. It is the furthest from retail:
+3846 of 7934 functions match, 3054 identically. It takes four patches, the
+Essential ones that fit it, and its site map is written by hand rather than
+by `tools/buildsites.py`. `Build.patches` lists them; the window greys out
+the rest, and the apply skips them with the reason in `Build.reasons`.
+
+- **Processor check**: none. The `ProcessorCheck` keys are not in the
+  file.
+- **Lock-on line**: not ported. Its software renderer has one projection
+  value, read by 52 divides, where retail has two renderers with 17 each,
+  so retail's sites do not map onto it. Whether the grey band appears in
+  this build has not been seen.
+- **Round loss**: the same ten blocks in the same order, reading through
+  `[ebp-0x14]` where retail reads `[ebp-4]`. Unpatched, a time-out loss
+  crashes at `0x46698c`, in the seventh.
+- **Frame rate**: `Motion` is at `0x6ac3e0`. Its parser has retail's three
+  fallbacks and the F4 handler's two routines reset it, but there is no
+  reset at start-up or after a mode change, so the patch removes four
+  stores where retail has eight. The F5 staging copy is at `0x1d2cc3c`.
+- **F5 dialog**: resource 127. The next resource starts where it ends, so
+  the four bytes the new labels need are not there. The patch checks the
+  stock template in place, writes the new one into the annex, and points
+  the resource entry at `0x77c1e8` (data RVA and size) there.
+  `asm/dialogs.py` builds both from one description. Resource 1504, a
+  copy of retail's F5 dialog, is not opened by anything.
+- **ALT+TAB**: the four hooks and the surface recreate are retail's code;
+  the stub's addresses are in the symbol table, its scratch past `.data`
+  at `0x24a1a80`.
+- **Keyboard**: the signature matches once, in code identical to retail's.
+
+It reads and writes `v_on.ini`, not the `VONPVR.INI` its `ssp.ini` names.
+Its disc check (`0x49828e`) takes the first drive Windows reports as a
+CD-ROM with `V_ON\VONPVR.EXE` in its root; it reads no label. The netplay
+DLL does not know its timestamp, so internet play refuses its folder.
+
+Tested under Wine 11 with pvr-sgl-wrapper 0.1: patched, a time-out loss
+reaches the continue screen instead of crashing, and F5 shows 30 FPS and
+60 FPS, selected from `Motion`. The two ALT+TAB fixes have not been tried.
+
 ### Why no v_on.ini
 
 `setup.exe` at `0x408acf` builds the three paths, asks a dialog in the

@@ -107,11 +107,13 @@ python3 tools/check.py --only asm,net         # just those
 
 `~/.vo-test` is yours and not in the repository; `tools/vo-test.example`
 is its template. It names the game folder of each build
-(`VO_GAME_RETAIL`, `VO_GAME_OEM`, `VO_GAME_JP`, `VO_GAME_JPRE`). Folders
+(`VO_GAME_RETAIL`, `VO_GAME_OEM`, `VO_GAME_JP`, `VO_GAME_JPRE`,
+`VO_GAME_PVR`). Folders
 on the command line come first, then `VO_GAME` from the environment, then
 the file. A folder or any file inside one will do. The checks that need the game run once per folder
 given and are named by build - `offsets/jpre` - because a table can only be
-wrong on the build it is for; before tagging, give all four.
+wrong on the build it is for; before tagging, give all five. On the
+PowerVR build only `offsets` runs: it takes the Essential patches alone.
 
 | Name | What it proves |
 | --- | --- |

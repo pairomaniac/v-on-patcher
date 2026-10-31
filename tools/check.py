@@ -7,7 +7,9 @@
     VO_GAME=/path/to/VIRTUAL-ON python3 tools/check.py
 
 ~/.vo-test (template: tools/vo-test.example) names the game folder per
-build: VO_GAME_RETAIL, VO_GAME_OEM, VO_GAME_JP and VO_GAME_JPRE. Folders
+build: VO_GAME_RETAIL, VO_GAME_OEM, VO_GAME_JP, VO_GAME_JPRE and VO_GAME_PVR.
+The PowerVR build takes the Essential patches only, so only selftest.py runs
+on it. Folders
 on the command line come first, then VO_GAME from the environment, then
 the file.
 
@@ -17,7 +19,7 @@ given: selftest.py, the only thing that catches a wrong offset, the
 banner and credit tests, the only proof that those read back as written,
 and uiemu, which runs the resolution blob on the retail file. They are why
 the manual step before tagging still exists. Give every build's folder and
-each of those runs once per build, named; the patcher has tables for four,
+each of those runs once per build, named; the patcher has tables for five,
 and a table can only be wrong on the build it is for.
 
 Each check stays a script of its own; this only decides what to run and
@@ -34,7 +36,10 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 PY = sys.executable or 'python3'
 CONF = os.path.expanduser('~/.vo-test')
-BUILDS = ('RETAIL', 'OEM', 'JP', 'JPRE')
+BUILDS = ('RETAIL', 'OEM', 'JP', 'JPRE', 'PVR')
+# The builds that take every patch; the PowerVR build takes the Essential
+# ones, so the checks for the rest do not run on it.
+WHOLE = ('retail', 'oem', 'jp', 'jpre')
 
 
 def config():
@@ -96,14 +101,14 @@ CHECKS = [
      [PY, 'tools/map.py', '--check'], False, False),
     ('tree', 'no uncommitted generated files',
      ['git', 'diff', '--exit-code', '--stat'], False, True),
-    ('offsets', 'every patch against a real v_on.exe',
+    ('offsets', 'every patch against the real executable',
      [PY, 'tools/selftest.py', '{exe}'], True, False),
     ('banner', 'the title prompt reads back as written',
-     [PY, 'tools/bannertest.py', '{game}'], True, False),
+     [PY, 'tools/bannertest.py', '{game}'], True, False, WHOLE),
     ('credit', 'the credit line reads back out of the roll',
-     [PY, 'tools/credittest.py', '{game}'], True, False),
+     [PY, 'tools/credittest.py', '{game}'], True, False, WHOLE),
     ('portrait', 'the boss portraits read back as written',
-     [PY, 'tools/portraittest.py', '{game}'], True, False),
+     [PY, 'tools/portraittest.py', '{game}'], True, False, WHOLE),
     ('uiemu', 'the resolution blob run under Unicorn',
      [PY, 'tools/uiemu.py', '{exe}'], True, False, ('retail',)),
 ]
@@ -111,7 +116,8 @@ CHECKS = [
 
 def find_games(args):
     """The game folders, from folders or from any file inside one, each
-    with its v_on.exe and the name of the build it holds.
+    with its executable (v_on.exe, or vonpvr.exe for the PowerVR build) and
+    the name of the build it holds.
 
     Naming a file is convenient and every checker wants the folder anyway -
     the banner needs the artwork as well - so the file name itself is not
@@ -129,13 +135,16 @@ def find_games(args):
         if os.path.isfile(game):
             game = os.path.dirname(game) or '.'
         exe = os.path.join(game, 'v_on.exe')
+        if not os.path.exists(exe) and os.path.exists(
+                os.path.join(game, 'vonpvr.exe')):
+            exe = os.path.join(game, 'vonpvr.exe')
         name, short = build_name(exe)
         out.append((game, exe if os.path.exists(exe) else None, name, short))
     return out
 
 
 def build_name(exe):
-    """Which build a v_on.exe, or the original beside it, is."""
+    """Which build an executable, or the original beside it, is."""
     import hashlib
     import importlib.util
     spec = importlib.util.spec_from_file_location(
@@ -173,7 +182,8 @@ def main():
     games = find_games(args.game)
     for game, exe, _name, _short in games:
         if not exe:
-            print('%sno v_on.exe in %s%s' % (c['bad'], game, c['off']))
+            print('%sno v_on.exe or vonpvr.exe in %s%s'
+                  % (c['bad'], game, c['off']))
             return 2
     for game, _exe, name, _short in games:
         print('%sgame%s %s  %s(%s)%s'

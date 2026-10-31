@@ -181,6 +181,45 @@ def build_f5(labels):
     return out + b'\0' * (F5_LEN - len(out))
 
 
+def build_f5_pvr(labels):
+    """The PowerVR build's F5 dialog (resource 127), whole.
+
+    The resource after it starts where it ends, so a longer label cannot
+    be written in place. The patch carries the whole template in the annex
+    and points the resource entry at it; with the stock labels this is the
+    resource as the file has it, which the patch checks."""
+    (first, firstw), (second, secondw) = labels
+    items = [
+        (0x50010001,  65, 115,  37, 14, 0x0430, BUTTON, 'OK'),
+        (0x50010000, 109, 115,  37, 14, IDCANCEL, BUTTON, 'Cancel'),
+        (RADIO1,      90,   5,  43,  8, 0x0420, BUTTON, 'Normal'),
+        (RADIO,      135,   5,  39,  8, 0x0421, BUTTON, 'Large'),
+        (RADIO1,      90,  15,  40,  9, 0x0422, BUTTON, 'Rich'),
+        (RADIO,      135,  15,  45,  9, 0x0423, BUTTON, 'Normal'),
+        (0x48010003,  40,  47,  41, 11, 0x0432, BUTTON, 'Field'),
+        (0x50010003,  90,  47,  41, 11, 0x0433, BUTTON, 'Sky'),
+        (0x50010003, 135,  47,  41, 11, 0x0434, BUTTON, 'Outside'),
+        (RADIO1,      90,  74, firstw,  8, 0x042c, BUTTON, first),
+        (RADIO,      135,  74, secondw, 8, 0x042d, BUTTON, second),
+        (RADIO1,      90,  87,  36,  8, 0x042e, BUTTON, 'Type1'),
+        (RADIO,      135,  87,  36,  8, 0x042f, BUTTON, 'Type2'),
+        (0x50020000,  15,   5,  34,  8, 0xffff, STATIC, 'Screen'),
+        (0x50020000,  18,  74,  50,  8, 0xffff, STATIC, 'Motion Type'),
+        (0x50020000,  18,  86,  50, 10, 0xffff, STATIC, 'Screen Split'),
+        (GROUP,       16,  37, 175, 24, 0xffff, BUTTON, 'Display Objects'),
+        (0x50020000,  15,  15,  43,  9, 0xffff, STATIC, 'Field Graphic'),
+        (0x50020000,  25,  95,  26,  8, 0xffff, STATIC, '(2P VS)'),
+    ]
+    tpl = struct.pack('<II', DLGSTYLE, 0)
+    tpl += struct.pack('<5H', len(items), 0, 0, 212, 130)
+    tpl += struct.pack('<HH', 0, 0)             # no menu, default class
+    tpl += (wstr('Graphic Settings') + struct.pack('<H', 8)
+            + wstr('MS Sans Serif'))
+    for style, x, y, cx, cy, iid, cls, text in items:
+        tpl = align4(tpl) + item(style, x, y, cx, cy, iid, cls, text)
+    return tpl
+
+
 if __name__ == '__main__':
     _inc, tpl, data = build_extras()
     print('Extras template %d, data %d, F5 %d'

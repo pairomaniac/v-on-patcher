@@ -151,9 +151,10 @@ off the disc is in [NOTES.md](docs/NOTES.md#installing-from-a-disc-image).
 **Essential** is always applied: without it the game does not start,
 crashes when you lose a round, runs at a third of the frame rate, or loses
 the keyboard after ALT+TAB. **Extra** is down to taste; untick what you do
-not want. Every patch works with every other, on all four
-[builds](#builds), and with cnc-ddraw. How each works inside the game is in
-[NOTES.md](docs/NOTES.md).
+not want. Every patch works with every other, on all four builds of
+`v_on.exe`, and with cnc-ddraw. The PowerVR version takes four of the
+Essential patches; see [Builds](#builds). How each works inside the game is
+in [NOTES.md](docs/NOTES.md).
 
 ### Essential
 
@@ -629,7 +630,8 @@ gamescope -W 1920 -H 1080 -w 640 -h 480 -f -S integer -- %command%
 
 ## Builds
 
-Four builds of the game exist, and every patch works on all four. The
+Five builds of the game exist. Every patch works on the four builds of
+`v_on.exe`; the PowerVR version takes four of the Essential patches. The
 window names the build it is looking at; say which in a bug report, since
 the English retail build has had by far the most play.
 
@@ -639,6 +641,7 @@ the English retail build has had by far the most play.
 | USA OEM | 6,649,344 | `4c70f780a7f0d98d74be62304fb99021` |
 | Japanese rerelease | 6,621,696 | `d19320bdc3381a48228990907910a391` |
 | Japanese original | 6,644,224 | `9764d946ffc8cee94788707c91753478` |
+| PowerVR | 8,412,672 | `383d3bff66504954f84924a0b41dc3fa` |
 
 The USA, USA Alt and European discs all carry the same English retail
 `v_on.exe`, so any of them will do.
@@ -648,6 +651,20 @@ The USA, USA Alt and European discs all carry the same English retail
 A repack, a bad rip or a copy already modified is refused, with its size
 and MD5 shown beside a supported build's. Installing and ripping work
 whichever build the disc holds; only patching needs one from the table.
+
+**The PowerVR version** is a different program, `vonpvr.exe`, drawn by a
+PowerVR PCX1 or PCX2 card. It takes four of the Essential patches: the
+frame rate, the round-loss crash and both ALT+TAB fixes. The ALT+TAB fixes
+are untested on it. It has no processor check, and the lock-on line fix and
+the Extra patches are not ported to it, so their rows are greyed out.
+Internet play does not work with it.
+
+It still checks for the disc: a drive Windows sees as a CD-ROM, with
+`V_ON\VONPVR.EXE` on it. It draws through `sgl.dll`, which came with the
+card's driver and is not on the disc. Without the card,
+[pvr-sgl-wrapper](https://github.com/z2k-retro/pvr-sgl-wrapper) 0.1 runs it
+under Wine and Proton, with the robots drawn black during matches. It does
+not play the ripped tracks: playing music from files is one of the patches.
 
 ### What gets written
 

@@ -516,6 +516,40 @@ def main():
         check('mds: a named 8-bit file name reads',
               vp.probe_disc(named)['count'] > 0)
 
+        # The PowerVR pressing names another executable in its ssp.ini.
+        here = os.path.join(tmp, 'pvr')
+        os.makedirs(here)
+        pvr_ssp = RETAIL_SSP.replace(b'IniFileName',
+                                     b'ExecFileName    = VONPVR.EXE\n'
+                                     b'IniFileName')
+        pvr_exe = b'P' * 5000
+        pvr, _spans = write_mds(here, 'PVR', build_iso({
+            'ssp.ini': pvr_ssp,
+            'v_on': {'vonpvr.exe': pvr_exe, 'dpctrl.dll': b'D' * 300},
+            'english': {'von.hlp': b'H' * 99},
+        }), audio=2)
+        build = vp.probe_disc(pvr)['build']
+        check('the executable ssp.ini names is the one identified',
+              build['exe'] == 'vonpvr.exe'
+              and build['md5'] == hashlib.md5(pvr_exe).hexdigest(), build)
+        check('and an unknown one is not taken for a build',
+              not build['supported'], build)
+        named_md5 = hashlib.md5(pvr_exe).hexdigest()
+        vp.BUILDS[named_md5] = vp.PVR
+        try:
+            build = vp.probe_disc(pvr)['build']
+            check('the PowerVR build is named, with its note',
+                  build['supported'] and build['name'] == 'PowerVR'
+                  and build['why'] == vp.PVR_NOTE, build)
+        finally:
+            del vp.BUILDS[named_md5]
+        dest = os.path.join(tmp, 'game-pvr')
+        vp.install_disc(pvr, dest, 'ENGLISH')
+        check('pvr file list',
+              sorted(os.listdir(dest)) == ['dpctrl.dll', 'von.hlp',
+                                           'vonpvr.exe'],
+              sorted(os.listdir(dest)))
+
         # .mds refusals, each a sentence rather than a wrong rip.
         for label, kwargs, words in (
                 ('subchannel data refused', {'sub': 8}, 'subchannel'),

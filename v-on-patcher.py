@@ -4431,8 +4431,51 @@ JP = Build('Japanese original', 'jp', JP_MD5, JP_SIZE,
 }, art=JPRE.art, sites=None, annex=ANNEX_BLOBS,
     own=('BOSSES',))    # the rerelease's art
 
+# The PowerVR version (June 1997): vonpvr.exe, drawn by the PowerVR
+# PCX1/PCX2 through sgl.dll. A later compile with the renderer replaced, so
+# it takes the Essential patches that fit it and nothing else; the site
+# map below is by hand rather than from tools/buildsites.py. It has no
+# processor check, and its renderer is not the software one the lock-on
+# line patch fixes.
+PVR_MD5 = '383d3bff66504954f84924a0b41dc3fa'
+PVR_SIZE = 8412672
+PVR_NOTE = ('vonpvr.exe draws through sgl.dll, which came with the PowerVR '
+            'card\'s driver and is not on the disc.')
+PVR = Build('PowerVR', 'pvr', PVR_MD5, PVR_SIZE, 0x33b3b0ae, sections=(
+    (0x00000400, 0x00401000),       # .text
+    (0x001f7c00, 0x005f9000),       # .rdata
+    (0x00243000, 0x00645000),       # .data
+    (0x0077a200, 0x024a2000),       # .idata
+    (0x0077b800, 0x024a4000),       # .rsrc
+    (0x00785600, 0x024ae000),       # .reloc
+), caves={}, symbols={
+    'SPEEDSEL': 0x01d2cc3c,         # the F5 speed choice
+    'FRAMEDIV': 0x006ac3e0,         # frames per draw, which it set
+    'ORIGENTRY': 0x005e7720,        # the entry point this replaces
+    'LOADLIB': 0x024a2498,          # LoadLibraryA
+    'GETPROC': 0x024a249c,          # GetProcAddress
+    'GRESUME': 0x00496813,          # the dialogs' resume
+    'RECREATE': 0x00495692,         # release and create the surfaces
+    'IDLE': 0x00496452,             # the loop's pass while inactive
+    'INACTIVE': 0x00b804d0,         # the flag it idles on
+    'SETACTIVE': 0x004963af,        # (pause): the loop stops on 1, runs on 0
+    'FSFLAGS': 0x006a34a0,          # bit 2: the low-resolution modes
+    'FSMODE': 0x006a346c,           # low-res: 320x240 in the FSFLAGS modes
+    'HAVESURF': 0x006a347c,         # the game's "surfaces exist" flag
+    'ISICONIC': 0x024a2698,         # IAT: IsIconic
+    'HWND': 0x02009c94,             # the game's window
+    'BACK': 0x02009c70,             # back buffer
+    # scratch in the page slack past .data, as retail's is
+    'PENDING': 0x024a1a80,          # a recreate owed
+    'RETADDR': 0x024a1a84,          # where one returns to
+}, art=('escrgame.bin', 4194304, 'f0c2b33c6d32e8e25cee840a0de65dc0'),
+    sites=None, annex=('TIMER', 'ACTIVATE', 'F5_PVR'),
+    patches=('framerate', 'continuefix', 'dinput', 'activate'),
+    reasons={'nocpucheck': 'the PowerVR build has no processor check'},
+    note=PVR_NOTE, exe='vonpvr.exe')
+
 BUILDS = {RETAIL.md5: RETAIL, JPRE.md5: JPRE, OEM.md5: OEM,
-          JP.md5: JP}
+          JP.md5: JP, PVR.md5: PVR}
 
 
 def unsupported(build, key):
@@ -5838,6 +5881,44 @@ JP.sites = {
     ),
 }
 # SITES JP END
+
+# By hand, for the patches the PowerVR build takes; see PVR above.
+PVR.sites = {
+    # framerate
+    0x000000a8: (0x000000a8, '20771e00'),  # the entry point field
+    0x000273c1: (0x001942f1, '833d3cccd20103'),  # F5: which radio starts selected
+    0x000275d3: (0x00194503, 'c7053cccd20103000000'),  # F5: the first radio's store
+    0x000275e2: (0x00194512, 'c7053cccd20102000000'),  # F5: the second's
+    0x006035ac: None,  # retail's F5 resource size: In() sites instead
+    0x0060c064: None,  # retail's F5 template: In() sites instead
+    0x0010afbe: (0x0016d234, 'c705e0c36a0003000000'),  # Motion= fallbacks
+    0x0010afeb: (0x0016d261, 'c705e0c36a0003000000'),
+    0x0010b002: (0x0016d278, 'c705e0c36a0003000000'),
+    0x001c6941: None,  # no start-up reset of Motion
+    0x001c6950: None,
+    0x001c6d8c: (0x00096df6, 'c705e0c36a0002000000'),  # the F4 handler's two resets
+    0x001c6d9b: (0x00096e05, 'c705e0c36a0003000000'),
+    0x001c6dfc: (0x00096e66, 'c705e0c36a0002000000'),
+    0x001c6e0b: (0x00096e75, 'c705e0c36a0003000000'),
+    0x001c8bc4: None,  # no reset after a mode change
+    0x001c8bd3: None,
+    # continuefix
+    0x00077f5a: (0x00009e07, '8b45ecd94008d9e083ec04d91c248b45ec8b4004508b45ecd900d9e083ec04d91c24e86288ffff83c40c'),
+    0x00078b1c: (0x0000a9c9, '8b45ecd94008d9e083ec04d91c248b45ec8b4004508b45ecd900d9e083ec04d91c24e8a07cffff83c40c'),
+    0x00079bb6: (0x0000ba63, '8b45ecd94008d9e083ec04d91c248b45ec8b4004508b45ecd900d9e083ec04d91c24e8066cffff83c40c'),
+    0x00079f3f: (0x0000bdec, '8b45ecd94008d9e083ec04d91c248b45ec8b4004508b45ecd900d9e083ec04d91c24e87d68ffff83c40c'),
+    0x0007d04a: (0x0000eef7, '8b45ecd94008d9e083ec04d91c248b45ec8b4004508b45ecd900d9e083ec04d91c24e87237ffff83c40c'),
+    0x000bb9ea: (0x000651c7, '8b45ecd94008d9e083ec04d91c248b45ec8b4004508b45ecd900d9e083ec04d91c24e80222fbff83c40c'),
+    0x000bc5ac: (0x00065d89, '8b45ecd94008d9e083ec04d91c248b45ec8b4004508b45ecd900d9e083ec04d91c24e84016fbff83c40c'),
+    0x000bd646: (0x00066e23, '8b45ecd94008d9e083ec04d91c248b45ec8b4004508b45ecd900d9e083ec04d91c24e8a605fbff83c40c'),
+    0x000bd9cf: (0x000671ac, '8b45ecd94008d9e083ec04d91c248b45ec8b4004508b45ecd900d9e083ec04d91c24e81d02fbff83c40c'),
+    0x000c0ada: (0x0006a2b7, '8b45ecd94008d9e083ec04d91c248b45ec8b4004508b45ecd900d9e083ec04d91c24e812d1faff83c40c'),
+    # activate
+    0x001b0920: (0x00147f6c, '0f850f000000'),  # the movie's exit
+    0x001c4aa2: (0x00094a92, '558bec81ece0000000'),  # the recreate
+    0x001c5726: (0x000957af, '558bec5356'),  # setactive
+    0x001c5412: (0x0009543d, 'e810040000'),  # the idle pass
+}
 
 # GENERATED - do not edit the hex by hand.
 #
@@ -17177,6 +17258,37 @@ BLOBS = {
         'dlgboxproc': 0xb,
         'checks': 0x24,
     }),
+    'F5_PVR': (bytes.fromhex(
+        'c000c88000000000130000000000d40082000000000047007200610070006800'
+        '690063002000530065007400740069006e0067007300000008004d0053002000'
+        '530061006e007300200053006500720069006600000000000100015000000000'
+        '4100730025000e003004ffff80004f004b000000000000000000015000000000'
+        '6d00730025000e000200ffff8000430061006e00630065006c00000000000000'
+        '09000350000000005a0005002b0008002004ffff80004e006f0072006d006100'
+        '6c00000000000000090001500000000087000500270008002104ffff80004c00'
+        '61007200670065000000000009000350000000005a000f00280009002204ffff'
+        '80005200690063006800000000000000090001500000000087000f002d000900'
+        '2304ffff80004e006f0072006d0061006c000000000000000300014800000000'
+        '28002f0029000b003204ffff80004600690065006c0064000000000003000150'
+        '000000005a002f0029000b003304ffff800053006b0079000000000003000150'
+        '0000000087002f0029000b003404ffff80004f00750074007300690064006500'
+        '0000000009000350000000005a004a00290008002c04ffff8000330030002000'
+        '460050005300000000000000090001500000000087004a00290008002d04ffff'
+        '800036003000200046005000530000000000000009000350000000005a005700'
+        '240008002e04ffff800054007900700065003100000000000900015000000000'
+        '87005700240008002f04ffff8000540079007000650032000000000000000250'
+        '000000000f00050022000800ffffffff8200530063007200650065006e000000'
+        '00000000000002500000000012004a0032000800ffffffff82004d006f007400'
+        '69006f006e002000540079007000650000000000000002500000000012005600'
+        '32000a00ffffffff8200530063007200650065006e002000530070006c006900'
+        '7400000000000000070000500000000010002500af001800ffffffff80004400'
+        '6900730070006c006100790020004f0062006a00650063007400730000000000'
+        '00000250000000000f000f002b000900ffffffff82004600690065006c006400'
+        '2000470072006100700068006900630000000000000002500000000019005f00'
+        '1a000800ffffffff8200280032005000200056005300290000000000'
+    ), (
+    ), {
+    }),
 }
 # BLOBS BLOB END
 
@@ -17502,6 +17614,36 @@ F5_FPS = bytes.fromhex(
     '70006c006100790020004f0062006a0065006300740073000000000000000250'
     '000000000f000f002b000900ffffffff82004600690065006c00640020004700'
     '720061007000680069006300000000000000025000000000160069001a000800'
+    'ffffffff8200280032005000200056005300290000000000'
+)
+
+PVR_F5_STOCK = bytes.fromhex(
+    'c000c88000000000130000000000d40082000000000047007200610070006800'
+    '690063002000530065007400740069006e0067007300000008004d0053002000'
+    '530061006e007300200053006500720069006600000000000100015000000000'
+    '4100730025000e003004ffff80004f004b000000000000000000015000000000'
+    '6d00730025000e000200ffff8000430061006e00630065006c00000000000000'
+    '09000350000000005a0005002b0008002004ffff80004e006f0072006d006100'
+    '6c00000000000000090001500000000087000500270008002104ffff80004c00'
+    '61007200670065000000000009000350000000005a000f00280009002204ffff'
+    '80005200690063006800000000000000090001500000000087000f002d000900'
+    '2304ffff80004e006f0072006d0061006c000000000000000300014800000000'
+    '28002f0029000b003204ffff80004600690065006c0064000000000003000150'
+    '000000005a002f0029000b003304ffff800053006b0079000000000003000150'
+    '0000000087002f0029000b003404ffff80004f00750074007300690064006500'
+    '0000000009000350000000005a004a00230008002c04ffff8000460061007300'
+    '7400000000000000090001500000000087004a00290008002d04ffff80005300'
+    '6d006f006f007400680000000000000009000350000000005a00570024000800'
+    '2e04ffff80005400790070006500310000000000090001500000000087005700'
+    '240008002f04ffff800054007900700065003200000000000000025000000000'
+    '0f00050022000800ffffffff8200530063007200650065006e00000000000000'
+    '000002500000000012004a0032000800ffffffff82004d006f00740069006f00'
+    '6e00200054007900700065000000000000000250000000001200560032000a00'
+    'ffffffff8200530063007200650065006e002000530070006c00690074000000'
+    '00000000070000500000000010002500af001800ffffffff8000440069007300'
+    '70006c006100790020004f0062006a0065006300740073000000000000000250'
+    '000000000f000f002b000900ffffffff82004600690065006c00640020004700'
+    '72006100700068006900630000000000000002500000000019005f001a000800'
     'ffffffff8200280032005000200056005300290000000000'
 )
 # DIALOGS BLOB END
@@ -18397,6 +18539,16 @@ FEATURES = [
           'c705' + abs32('SPEEDSEL') + '01000000'),
          (0x006035ac, '2c040000', '30040000'),
          (0x0060c064, F5_STOCK.hex(), F5_FPS.hex()),
+         # The PowerVR build's F5 dialog cannot grow where it is: the next
+         # resource starts where it ends. The stock one is checked in
+         # place, the new one goes in the annex, and the resource entry
+         # (data RVA, size) points there.
+         (In(PVR_MD5, 0x00784a58), PVR_F5_STOCK.hex(), PVR_F5_STOCK.hex()),
+         (In(PVR_MD5, PVR.off(cave_va('F5_PVR', PVR))),
+          '00' * len(blob_of('F5_PVR')[0]), blob_of('F5_PVR')[0].hex()),
+         (In(PVR_MD5, 0x0077c1e8), '58d20a0258030000',
+          struct.pack('<II', cave_va('F5_PVR', PVR) - 0x400000,
+                      len(blob_of('F5_PVR')[0])).hex()),
          (0x0010afbe, 'c705d0846c0003000000',
           'c705' + abs32('FRAMEDIV') + '01000000'),
          (0x0010afeb, 'c705d0846c0003000000',
@@ -19949,6 +20101,9 @@ class DiscPlan:
         self.track, self.root, self.ssp = track, root, ssp
         option = ssp.get('OPTION', {})
         self.source_dir = (option.get('sourcepath1') or 'V_ON').lower()
+        # V_ON.EXE on every pressing but the PowerVR one, whose installer
+        # runs VONPVR.EXE.
+        self.exe = (option.get('execfilename') or 'V_ON.EXE').lower()
         # Whether a language directory is copied at all is a property of the
         # pressing: the retail discs say so in Select1 and keep the help
         # files in english/, the OEM disc does not and keeps them in v_on/.
@@ -20021,21 +20176,24 @@ def open_disc(cue_path):
 
 
 def disc_build(track, plan):
-    """Identify v_on.exe on the disc without extracting anything else."""
+    """Identify the game on the disc without extracting anything else."""
     for name, lba, size in plan.files():
-        if name == 'v_on.exe':
+        if name == plan.exe:
             digest = hashlib.md5(track.read(lba, size)).hexdigest()
             build = BUILDS.get(digest)
+            if build:
+                label, why = build.name, build.note or ''
+            else:
+                label, why = 'unrecognised', (
+                    'Not a %s this patcher knows - a bad rip, a repack, or '
+                    'a disc it has not seen.' % plan.exe)
             return {
-                'size': size, 'md5': digest,
+                'exe': plan.exe, 'size': size, 'md5': digest,
                 'supported': build is not None,
-                'name': build.name if build else 'unrecognised',
-                'why': ('' if build else
-                        'Not a v_on.exe this patcher knows - a bad rip, a '
-                        'repack, or a disc it has not seen.'),
+                'name': label, 'why': why,
             }
-    raise DiscError('No v_on.exe in the %s directory of this image.'
-                    % plan.source_dir.upper())
+    raise DiscError('No %s in the %s directory of this image.'
+                    % (plan.exe, plan.source_dir.upper()))
 
 
 def probe_disc(cue_path):
@@ -20361,6 +20519,11 @@ def install_netplay(gamedir):
     if not os.path.exists(path) and not os.path.exists(keep):
         raise ValueError('no %s here - is this the game folder?'
                          % NETPLAY_NAME)
+    # The DLL knows the four builds the patcher patches whole; the PowerVR
+    # one is not among them, and its matches have not been tried.
+    if (os.path.exists(os.path.join(gamedir, PVR.exe))
+            and not os.path.exists(os.path.join(gamedir, 'v_on.exe'))):
+        raise ValueError(NETPLAY_NOT_PVR)
     # Only ever keep a DLL that is not ours. Installing over our own copy
     # with the .stock one missing used to save that copy as the stock file,
     # and the game's own was then gone for good.
@@ -20370,6 +20533,9 @@ def install_netplay(gamedir):
     with open(path, 'wb') as f:
         f.write(netplay_dll())
     return path
+
+
+NETPLAY_NOT_PVR = 'Internet play does not work with the PowerVR build.'
 
 
 def remove_netplay(gamedir):
@@ -23170,6 +23336,8 @@ def run_tk():
                 self._log('disc: %s, %d files, %d MB'
                           % (info['form'], info['count'],
                              info['bytes'] >> 20))
+                if build['why']:
+                    self._log('disc: %s' % build['why'])
             else:
                 # The same panel the game file card uses, for the same
                 # reason: the numbers say more than "wrong version" does.
@@ -23183,8 +23351,8 @@ def run_tk():
                                 % (build['name'], info['count'],
                                    info['bytes'] >> 20),
                                 PALETTE['amber'])
-                self._log('disc: v_on.exe is the %s build (%s)'
-                          % (build['name'], build['md5']))
+                self._log('disc: %s is the %s build (%s)'
+                          % (build['exe'], build['name'], build['md5']))
 
         def _disc_note(self, text, colour):
             self.disc_note.config(text=text, foreground=colour)
@@ -23325,10 +23493,12 @@ def run_tk():
                       % (len(written), dest))
             # Hand the result straight to the next step rather than making
             # someone browse to a folder this window just created.
-            exe = os.path.join(dest, 'v_on.exe')
-            if os.path.exists(exe):
-                self.path_var.set(exe)
-                self._check_file(exe)
+            for name in dict.fromkeys(b.exe for b in BUILDS.values()):
+                exe = os.path.join(dest, name)
+                if os.path.exists(exe):
+                    self.path_var.set(exe)
+                    self._check_file(exe)
+                    break
             self._sync_buttons()
 
         # -- soundtrack
@@ -24150,9 +24320,11 @@ def install_cli(args):
                                             info['default_language']))
     build = info['build']
     if not build['supported']:
-        print('This disc holds the %s build of v_on.exe (%s).\n%s\n'
+        print('This disc holds the %s build of %s (%s).\n%s\n'
               'It installs, but the patcher has no tables for it.'
-              % (build['name'], build['md5'], build['why']))
+              % (build['name'], build['exe'], build['md5'], build['why']))
+    elif build['why']:
+        print('%s build. %s' % (build['name'], build['why']))
     why, level = dest_problem(dest, info['bytes'])
     if level == 'bad':
         return why

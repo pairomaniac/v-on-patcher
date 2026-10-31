@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Apply the patch tables to a real v_on.exe and report.
+"""Apply the patch tables to a real v_on.exe (or vonpvr.exe) and report.
 
     python3 tools/selftest.py /path/to/v_on.exe
 
@@ -24,12 +24,13 @@ import sys
 # MD5 of the original with every patch applied. Update deliberately, and only
 # when a patch actually changed.
 # Everything ticked, per build: retail, the Japanese rerelease, the OEM,
-# the Japanese original.
+# the Japanese original, and the PowerVR build with what it takes.
 EXPECTED_ALL = {
     'a464b0ff32d5bab499f265e45658504e': '8cbbe019408761f395e4b5c6f756d13a',
     'd19320bdc3381a48228990907910a391': 'b490dcfd808b76420882ed5a30775070',
     '4c70f780a7f0d98d74be62304fb99021': '7a643ba38dc3fbe064aff54e5d969990',
     '9764d946ffc8cee94788707c91753478': '3462bccb29f800fff72864978f64e2b7',
+    '383d3bff66504954f84924a0b41dc3fa': 'b4fa341aff1562149c26bf422f477504',
 }
 
 HERE = os.path.dirname(os.path.abspath(__file__))
