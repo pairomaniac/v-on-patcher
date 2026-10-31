@@ -53,9 +53,9 @@ it has to stay. If SmartScreen or a virus scanner objects, see
 
 The window is split into numbered sections. Work through them in order:
 
-1. **INSTALL** - put your `.cue` sheet in **Source**, choose a folder in
-   **Install to**, and press **Install game**. Then press **Rip soundtrack**,
-   unless you plan to keep a disc in the drive. If the game is already
+1. **INSTALL** - put your `.cue` sheet or `.mds` file in **Source**, choose a
+   folder in **Install to**, and press **Install game**. Then press
+   **Rip soundtrack**, unless you plan to keep a disc in the drive. If the game is already
    installed, start at 2; the tracks are ripped beside whichever `v_on.exe`
    you pick there. See [Installing from a disc image](#installing-from-a-disc-image)
    and [Music](#music).
@@ -101,7 +101,8 @@ virtual drive to set up.
 </p>
 
 Put the **`.cue`** sheet in **Source**: the small file beside the `.bin`
-files, not the `.bin` itself. Choose a folder in **Install to** and press
+files, not the `.bin` itself. For an Alcohol 120% image, put the **`.mds`**
+there, not the `.mdf`. Choose a folder in **Install to** and press
 **Install game**. The game is about 95 MB.
 
 The **Manual** box picks which `readme.txt`, `von.hlp` and `von.cnt` are
@@ -118,9 +119,9 @@ python3 v-on-patcher.py --install VIRTUAL-ON.cue ~/games/VIRTUAL-ON --language G
 
 ### If you have the disc, not an image
 
-The patcher needs a `bin`/`cue` pair. It does not read a drive directly, and
-a plain ISO will not do because it drops the audio tracks. Image the disc
-once:
+The patcher needs a `bin`/`cue` pair or an Alcohol 120% `mds`/`mdf` one. It
+does not read a drive directly, and a plain ISO will not do because it drops
+the audio tracks. Image the disc once:
 
 - **Windows** - [ImgBurn](https://www.imgburn.com) in *Read* mode, with the
   output set to **BIN/CUE** rather than ISO.

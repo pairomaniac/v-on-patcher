@@ -2,7 +2,7 @@
 """Virtual-On (PC, 1997) patcher. See README.md.
 
     python3 v-on-patcher.py                 patch a copy of v_on.exe
-    python3 v-on-patcher.py --install CUE DIR   install from a disc image
+    python3 v-on-patcher.py --install IMAGE DIR   install from a .cue or .mds
     python3 v-on-patcher.py --rip SRC DIR   rip the soundtrack, no window needed
     python3 v-on-patcher.py --ddraw DIR     fetch cnc-ddraw into the game folder
     python3 v-on-patcher.py --netplay DIR   install the UDP netplay DLL
@@ -19343,7 +19343,11 @@ def _cue_file(base, line):
         # between it and FILE is the name, spaces and all.
         parts = line.split()
         name = ' '.join(parts[1:-1]) if len(parts) > 2 else parts[-1]
+    return _beside(base, name)
 
+
+def _beside(base, name):
+    """The file a .cue or .mds names, looked for beside it."""
     here = os.path.join(base, name)
     if os.path.exists(here):
         return here
@@ -19427,7 +19431,9 @@ def _audio_spans(tracks):
         if 'AUDIO' not in t['mode']:
             continue
         nxt = tracks[i + 1] if i + 1 < len(tracks) else None
-        if nxt is None or nxt['bin'] != t['bin']:
+        if t.get('end') is not None:
+            end = t['end']
+        elif nxt is None or nxt['bin'] != t['bin']:
             end = os.path.getsize(t['bin']) // RAW
         else:
             end = nxt['pregap'] if nxt['pregap'] is not None else nxt['start']
@@ -19435,15 +19441,143 @@ def _audio_spans(tracks):
             yield t, t['start'], end
 
 
+# --------------------------------------------------------------------- mds
+# Alcohol 120%'s image: a binary .mds that describes the disc and a .mdf
+# that holds the sectors. Read as far as one dump shows it, the PowerVR
+# disc (MDS 1.5): every track in one .mdf, 2352-byte sectors, no subchannel
+# data, and each track's data from its INDEX 01 on. The 150-sector pregap
+# before the first audio track is in the TOC but not in the file; track 2
+# starts where track 1 ends. A layout other than tracks back to back is
+# refused rather than guessed at.
+
+MDS_MAGIC = b'MEDIA DESCRIPTOR'
+MDS_AUDIO = 0x9                 # low nibble of a track block's mode byte
+MDS_MODE1 = 0xA
+MDS_TRACK = 80                  # bytes in a track block
+MDS_SESSION = 24                # bytes in a session block
+
+
+def _mds_file(data, block, mds_path):
+    """The image file a track block names. '*.mdf' is the .mds's own name
+    with that extension."""
+    count, at = struct.unpack_from('<II', data, block + 0x30)
+    if not count:
+        raise ValueError('track %d names no image file' % data[block + 4])
+    where, wide = struct.unpack_from('<IB', data, at)
+    if wide:
+        end = where
+        while end + 1 < len(data) and data[end:end + 2] != b'\0\0':
+            end += 2
+        name = data[where:end].decode('utf-16-le')
+    else:
+        name = data[where:data.index(b'\0', where)].decode('latin-1')
+    if name.startswith('*'):
+        name = os.path.splitext(os.path.basename(mds_path))[0] + name[1:]
+    return _beside(os.path.dirname(os.path.abspath(mds_path)), name)
+
+
+def parse_mds(path):
+    """Every track in an Alcohol 120% .mds, shaped as parse_cue's are, plus
+    'end': the sector after the track's last one in its file."""
+    label = os.path.basename(path)
+    with open(path, 'rb') as fh:
+        data = fh.read()
+    if data[:16] != MDS_MAGIC:
+        raise ValueError('%s is not an Alcohol 120%% .mds file.' % label)
+    if data[16] != 1:
+        raise ValueError('%s is .mds version %d. The patcher reads version 1, '
+                         'which Alcohol 120%% writes.' % (label, data[16]))
+    tracks, spans = [], []
+    try:
+        sessions = struct.unpack_from('<H', data, 0x14)[0]
+        first_session = struct.unpack_from('<I', data, 0x50)[0]
+        for s in range(sessions):
+            at = first_session + MDS_SESSION * s
+            blocks = data[at + 10]
+            first_block = struct.unpack_from('<I', data, at + 20)[0]
+            for b in range(blocks):
+                block = first_block + MDS_TRACK * b
+                mode, sub, point = data[block], data[block + 1], data[block + 4]
+                if not 1 <= point <= 99:
+                    continue                    # lead-in and lead-out entries
+                extra, size = struct.unpack_from('<IH', data, block + 0x0c)
+                offset = struct.unpack_from('<Q', data, block + 0x28)[0]
+                length = struct.unpack_from('<I', data, extra + 4)[0]
+                audio = mode & 0x0f == MDS_AUDIO
+                if sub or size not in ((RAW,) if audio
+                                       else (LOGICAL, 2336, RAW)):
+                    raise ValueError(
+                        '%s stores track %d as %d-byte sectors%s. The '
+                        'patcher reads %s without subchannel data; image '
+                        'the disc again without it, or to BIN/CUE.'
+                        % (label, point, size,
+                           ' with subchannel data' if sub else '',
+                           'audio as 2352-byte sectors' if audio
+                           else 'data as 2048, 2336 or 2352-byte sectors'))
+                if offset % size:
+                    raise ValueError('%s puts track %d part way into a sector.'
+                                     % (label, point))
+                start = offset // size
+                tracks.append({
+                    'no': point,
+                    'mode': 'AUDIO' if audio else 'MODE%d/%d' % (
+                        1 if mode & 0x0f == MDS_MODE1 else 2, size),
+                    'bin': _mds_file(data, block, path),
+                    'start': start, 'end': start + length, 'pregap': None})
+                spans.append((offset, length * size))
+    except (struct.error, IndexError, ValueError, UnicodeDecodeError) as exc:
+        if isinstance(exc, ValueError) and str(exc).startswith(label):
+            raise
+        raise ValueError('%s is damaged: %s' % (label, exc))
+
+    if not tracks:
+        raise ValueError('no tracks in %s' % label)
+    for t in tracks:
+        if not os.path.exists(t['bin']):
+            raise IOError('%s not found for track %d'
+                          % (os.path.basename(t['bin']), t['no']))
+    order = sorted(range(len(tracks)), key=lambda i: tracks[i]['no'])
+    tracks = [tracks[i] for i in order]
+    spans = [spans[i] for i in order]
+    for i, (t, (offset, nbytes)) in enumerate(zip(tracks, spans)):
+        nxt = tracks[i + 1] if i + 1 < len(tracks) else None
+        if nxt is not None and nxt['bin'] == t['bin']:
+            if spans[i + 1][0] != offset + nbytes:
+                raise ValueError(
+                    'The tracks in %s are not stored back to back, which is '
+                    'the only .mds layout the patcher has seen. Image the '
+                    'disc to BIN/CUE instead.' % label)
+        elif os.path.getsize(t['bin']) < offset + nbytes:
+            raise ValueError('%s is shorter than %s says. It is truncated.'
+                             % (os.path.basename(t['bin']), label))
+    return tracks
+
+
+# What Source takes: the small file that describes an image, keyed to the
+# image file it describes.
+SHEETS = {'.cue': '.bin', '.mds': '.mdf'}
+
+
+def is_sheet(path):
+    return os.path.splitext(path)[1].lower() in SHEETS
+
+
+def parse_image(path):
+    """Tracks from a .cue or a .mds, whichever this is."""
+    if path.lower().endswith('.mds'):
+        return parse_mds(path)
+    return parse_cue(path)
+
+
 def rip_bytes(cue_path):
-    """How much room the WAV files will need, from the cue sheet alone."""
+    """How much room the WAV files will need, from the .cue or .mds alone."""
     return sum((end - start) * RAW + WAV_HDR
-               for _t, start, end in _audio_spans(parse_cue(cue_path)))
+               for _t, start, end in _audio_spans(parse_image(cue_path)))
 
 
 def rip_cue(cue_path, outdir, progress=None):
-    """Extract every AUDIO track from a bin/cue pair."""
-    tracks = parse_cue(cue_path)
+    """Extract every AUDIO track from a bin/cue pair or an mds/mdf one."""
+    tracks = parse_image(cue_path)
     os.makedirs(outdir, exist_ok=True)
     written = []
 
@@ -19597,14 +19731,14 @@ def looks_like_drive(source):
 
 
 def audio_tracks(cue_path):
-    """The numbers of the audio tracks in a cue sheet. Raises like
-    parse_cue does when the sheet or its bin files are wrong."""
-    return [t['no'] for t in parse_cue(cue_path) if 'AUDIO' in t['mode']]
+    """The numbers of the audio tracks in a .cue or .mds. Raises like
+    parse_cue does when the sheet or its image files are wrong."""
+    return [t['no'] for t in parse_image(cue_path) if 'AUDIO' in t['mode']]
 
 
 def rip(source, outdir, progress=None):
     """Dispatch on what the source looks like."""
-    if source.lower().endswith('.cue'):
+    if is_sheet(source):
         return rip_cue(source, outdir, progress)
     return rip_device(source, outdir, progress)
 
@@ -19676,8 +19810,8 @@ class DataTrack:
                     self.form, self.stride, self.offset = name, stride, offset
                     return
         self.fh.close()
-        raise DiscError('No filesystem in %s. The image is damaged, or the '
-                        'cue sheet names the wrong file for track 1.'
+        raise DiscError('No filesystem in %s. The image is damaged, or its '
+                        '.cue or .mds names the wrong file for track 1.'
                         % os.path.basename(path))
 
     def close(self):
@@ -19688,7 +19822,7 @@ class DataTrack:
         data = self.fh.read(LOGICAL)
         if len(data) != LOGICAL:
             raise DiscError('The image ends early. It is truncated, or one of '
-                            'the bin files beside the cue sheet is missing.')
+                            'the files beside its .cue or .mds is missing.')
         return data
 
     def read(self, lba, length):
@@ -19843,11 +19977,12 @@ class DiscPlan:
 
 
 def open_disc(cue_path):
-    """(DataTrack, DiscPlan) for a cue sheet. Raises DiscError or OSError."""
-    tracks = parse_cue(cue_path)
+    """(DataTrack, DiscPlan) for a .cue or .mds. Raises DiscError or
+    OSError."""
+    tracks = parse_image(cue_path)
     data = [t for t in tracks if 'AUDIO' not in t['mode']]
     if not data:
-        raise DiscError('This cue sheet lists only audio tracks, so the game '
+        raise DiscError('This image lists only audio tracks, so the game '
                         'files are not in it.')
     track = DataTrack(data[0]['bin'], data[0]['start'])
     try:
@@ -21914,8 +22049,8 @@ FILE_HINT = ('Installing above fills this in. Browse for it if the game is '
 INSTALL_HINT = ('Copies the game and its soundtrack off a disc image, onto '
                 'your disk.')
 
-INSTALL_TIP = ('Source\tThe .cue sheet beside the .bin files, not the .bin '
-               'itself. On Linux a device node such as /dev/sr0 works too, '
+INSTALL_TIP = ('Source\tThe .cue sheet beside the .bin files, or the .mds '
+               'beside the .mdf, not the image itself. On Linux a device node such as /dev/sr0 works too, '
                'for the soundtrack only.\n'
                'Install game\tThe game folder, about 95 MB.\n'
                'Rip soundtrack\tmusic\\track02.wav onward, about 320 MB. '
@@ -21923,17 +22058,17 @@ INSTALL_TIP = ('Source\tThe .cue sheet beside the .bin files, not the .bin '
                'Manual\tWhich readme and help file is copied; the game '
                'itself is the same on every pressing of a release.')
 
-INSTALL_PICK = 'Give the .cue sheet, not the .bin.'
-INSTALL_NOT_CUE = 'That is a %s. Give the .cue sheet beside it.'
+INSTALL_PICK = 'Give the .cue sheet or .mds file, not the .bin or .mdf.'
+INSTALL_NOT_CUE = 'That is a %s. Give the %s beside it.'
 INSTALL_NEEDS_DEST = 'Choose where to install it.'
 INSTALL_BUSY = 'Copying\u2026'
 INSTALL_CANCELLED = 'Cancelled. The folder holds a part-written copy.'
 INSTALL_OK = 'Installed %d files to %s.'
 INSTALL_DRIVE_ONLY = ('A drive can only be used for the soundtrack. Give a '
-                      '.cue sheet to install.')
+                      '.cue sheet or .mds file to install.')
 INSTALL_NO_PATH = 'There is nothing at that path.'
 INSTALL_NO_DRIVE = 'There is no such device on this machine.'
-INSTALL_NOT_A_CUE = 'Give the .cue sheet of a disc image.'
+INSTALL_NOT_A_CUE = 'Give the .cue sheet or .mds file of a disc image.'
 INSTALL_NO_AUDIO = ('This image has no audio tracks - the soundtrack is not '
                     'in it. Only the data half was ripped.')
 # The game asks for tracks by number, so a different count is a different
@@ -22916,8 +23051,9 @@ def run_tk():
 
         def _pick_disc(self):
             path = filedialog.askopenfilename(
-                title='Select the disc image cue sheet',
-                filetypes=[('Cue sheets', '*.cue *.CUE'), ('All files', '*')])
+                title='Select the disc image .cue or .mds',
+                filetypes=[('Disc images', '*.cue *.CUE *.mds *.MDS'),
+                           ('All files', '*')])
             if path:
                 self.disc_var.set(path)       # the trace runs the check
 
@@ -22949,9 +23085,11 @@ def run_tk():
                                 else PALETTE['bad'])
             elif not os.path.exists(source):
                 self._disc_note(INSTALL_NO_PATH, PALETTE['bad'])
-            elif extension != '.cue':
+            elif extension not in SHEETS:
                 kind = DISC_IMAGES.get(extension)
-                self._disc_note(INSTALL_NOT_CUE % kind if kind
+                sheet = ('.mds file' if extension == '.mdf'
+                         else '.cue sheet')
+                self._disc_note(INSTALL_NOT_CUE % (kind, sheet) if kind
                                 else INSTALL_NOT_A_CUE, PALETTE['bad'])
             else:
                 self._check_cue(source)
@@ -23862,9 +24000,9 @@ def probe_tk():
 USAGE = """v-on-patcher.py %s - Virtual-On (PC, 1997) patcher
 
   v-on-patcher.py                     open the patcher
-  v-on-patcher.py --install CUE DIR   copy the game out of a disc image into DIR
-                                  (--language NAME picks the manual)
-  v-on-patcher.py --rip SOURCE DIR    rip the soundtrack; SOURCE is a .cue sheet
+  v-on-patcher.py --install IMAGE DIR copy the game out of a .cue or .mds into
+                                  DIR (--language NAME picks the manual)
+  v-on-patcher.py --rip SOURCE DIR    rip the soundtrack; SOURCE is a .cue or .mds
                                   or, on Linux, a CD drive. DIR holds v_on.exe
   v-on-patcher.py --rip               list the drives it can see (Linux)
   v-on-patcher.py --ddraw DIR         download cnc-ddraw into DIR (holds v_on.exe)
@@ -23947,8 +24085,8 @@ def ddraw_cli(argv):
 
 
 def install_cli(args):
-    """--install CUE DIR [--language NAME]"""
-    usage = 'Usage: --install CUE DIR [--language NAME]'
+    """--install IMAGE DIR [--language NAME]"""
+    usage = 'Usage: --install IMAGE DIR [--language NAME]'
     language = None
     if '--language' in args:
         at = args.index('--language')
@@ -24019,7 +24157,7 @@ def rip_cli(argv):
                          % (track, 100.0 * done / max(total, 1)))
 
     try:
-        if source.lower().endswith('.cue'):
+        if is_sheet(source):
             short = room_for(outdir_for(gamedir), rip_bytes(source),
                              'the soundtrack')
             if short:

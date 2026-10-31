@@ -4,8 +4,8 @@
     python3 tools/disctest.py
 
 Needs no game and no disc: it writes small ISO9660 images itself, one per
-sector layout, wraps them in a cue sheet and checks that what comes back out
-is what went in. That covers the part of the installer that would otherwise
+sector layout, wraps them in a cue sheet or an Alcohol .mds and checks that
+what comes back out is what went in. That covers the part of the installer that would otherwise
 only be exercised by owning six pressings - the sector probe, the directory
 walk, the ssp.ini rules, and the refusals.
 """
@@ -241,6 +241,68 @@ def write_disc(directory, name, image, form, audio=0):
     return cue
 
 
+def write_mds(directory, name, image, audio=0, file_name='*.mdf',
+              wide=True, version=1, sub=0, gap=0, cut=0):
+    """mds + mdf in the layout the PowerVR dump has. Returns mds and spans.
+
+    One .mdf, 2352-byte sectors, tracks back to back from their INDEX 01,
+    and an 0xA0 lead-in entry the reader has to skip. Each audio track is
+    filled with its own number so a misaligned rip shows. gap puts sectors
+    between the data track and track 2, sub sets the subchannel byte, cut
+    trims the .mdf, and version writes another format version.
+    """
+    raw = bytearray()
+    for at in range(0, len(image), LOGICAL):
+        sector = bytearray(RAW)
+        sector[0:12] = b'\x00' + b'\xff' * 10 + b'\x00'
+        sector[16:16 + LOGICAL] = image[at:at + LOGICAL]
+        raw += sector
+    tracks = [(1, 0xAA, 0, len(raw) // RAW)]
+    raw += bytes(RAW * gap)
+    spans = []
+    for number in range(2, 2 + audio):
+        start = len(raw) // RAW
+        raw += bytes([number]) * (RAW * 100)
+        tracks.append((number, 0xA9, start, 100))
+        spans.append((number, start, start + 100))
+
+    head = 0x58
+    blocks = [None] + tracks                     # None: the 0xA0 entry
+    first_block = head + 24
+    extras = first_block + 80 * len(blocks)
+    names = extras + 8 * len(blocks)
+    text = (file_name.encode('utf-16-le') + b'\0\0' if wide
+            else file_name.encode('latin-1') + b'\0')
+    mds = bytearray(names + 16)
+    mds[0:16] = b'MEDIA DESCRIPTOR'
+    mds[16:18] = bytes([version, 5])
+    struct.pack_into('<H', mds, 0x14, 1)
+    struct.pack_into('<I', mds, 0x50, head)
+    struct.pack_into('<iiHBBHHII', mds, head, -150, len(raw) // RAW, 1,
+                     len(blocks), 1, 1, 1 + audio, 0, first_block)
+    for i, entry in enumerate(blocks):
+        block = first_block + 80 * i
+        if entry is None:
+            mds[block + 4] = 0xA0
+            continue
+        number, mode, start, length = entry
+        mds[block:block + 5] = bytes([mode, sub, 0x14, 0, number])
+        struct.pack_into('<IH', mds, block + 0x0c, extras + 8 * i,
+                         RAW + (96 if sub else 0))
+        struct.pack_into('<Q', mds, block + 0x28, start * RAW)
+        struct.pack_into('<II', mds, block + 0x30, 1, names)
+        struct.pack_into('<II', mds, extras + 8 * i, 0, length)
+    struct.pack_into('<IB', mds, names, names + 16, 1 if wide else 0)
+    mds += text
+
+    stem = os.path.join(directory, name)
+    with open(stem + '.mdf', 'wb') as fh:
+        fh.write(bytes(raw[:len(raw) - cut]))
+    with open(stem + '.mds', 'wb') as fh:
+        fh.write(bytes(mds))
+    return stem + '.mds', spans
+
+
 # ------------------------------------------------------------------ the tests
 
 FAILS = []
@@ -410,6 +472,75 @@ def main():
         got = [(t['no'], start, end)
                for t, start, end in vp._audio_spans(vp.parse_cue(jp))]
         check('one-bin cue rips to track bounds', got == spans, got)
+
+        # Alcohol 120%: the same disc as an mds/mdf pair, read, installed
+        # and ripped through the same calls as a cue.
+        here = os.path.join(tmp, 'mds')
+        os.makedirs(here)
+        mds, spans = write_mds(here, 'RETAIL', build_iso(retail_tree(exe)),
+                               audio=3)
+        info = vp.probe_disc(mds)
+        check('mds: sector layout found', info['form'] == 'MODE1/2352',
+              info['form'])
+        check('mds: build recognised', info['build']['supported'],
+              info['build'])
+        dest = os.path.join(tmp, 'game-mds')
+        vp.install_disc(mds, dest, 'ENGLISH')
+        with open(os.path.join(dest, 'v_on.exe'), 'rb') as fh:
+            check('mds: v_on.exe byte-exact', fh.read() == exe)
+        got = [(t['no'], start, end)
+               for t, start, end in vp._audio_spans(vp.parse_image(mds))]
+        check('mds: tracks at their offsets', got == spans, got)
+        check('mds: rip size from the mds',
+              vp.rip_bytes(mds) == 3 * (100 * RAW + 44), vp.rip_bytes(mds))
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            err = vp.rip_cli([mds, os.path.join(tmp, 'game-mds')])
+        music = vp.outdir_for(os.path.join(tmp, 'game-mds'))
+        ripped = sorted(os.listdir(music)) if os.path.isdir(music) else []
+        check('mds: --rip writes every track',
+              err is None and ripped == ['track02.wav', 'track03.wav',
+                                         'track04.wav'], (err, ripped))
+        if ripped:
+            with open(os.path.join(music, 'track03.wav'), 'rb') as fh:
+                body = fh.read()[44:]
+            check('mds: a ripped track holds its own sectors',
+                  body == bytes([3]) * (100 * RAW), len(body))
+
+        here = os.path.join(tmp, 'mds-named')
+        os.makedirs(here)
+        named, _spans = write_mds(here, 'SHEET', build_iso(retail_tree(exe)),
+                                  file_name='other.mdf', wide=False)
+        os.rename(os.path.join(here, 'SHEET.mdf'),
+                  os.path.join(here, 'other.mdf'))
+        check('mds: a named 8-bit file name reads',
+              vp.probe_disc(named)['count'] > 0)
+
+        # .mds refusals, each a sentence rather than a wrong rip.
+        for label, kwargs, words in (
+                ('subchannel data refused', {'sub': 8}, 'subchannel'),
+                ('tracks with a gap between refused', {'gap': 5},
+                 'back to back'),
+                ('a truncated mdf refused', {'cut': RAW}, 'truncated'),
+                ('another mds version refused', {'version': 2}, 'version 2')):
+            here = os.path.join(tmp, 'mds-' + label.split()[0])
+            os.makedirs(here, exist_ok=True)
+            bad, _spans = write_mds(here, 'BAD', build_iso(retail_tree(exe)),
+                                    audio=2, **kwargs)
+            try:
+                vp.parse_image(bad)
+                check('mds: ' + label, False, 'it was accepted')
+            except ValueError as exc:
+                check('mds: ' + label, words in str(exc), exc)
+        here = os.path.join(tmp, 'mds-missing')
+        os.makedirs(here)
+        lost, _spans = write_mds(here, 'LOST', build_iso(retail_tree(exe)))
+        os.remove(os.path.join(here, 'LOST.mdf'))
+        try:
+            vp.parse_image(lost)
+            check('mds: a missing mdf refused', False, 'it was accepted')
+        except OSError as exc:
+            check('mds: a missing mdf refused', 'LOST.mdf' in str(exc), exc)
 
         # Refusals, each naming what is wrong rather than failing bare.
         here = os.path.join(tmp, 'no_ssp')

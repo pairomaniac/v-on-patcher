@@ -657,7 +657,7 @@ that our bytes overwrote; a fault inside a blob is the blob's.
 
 ```bash
 python3 v-on-patcher.py --help
-python3 v-on-patcher.py --install CUE DIR  # install the game from a disc image
+python3 v-on-patcher.py --install IMAGE DIR  # install the game from a .cue or .mds
 python3 v-on-patcher.py --rip          # list CD drives (Linux)
 python3 v-on-patcher.py --netplay DIR  # install the UDP netplay DLL
 python3 tools/check.py --list      # what the checks are

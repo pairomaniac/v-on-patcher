@@ -234,6 +234,29 @@ def main():
                 break
         check('and they come back when it finishes', enabled('Install game'))
 
+    # ---- an Alcohol 120% image takes the same path --------------------
+    mds, _spans = disctest.write_mds(here, 'ALCOHOL', disctest.build_iso(
+        disctest.retail_tree(exe)), audio=2)
+
+    def note_says(words):
+        return any(words in text_of(w) for w in walk(root)
+                   if isinstance(w, ttk.Label) and w.winfo_ismapped())
+
+    set_entry(entries[0], mds[:-4] + '.mdf')
+    for _ in range(100):
+        pump(20)
+        if note_says('.mds file beside it'):
+            break
+    check('an .mdf asks for the .mds beside it',
+          note_says('.mds file beside it') and not enabled('Rip soundtrack'))
+    set_entry(entries[0], mds)
+    for _ in range(200):
+        pump(20)
+        if enabled('Rip soundtrack'):
+            break
+    check('an .mds is offered for the rip', enabled('Rip soundtrack'))
+    check('and for the install', enabled('Install game'))
+
     # ---- the layout --------------------------------------------------
     if inner.grid_size()[0] >= 2:
         columns = [c for c in inner.winfo_children() if isinstance(c, ttk.Frame)]
