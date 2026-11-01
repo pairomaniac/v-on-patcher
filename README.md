@@ -657,9 +657,7 @@ and puts its `sgl.dll` beside `vonpvr.exe`. The same button then reads
 python3 v-on-patcher.py --sgl path/to/game
 ```
 
-<p align="center">
-  <img src="assets/readme/powervr-renderer-prompt.png" alt="The prompt offering to install the PowerVR renderer" height="252" />
-</p>
+<img src="assets/readme/powervr-renderer-prompt.png" alt="The prompt offering to install the PowerVR renderer" height="189" />
 
 Wine has no `sgl.dll` of its own, so nothing needs setting in `winecfg`. With
 cnc-ddraw, keep `singlecpu=false` in `ddraw.ini`. Tested with release 0.1 under
@@ -708,9 +706,7 @@ wide. Its row starts unticked, because 60 FPS at this size needs a fast CPU: a
 of about 4,000 or higher, estimated from the few CPUs tried. Below that, set 30
 FPS on F5 or leave the patch off.
 
-<p align="center">
-  <img src="assets/readme/powervr-widescreen-warning.png" alt="The warning shown when ticking Native widescreen on the PowerVR version" height="344" />
-</p>
+<img src="assets/readme/powervr-widescreen-warning.png" alt="The warning shown when ticking Native widescreen on the PowerVR version" height="258" />
 
 It runs on Proton without [cnc-ddraw](#windowing-and-scaling-cnc-ddraw); if the
 game cannot set the mode, add cnc-ddraw. Windows has not been tried.
