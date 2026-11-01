@@ -48,8 +48,6 @@ the keyboard. The extras:
   </tr>
 </table>
 
-# Get started
-
 ## Quick start
 
 **Download** `v-on-patcher-*-win.zip` from the
@@ -127,8 +125,6 @@ read a drive directly, and a plain ISO drops the audio tracks. Image the disc on
 
 On Linux a drive can also go straight in **Source** for the soundtrack rip, though
 not for the install; see [Music](#music).
-
-# Features
 
 ## What the patches do
 
@@ -490,8 +486,6 @@ the game asks for tracks by number.
 
 </details>
 
-# If something is wrong
-
 ## Known issues
 
 | Where | Issue |
@@ -502,6 +496,8 @@ the game asks for tracks by number.
 | **Playable bosses** | The CPU's Z-Gradt may get stuck at the arena's edge, and its movement and attacks can differ from the unpatched game. Under investigation. |
 
 ## Troubleshooting internet play
+
+Both of these are set beside `v_on.exe`, on your own machine.
 
 ### If a match freezes or plays badly
 
@@ -521,8 +517,6 @@ direct is faster when it works. Matchcode games only.
 
 Create an empty file called `vo-net.log` beside `v_on.exe` and try again. The DLL
 writes what it did into that file, and it is what to send with a bug report.
-
-# Reference
 
 ## Builds
 
