@@ -30,7 +30,7 @@ EXPECTED_ALL = {
     'd19320bdc3381a48228990907910a391': 'a60d0305310f6079a4463b62052fd8f2',
     '4c70f780a7f0d98d74be62304fb99021': '8b4b2432569801f5041d5b5aedeac543',
     '9764d946ffc8cee94788707c91753478': '49bbd267df50280ca2765154e7c4e79e',
-    '383d3bff66504954f84924a0b41dc3fa': 'efa761c30042d9ccd82c059952aaa47d',
+    '383d3bff66504954f84924a0b41dc3fa': '57f359906da6acff0f8154ee47ea81e1',
 }
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -105,7 +105,8 @@ def f4_check(vp, original, keys, build, result):
     file holds at every site, and the file with the second set copied in
     is a build made for the other size, outside the table itself."""
     import struct
-    if not vp.hires_supported(bytearray(original)):
+    if not vp.hires_supported(bytearray(original)) \
+            or vp.by_key(build)['hires'][2] is not None:
         return 'no table for this build'
     pe = vp._PE(result)
     sec = [x for x in pe.sections if x['name'] == b'.vohr']

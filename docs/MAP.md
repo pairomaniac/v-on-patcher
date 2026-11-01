@@ -13,6 +13,7 @@ table (NOTES.md, *The builds*).
 | `v-on-patcher.py` | the patcher: tables, blobs, installer, ripper, netplay setup, window, CLI |
 | `asm/` | assembly sources for the blobs, `build.py` links them into `v-on-patcher.py` |
 | `asm/ui.asm` | the widescreen blob, built separately by `tools/uibuild.py` |
+| `asm/pvrwide.asm` | the PowerVR build's widescreen glue, on top of `asm/ui.asm` |
 | `net/` | `dpctrl.c` the netplay DLL, `rendezvous.py` the matchcode server |
 | `tools/` | the checks (`check.py` runs them all), the generators (`uibuild`, `hiresport`, `assets`, `portraits`, `map`), the by-hand tools, `bundle.py`, which assembles the Windows release's `_internal/`, and `package.py`, which CI uses to zip a build into the two release zips |
 | `launcher/` | the Windows release's `v-on-patcher.exe`: `launcher.c` runs `_internal\pythonw.exe _internal\v-on-patcher.py` and reports a crash, `build.bat` compiles it with MSVC, and `v-on-patcher.exe`, when present, is the signed copy every release ships |
@@ -32,18 +33,18 @@ is stale, so the line numbers are current.
 | --- | --- | --- |
 | 1–40 | header, imports, PE helpers | `#!/usr/bin/env python3` |
 | 41–2659 | widescreen: the layouts, `UI_CODE`, the port tables, the site builder | `# The resolution patch: the` |
-| 2660–2790 | widescreen apply: `hires_install`, section append, F4 table | `def hires_install(buf, width` |
-| 2791–2902 | disc images table, `Build` class, annex order | `DISC_IMAGES = {` |
-| 2903–4717 | the five builds: symbols, caves, site maps, `unsupported()` | `RETAIL = Build('English reta` |
-| 4718–6298 | generated site maps for three builds (`tools/buildsites.py`), the PowerVR one by hand | `# SITES JPRE BEGIN` |
-| 6299–17910 | the blobs, `BLOBS`, and `link()` | `BLOBS = {` |
-| 17911–18719 | banner and credit bitmaps, tile expansion | `LEVERS_CODE = link('LEVERS',` |
-| 18720–19788 | the patch table: `FEATURES`, `BY_KEY`, labels, tips, apply order | `FEATURES = [` |
-| 19789–20805 | ripping (`RAW = 2352`) and installing (`LOGICAL = 2048`) | `# --- ripping --------------` |
-| 20806–21759 | netplay setup, `SYNC_SITES`, cnc-ddraw, CD audio | `# --- netplay --------------` |
-| 21760–22294 | `Patcher`: reading a file, applying, restoring | `class Patcher:` |
-| 22295–22870 | the logo and icon (`tools/assets.py`), then the window strings | `# ASSETS BLOB BEGIN - tools/` |
-| 22871–25043 | the window (`run_tk`), the CLI, `main` | `def run_tk():` |
+| 2660–2979 | widescreen apply: `hires_install`, section append, F4 table | `def hires_install(buf, width` |
+| 2980–3091 | disc images table, `Build` class, annex order | `DISC_IMAGES = {` |
+| 3092–4940 | the five builds: symbols, caves, site maps, `unsupported()` | `RETAIL = Build('English reta` |
+| 4941–6521 | generated site maps for three builds (`tools/buildsites.py`), the PowerVR one by hand | `# SITES JPRE BEGIN` |
+| 6522–18219 | the blobs, `BLOBS`, and `link()` | `BLOBS = {` |
+| 18220–19227 | banner and credit bitmaps, tile expansion | `LEVERS_CODE = link('LEVERS',` |
+| 19228–20303 | the patch table: `FEATURES`, `BY_KEY`, labels, tips, apply order | `FEATURES = [` |
+| 20304–21320 | ripping (`RAW = 2352`) and installing (`LOGICAL = 2048`) | `# --- ripping --------------` |
+| 21321–22276 | netplay setup, `SYNC_SITES`, cnc-ddraw, CD audio | `# --- netplay --------------` |
+| 22277–22811 | `Patcher`: reading a file, applying, restoring | `class Patcher:` |
+| 22812–23387 | the logo and icon (`tools/assets.py`), then the window strings | `# ASSETS BLOB BEGIN - tools/` |
+| 23388–25560 | the window (`run_tk`), the CLI, `main` | `def run_tk():` |
 <!-- REGIONS END -->
 
 ## 3. `v_on.exe`

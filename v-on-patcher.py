@@ -2406,7 +2406,7 @@ def _split_dialog(buf):
 
 def hires_supported_stamp(stamp):
     """Whether a build (by PE timestamp) has a full site table."""
-    return stamp == RETAIL_STAMP or '%08x' % stamp in PORT
+    return stamp in (RETAIL_STAMP, PVR.stamp) or '%08x' % stamp in PORT
 
 
 def hires_supported(buf):
@@ -2757,6 +2757,195 @@ def hires_install(buf, width, height, alt=HIRES_ALT):
         apply(buf, sites)
     _split_dialog(buf)
     return len(sites)
+
+# The PowerVR build's addresses for what the blob names, retail's on the left.
+# It runs the blob as the others do, without the software renderer's sites.
+# Each 2D call is still its engine's; the card replaces the rasterizers, so
+# what they drew through (mask, row-table copies, polygon pools) is not here.
+# Retail addresses no site here reaches - the F4 switch, its dialog and ini
+# hooks - map to themselves and are never run.
+PVR_UI = {
+    0x0047f2e0: 0x00418e30, 0x004800d0: 0x00419d10, 0x004803d0: 0x00419f70,
+    0x00480410: 0x00419fb0, 0x004804f0: 0x0041a090, 0x00514430: 0x00503df0,
+    0x0051457c: 0x00503f3c, 0x005670c0: 0x00439030, 0x005673c0: 0x00439290,
+    0x00567400: 0x004392d0, 0x005674f0: 0x004393c0, 0x0059cb93: 0x005c9ba3,
+    0x005c56a2: 0x00495692, 0x005c680b: 0x00496813, 0x005c8317: 0x004983d9,
+    0x005c8ca0: 0x00498ec1, 0x005c991c: 0x00499c39, 0x005cc4cc: 0x004a097c,
+    0x005d1db0: 0x005e4310, 0x005dcc80: 0x005e4530, 0x00427ec9: 0x00594df9,
+    0x00428241: 0x00595171,
+    0x0066c17c: 0x00647044, 0x0066c180: 0x00647048, 0x0066c190: 0x0064704c,
+    0x006bc1e4: 0x0074b1d0, 0x006bc1e8: 0x0074b1d4, 0x006bc948: 0x0082fb58,
+    0x006bc94c: 0x0082fb5c, 0x006bf598: 0x006a34a0, 0x006bf5a8: 0x006a34b8,
+    0x006bf5ac: 0x006a34bc, 0x006bf5b0: 0x006a34c0, 0x006bf5b8: 0x006a34c8,
+    0x006bf5bc: 0x006a34cc, 0x006c84c8: 0x006ac3d8, 0x006c84cc: 0x006ac3dc,
+    0x006c866c: 0x006ac5a4, 0x006c8b24: 0x006b3d78, 0x006c8b28: 0x006b3d7c,
+    0x006db4c8: 0x0084c6a8, 0x006db4d0: 0x0084c6b0, 0x006db4d4: 0x0084c6b4,
+    0x006db530: 0x0084cf20, 0x006db534: 0x0084cf24, 0x007001d0: 0x0089b0c0,
+    0x007087a0: 0x008a3b00, 0x00708818: 0x008a36e8, 0x0070881c: 0x008a36ec,
+    0x00708820: 0x008a36f0, 0x00708870: 0x008a3740, 0x00708874: 0x008a3744,
+    0x00725f50: 0x0089b0c0, 0x00791ad0: 0x00a0ae84, 0x00be4300: 0x01d2cc20,
+    0x00bf5f78: 0x00b7c910, 0x00bf5f7c: 0x00b7c914, 0x01ad0030: 0x00b7cde4,
+    0x01ad0034: 0x00b7cde8, 0x01ae3594: 0x0200b760, 0x01ae3690: 0x0200c5b0,
+    0x01ae5f40: 0x02009c90, 0x01ae5f5c: 0x02009c70, 0x01cc6700: 0x01fc3ba0,
+    0x01ef1140: 0x01fdced0, 0x01ef8a90: 0x01ff1250, 0x01ef9eb0: 0x01ff2ae8,
+    0x01efb728: 0x01ff33f8, 0x01efb730: 0x01ff3400, 0x033cd5f4: 0x01df50fc,
+    0x034155c8: 0x024a0638, 0x034155d0: 0x024a0640, 0x0345b2c8: 0x01df5b08,
+    0x0345bd58: 0x01df6728,
+}
+# MATSCALE, which the credits' moon card scales through; the map has no pair
+# for it, and the blob's table has it by retail's address.
+PVR_MATSCALE = 0x00408790, 0x00418060
+
+PVR_ROWTAB = 0x006ab4d8         # the 2D row table: it stays where it is
+UI_VIEWSIZE = 0x1c08            # ui.asm's D_W and D_H
+UI_SHOW = 0x1e88                # and its D_SHOW
+
+
+def pvr_ui_install(buf):
+    """Append the blob's section to the PowerVR build and wire it up. The
+    sites in FEATURES have been written; these need the section's address."""
+    w, h = PVR_WIDE
+    va = dict(PVR_UI)
+    va[ADDR['DRAWN']] = symbol_va('WIDE3D', PVR)
+    va[PVR_MATSCALE[0]] = PVR_MATSCALE[1]
+    code = bytearray(UI_CODE)
+    for o, ref in UI_REFS:
+        assert struct.unpack_from('<I', code, o)[0] == ref
+        struct.pack_into('<I', code, o, va.get(ref, ref))
+    sec_va, rawptr = add_section(buf, UI_OFF + UI_OFF_SIZE,
+                                 raw=bytes(code.ljust(UI_OFF, b'\0')))
+    fileoff = PVR.off
+    def rel(site, target):
+        return u32(target - (site + 5))
+    # The stubs' calls, and the sites the blob's stubs take over.
+    for (off, _t), target in zip(UI_CALLS, (0x419d10, 0x41a090, 0x439030,
+                                            0x4393c0)):
+        struct.pack_into('<i', buf, rawptr + off + 1,
+                         target - (sec_va + off + 5))
+    sites = []
+    for (_o, _s, stub), site, target in zip(
+            UI_STUBS, (0x4980d9, 0x498102, 0x4980fd, 0x498114),
+            (0x419d10, 0x41a090, 0x439030, 0x4393c0)):
+        sites.append((fileoff(site), b'\xe8' + rel(site, target),
+                      b'\xe8' + rel(site, sec_va + stub)))
+    # The HUD passes: the prologue jumps to a stub that counts the pass in
+    # and out. A's and B's in-game HUD, the select, the attract, name entry.
+    for n, (site, ln) in enumerate(((0x435b36, 6), (0x474906, 6), (0x5cf657, 6),
+                                    (0x423c11, 6), (0x4135df, 6), (0x47dfc0, 9))):
+        o = UI_PASS_STUBS + 20 * n
+        at = sec_va + o
+        prologue = bytes(buf[fileoff(site):fileoff(site) + ln])
+        assert prologue[:3] == bytes.fromhex('558bec')
+        stub = (b'\xe8' + rel(at, sec_va + UI_HUD_ENTER) + prologue
+                + b'\xe9' + u32(site + ln - (at + 5 + ln + 5)))
+        buf[rawptr + o:rawptr + o + len(stub)] = stub
+        sites.append((fileoff(site), prologue,
+                      b'\xe9' + rel(site, at) + b'\x90' * (ln - 5)))
+    words = _ui_words(w, h)
+    # The 1P scale rounded up: truncated to 16.16, 480 canvas rows would come
+    # to one short of the frame, and its last row would never be drawn.
+    scale = bytearray(words[UI_SCALE])
+    struct.pack_into('<I', scale, 0, math.ceil(min(w / 640, h / 480) * 65536))
+    words[UI_SCALE] = bytes(scale)
+    _ui_data(buf, rawptr, words, PVR_ROWTAB)
+    # The projection setups and submits, by the retail ones' order in UI_WORLD
+    # and UI_SUBMIT.
+    for (_s, _o, routine), site in zip(UI_WORLD + UI_SUBMIT,
+                                       (0x503e0d, 0x503e4e, 0x4a084d, 0x4a088e,
+                                        0x503f36, 0x4a0976)):
+        sites.append((fileoff(site), bytes.fromhex('558bec535657'),
+                      b'\xe9' + rel(site, sec_va + routine) + b'\x90'))
+    # The record inserts, two a renderer, through the one list head. The
+    # second's go through the glue, which takes its viewport's origin off.
+    for site, target in ((0x5d84aa, sec_va + UI_INSERT_A),
+                         (0x5d93ab, sec_va + UI_INSERT_A),
+                         (0x5defcb, symbol_va('WIDEINS2', PVR)),
+                         (0x5dfeb3, symbol_va('WIDEINS2', PVR))):
+        sites.append((fileoff(site), bytes.fromhex('8b349dc0b08900'),
+                      b'\xe8' + rel(site, target) + b'\x90\x90'))
+    struct.pack_into('<I', buf, fileoff(symbol_va('WIDEINSFN', PVR)),
+                     sec_va + UI_INSERT_B)
+    # The flushes, and the glue's frame hook's target. A split game flushes
+    # each renderer in the main loop, right after its region; the two calls at
+    # the frame's end only reset the list.
+    for site, routine, target in ((0x496206, UI_FLUSH_A, 0x5e4310),
+                                  (0x496245, UI_FLUSH_B, 0x5e4530)):
+        sites.append((fileoff(site), b'\xe8' + rel(site, target),
+                      b'\xe8' + rel(site, sec_va + routine)))
+    struct.pack_into('<I', buf, fileoff(symbol_va('WIDEFN', PVR)),
+                     sec_va + UI_FRAME)
+    struct.pack_into('<I', buf, fileoff(symbol_va('WIDESIZE', PVR)),
+                     sec_va + UI_VIEWSIZE)
+    struct.pack_into('<I', buf, fileoff(symbol_va('WIDESHOW', PVR)),
+                     sec_va + UI_SHOW)
+    # The row loads the tile planes index past either end, in both engines.
+    for site in (0x41a02d, 0x41a07d, 0x41a5f9, 0x41a65e, 0x41aac9,
+                 0x439355, 0x4393ad, 0x439931, 0x43999e, 0x439e11):
+        sites.append((fileoff(site), bytes.fromhex('8b1495d8b46a00'),
+                      b'\xe8' + rel(site, sec_va + UI_ROWSAFE) + b'\x90\x90'))
+    # The roll's blit and the moon card.
+    sites += [(fileoff(0x419a40), bytes.fromhex('56a148706400'),
+               b'\xe9' + rel(0x419a40, sec_va + UI_ROLLBLIT) + b'\x90'),
+              (fileoff(0x51c989), b'\xe8' + rel(0x51c989, 0x503df0),
+               b'\xe8' + rel(0x51c989, sec_va + UI_CREDITS_MOON))]
+    # The split block: each viewport's scale from the layout, out of line.
+    ksbs, ktb = sec_va + UI_KSBS, sec_va + UI_KSBS + 4
+    scale_a, scale_b, aspect_a, aspect_b = (0x74b1d0, 0x6b3d78,
+                                            0x74b1d4, 0x6b3d7c)
+    fconst = 0x630750
+    block = (b'\xf6\x05' + u32(0x6a34a0) + b'\x03' + b'\x75\x08'
+             + b'\xd9\x05' + u32(ksbs) + b'\xeb\x06' + b'\xd9\x05' + u32(ktb)
+             + b'\xd9\x05' + u32(scale_a) + b'\xd8\xc9'
+             + b'\xd9\x1d' + u32(scale_a)
+             + b'\xd8\x0d' + u32(scale_b) + b'\xd9\x1d' + u32(scale_b)
+             + b'\xdd\x05' + u32(fconst)
+             + b'\xd9\x05' + u32(aspect_a) + b'\xd8\xc9'
+             + b'\xd9\x1d' + u32(aspect_a)
+             + b'\xd8\x0d' + u32(aspect_b) + b'\xd9\x1d' + u32(aspect_b)
+             + b'\xc3')
+    assert UI_FOV + len(block) <= UI_OFF
+    buf[rawptr + UI_FOV:rawptr + UI_FOV + len(block)] = block
+    site = 0x49854e
+    old = bytes(buf[fileoff(site):fileoff(site) + 54])
+    assert old[:6] == bytes.fromhex('d905d0b17400')
+    sites.append((fileoff(site), old, b'\xe8' + rel(site, sec_va + UI_FOV)
+                  + b'\x90' * (len(old) - 5)))
+    # The idle-pass recreate in asm/activate.asm pushes its own size.
+    pushes = _annex_pushes(buf, PVR.stamp)
+    if pushes:
+        sites.append((pushes[1], u32(640), u32(w)))
+    apply(buf, sites)
+    _pvr_dialog(buf)
+
+
+def _pvr_dialog(buf):
+    """F5: the split radios read Ver and Hor, and the Screen row goes, since
+    this build has one picture size."""
+    lo = PVR.off(cave_va('F5_PVR', PVR))
+    hi = lo + len(blob_of('F5_PVR')[0])
+    if not any(buf[lo:hi]):             # no frame rate patch: it is at home
+        lo, hi = 0x00784a58, 0x00784a58 + len(PVR_F5_STOCK)
+    for old, new, ident in (('Type1', 'Ver  ', 0x42e), ('Type2', 'Hor  ', 0x42f),
+                            ('Normal', None, 0x420), ('Large', None, 0x421),
+                            ('Screen', None, 0xffff)):
+        pat = old.encode('utf-16-le') + b'\0\0'
+        hits = []
+        i = buf.find(pat, lo, hi)
+        while i >= 0:
+            if struct.unpack_from('<H', buf, i - 6)[0] == ident:
+                hits.append(i)
+            i = buf.find(pat, i + 1, hi)
+        if len(hits) != 1:
+            raise ValueError('F5 item %s not found once' % old)
+        i = hits[0]
+        if new:
+            enc = new.encode('utf-16-le')
+            buf[i:i + len(enc)] = enc
+        else:
+            so = i - 22
+            style = struct.unpack_from('<I', buf, so)[0]
+            struct.pack_into('<I', buf, so, style & ~0x10000000)
+
 
 # Stamped by the build from the tag; see .github/workflows/build.yml. A
 # source checkout has no version of its own, and saying so is more use in a
@@ -4619,10 +4808,44 @@ PVR = Build('PowerVR', 'pvr', PVR_MD5, PVR_SIZE, 0x33b3b0ae, sections=(
     'RETADDR': 0x024a1a80,          # where one returns to
     'PREV': 0x024a1a84,             # last frame's slot, credits+names
     'HELD': 0x024a1a85,             # and how long this press has lasted
+    # Native widescreen
+    'SPLITTYPE': 0x006a34a4,        # the F5 Screen Split radio
+    'PLANEB': 0x024a0641,           # byte holding the 2D plane's hide bit
+    'PRE2D': 0x00419c60,            # the first of the frame's 2D calls
+    'WIDEFRAME': ('PVRWIDE', 'frame'),
+    'WIDEDRAWN': ('PVRWIDE', 'drawn3d'),
+    'SURF1': 0x006a34b8,            # 2D surface pointer, first engine
+    'SURF2': 0x006a34c0,            # and second
+    'VIEWW': 0x006a34c8,            # the viewport width
+    'VIEWH': 0x006a34cc,            # and height
+    'SURFBASE': 0x02009c8c,         # the locked surface
+    'SURFPITCH': 0x02009c7c,        # and its pitch
+    'RENDERING': 0x0066ca84,        # nonzero while a render is owed
+    'WAITRENDER': 0x0047272a,       # waits for it
+    'WIDEWAIT': ('PVRWIDE', 'waitcard'),
+    'CENTREAX': 0x0084cf20,         # each renderer's view centre
+    'CENTREAY': 0x0084cf24,
+    'CENTREBX': 0x008a3740,
+    'CENTREBY': 0x008a3744,
+    'ORGX2': 0x008a3950,            # the second viewport's origin
+    'ORGY2': 0x008a3954,
+    'WIDEFILL1': ('PVRWIDE', 'fill1'),
+    'WIDEFILL2': ('PVRWIDE', 'fill2'),
+    'WIDEINS2': ('PVRWIDE', 'insert2'),
+    'WIDEINSFN': ('PVRWIDE', 'insertfn'),
+    'WIDEFN': ('PVRWIDE', 'framefn'),
+    'WIDESIZE': ('PVRWIDE', 'uisize'),
+    'WIDESHOW': ('PVRWIDE', 'uishow'),
+    'REGION1': 0x00473b95,          # (layout, radio): renderer A's region
+    'REGION2': 0x00473ec1,          # and B's, in a split game
+    'REGIONFULL': 0x00473977,       # (Screen=Normal): one view's region
+    'WIDEREG1': ('PVRWIDE', 'region1'),
+    'WIDEREG2': ('PVRWIDE', 'region2'),
+    'WIDE3D': ('PVRWIDE', 'drawn'),
 }, art=('escrgame.bin', 4194304, 'f0c2b33c6d32e8e25cee840a0de65dc0'),
-    sites=None, annex=ANNEX_BLOBS + ('F5_PVR',),
+    sites=None, annex=ANNEX_BLOBS + ('F5_PVR', 'PVRWIDE'),
     patches=('framerate', 'continuefix', 'dinput', 'activate', 'sound',
-             'defaults', 'nodisc', 'debugbox', 'movie', 'padxinput'),
+             'defaults', 'nodisc', 'debugbox', 'movie', 'padxinput', 'hires'),
     reasons={'nocpucheck': 'the PowerVR build has no processor check'},
     note=PVR_NOTE, exe='vonpvr.exe',
     # HOLD TO SKIP over the credits: the pre-flip call retail hooks has no
@@ -17538,6 +17761,92 @@ BLOBS = {
         'fxsave': 0x43d78,
         'fx2save': 0x440d8,
     }),
+    'PVRWIDE': (bytes.fromhex(
+        '83250000000000833d00000000007407830d0000000002ff742404ff15b20100'
+        '0083c404a100000000a39e010000a100000000a3a2010000a100000000a3a601'
+        '0000a100000000a3aa0100008b0db6010000a1000000008901a1000000008941'
+        '0431c0c3a1ba0100008338007514e9fcffffffa1ba0100008338007505e9fcff'
+        'ffff6a00e8fcffffff83c404c3a100000000a3ae010000e9fcffffff833dae01'
+        '000000752b8b150000000085d2742157538b1d0000000031c089d78b0d000000'
+        '00d1e9f3ab0315000000004b75eb5b5fc3e8c6ffffff31c0f60500000000800f'
+        '95c0a3c2010000a19e01000085c07423a300000000a1a2010000a300000000a1'
+        'a6010000a300000000a1aa010000a300000000e9fcffffff8b1d00000000eb06'
+        '8b1d00000000a1000000002d8002000029c3c3e836000000ff15be0100005051'
+        'a1000000008b0d000000006601421066014a126601421466014a166601421866'
+        '014a1a6601421c66014a1e5958c35051a1000000008b0d000000006629421066'
+        '294a126629421466294a166629421866294a1a6629421c66294a1e5958c30000'
+        '0000000000000000000000000000000000000000000000000000000000000000'
+        '000000000000'
+    ), (
+        (0x2, 'abs', 'FSFLAGS', 0),
+        (0x9, 'abs', 'SPLITTYPE', 0),
+        (0x12, 'abs', 'FSFLAGS', 0),
+        (0x1d, 'abs', '.', 434),
+        (0x25, 'abs', 'CENTREAX', 0),
+        (0x2a, 'abs', '.', 414),
+        (0x2f, 'abs', 'CENTREAY', 0),
+        (0x34, 'abs', '.', 418),
+        (0x39, 'abs', 'CENTREBX', 0),
+        (0x3e, 'abs', '.', 422),
+        (0x43, 'abs', 'CENTREBY', 0),
+        (0x48, 'abs', '.', 426),
+        (0x4e, 'abs', '.', 438),
+        (0x53, 'abs', 'VIEWW', 0),
+        (0x5a, 'abs', 'VIEWH', 0),
+        (0x65, 'abs', '.', 442),
+        (0x6f, 'rel', 'REGION1', -4),
+        (0x74, 'abs', '.', 442),
+        (0x7e, 'rel', 'REGION2', -4),
+        (0x85, 'rel', 'REGIONFULL', -4),
+        (0x8e, 'abs', 'RENDERING', 0),
+        (0x93, 'abs', '.', 430),
+        (0x98, 'rel', 'WAITRENDER', -4),
+        (0x9e, 'abs', '.', 430),
+        (0xa7, 'abs', 'SURFBASE', 0),
+        (0xb3, 'abs', 'VIEWH', 0),
+        (0xbd, 'abs', 'VIEWW', 0),
+        (0xc7, 'abs', 'SURFPITCH', 0),
+        (0xda, 'abs', 'PLANEB', 0),
+        (0xe3, 'abs', '.', 450),
+        (0xe8, 'abs', '.', 414),
+        (0xf1, 'abs', 'CENTREAX', 0),
+        (0xf6, 'abs', '.', 418),
+        (0xfb, 'abs', 'CENTREAY', 0),
+        (0x100, 'abs', '.', 422),
+        (0x105, 'abs', 'CENTREBX', 0),
+        (0x10a, 'abs', '.', 426),
+        (0x10f, 'abs', 'CENTREBY', 0),
+        (0x114, 'rel', 'PRE2D', -4),
+        (0x11a, 'abs', 'SURF1', 0),
+        (0x122, 'abs', 'SURF2', 0),
+        (0x127, 'abs', 'VIEWW', 0),
+        (0x13a, 'abs', '.', 446),
+        (0x141, 'abs', 'ORGX2', 0),
+        (0x147, 'abs', 'ORGY2', 0),
+        (0x171, 'abs', 'ORGX2', 0),
+        (0x177, 'abs', 'ORGY2', 0),
+    ), {
+        'frame': 0x0,
+        'region1': 0x64,
+        'region2': 0x73,
+        'whole': 0x82,
+        'waitcard': 0x8d,
+        'clearsurface': 0x9c,
+        'drawn3d': 0xd1,
+        'fill1': 0x118,
+        'fill2': 0x120,
+        'fillfrom': 0x126,
+        'insert2': 0x133,
+        'origin_on': 0x13e,
+        'origin_off': 0x16e,
+        'centres': 0x19e,
+        'rendered': 0x1ae,
+        'framefn': 0x1b2,
+        'uisize': 0x1b6,
+        'uishow': 0x1ba,
+        'insertfn': 0x1be,
+        'drawn': 0x1c2,
+    }),
     'PAD_COND': (bytes.fromhex(
         '0200000000100000020000000020000002000000004000000200000000800000'
         '0200000000010000020000000002000003000200400000000300030040000000'
@@ -18717,6 +19026,205 @@ def boss_icon_tiles():
     return tiles
 
 
+PVR_WIDE = (1024, 576)          # 16:9 in whole 32-pixel tiles, the card's
+                                # widest
+
+
+def pvr_wide_sites():
+    """Native widescreen on the PowerVR build: the sites that need no address
+    from the section pvr_ui_install appends. Every row is the build's own, by
+    virtual address: see docs/HIRES.md, The PowerVR build."""
+    w, h = PVR_WIDE
+    sy = h / 480
+    def at(va):
+        return In(PVR_MD5, PVR.off(va))
+    def word(va, old, new):
+        return (at(va), u32(old).hex(), u32(new).hex())
+    def flt(va, old, new):
+        return (at(va), f32(old).hex(), f32(new).hex())
+    def hexes(va, old, new):
+        return (at(va), old, new)
+    def skip(va, old, to):
+        rel = struct.pack('<i', to - (va + 5)).hex()
+        return hexes(va, old, 'e9' + rel + '90' * (len(old) // 2 - 5))
+    def hook(va, old, target):
+        rel = symbol_va(target, PVR) - (va + 5)
+        return hexes(va, old, 'e8' + struct.pack('<i', rel).hex())
+    def hook_pad(va, old, target):
+        rel = symbol_va(target, PVR) - (va + 5)
+        return hexes(va, old, 'e8' + struct.pack('<i', rel).hex() + '90')
+    # The window, SetDisplayMode's callers, the SGL device and viewport, and
+    # the ALT+TAB recreate.
+    rows = [word(va + 1, 640, w) for va in (
+        0x495a2e, 0x496d86, 0x497590, 0x4979ab, 0x4998a4, 0x4999d2, 0x499a66,
+        0x548bdb, 0x472884, 0x472a2b, 0x47291c, 0x472ac3)]
+    rows += [word(va + 1, 480, h) for va in (
+        0x495a29, 0x496d81, 0x49758b, 0x4979a6, 0x49989f, 0x4999cd, 0x499a61,
+        0x548bd6, 0x47287f, 0x472a26, 0x472917, 0x472abe)]
+    rows += [flt(va + 1, 640.0, float(w)) for va in (0x47290e, 0x472ab5)]
+    rows += [flt(va + 1, 480.0, float(h)) for va in (0x472909, 0x472ab0)]
+    # The 3D scale follows the height, so the vertical view stays as it was
+    # and the wider picture shows more at the sides.
+    rows += [flt(0x49847f, 1.0, sy), flt(0x4984ce, 0.95, 0.95 * sy)]
+    # The mode selector returns failure for a size it does not know. The
+    # enumeration callback (0x495c4a) still looks for 640x480: cnc-ddraw
+    # lists no 1024x576, and SetDisplayMode is the judge.
+    rows += [word(0x499725, 640, w), word(0x499732, 480, h)]
+    # No low-resolution mode: 320x240 cannot hold this width. Its toggle and
+    # menu command go to the handler's exit, and a saved ScrSize with the
+    # bit set reads as a value out of range, which takes the default.
+    rows += [skip(va, '6a1068f0000000', 0x497e70)
+             for va in (0x4975a9, 0x497a14)]
+    rows += [hexes(0x56df19, '07', '03')]
+    # One player's viewport, and the render regions, in .data: the whole
+    # frame in every layout.
+    rows += [word(0x498bc3, 640, w), word(0x498b95, 640, w),
+             word(0x498bcd, 480, h), word(0x498ba7, 480, h)]
+    rows += [word(0x66cd98, 639, w - 1), word(0x66cda0, 479, h - 1),
+             word(0x66cdb8, 575, w - 1), word(0x66cdb4, 64, 0),
+             word(0x66cdc0, 479, h - 1), word(0x66cdc8, 639, w - 1),
+             word(0x66cdcc, 64, 0), word(0x66cdd0, 415, h - 1),
+             word(0x66cdd8, 639, w - 1), word(0x66cddc, 120, 0),
+             word(0x66cde0, 359, h - 1)]
+    # Each renderer's own region in a split frame, in the same table: top and
+    # bottom, then side by side for either setting of the radio it tests. The
+    # card clips on whole tiles, and the views meet on a tile line.
+    sbs, tb = w // 2, h // 2
+    rows += [word(0x66cde4 + 4 * i, old_, new_) for i, (old_, new_) in enumerate((
+        (64, 0), (383, w - 1), (0, 0), (239, tb - 1),
+        (256, 0), (575, w - 1), (240, tb), (479, h - 1),
+        (0, 0), (319, sbs - 1), (64, 0), (303, h - 1),
+        (320, sbs), (639, w - 1), (176, 0), (415, h - 1),
+        (0, 0), (319, sbs - 1), (120, 0), (359, h - 1),
+        (320, sbs), (639, w - 1), (120, 0), (359, h - 1))) if old_ != new_]
+    # The bands stock masks around its split layouts, in both device paths.
+    rows += [skip(0x472d33, '6a706840010000', 0x472d5f),
+             skip(0x472de8, '6a186880020000', 0x472e11),
+             skip(0x47307f, '680000e042', 0x4730b4),
+             skip(0x473125, '680000c041', 0x473157)]
+    # The two split layouts. Side by side is two 512x576 viewports, top and
+    # bottom two 1024x288, both with no origins; the layout tests read bit 1
+    # alone where the origin table reads Screen=Normal too. The second
+    # viewport starts half a row in, for the 2D layer and for the card.
+    rows += [word(0x498ae3, 320, w), word(0x498aed, 240, tb),
+             word(0x498b10, 320, sbs), word(0x498b1a, 240, h),
+             hexes(0x498ad6, '02', '03'), hexes(0x498c58, '02', '03')]
+    rows += [word(0x6ac468 + 4 * i, old, 0) for i, old in enumerate(
+        (120, 120, 64, 176, 64, 256, 64, 64, 176, 256, 120, 120))]
+    rows += [word(va, 640, w) for va in (0x498628, 0x4986aa, 0x498990)]
+    rows += [word(va, 320, sbs) for va in (0x4985e8, 0x49866a)]
+    rows += [word(0x4986ec, 240, tb),
+             hexes(0x498723, '8d0c498d0c89c1e104',
+                   '69c9' + u32(tb).hex() + '909090')]
+    # The second renderer's scale starts at the first's: the split block,
+    # out of line in pvr_ui_install, applies the layout's factor to both.
+    rows += [flt(0x498489, 0.5, sy)]
+    # F5's split radios choose the layout (asm/pvrwide.asm), so its test
+    # for the third, which this template lacks, never passes.
+    rows += [hexes(0x594f2f, '02', '00')]
+    # The sprite blit: split or not, mode 8 takes the plain path, as at
+    # 0x47f0c0 on the other builds. A split view's height is full size too:
+    # pre hands the 2D code a 640x480 canvas whatever the viewport, and below
+    # this each tile would be drawn on every other row of it.
+    rows += [hexes(0x418c54, '8b0d58fb82003bc80f84bd010000',
+                   '833d44706400080f84be01000090')]
+    rows += [word(0x419cda, 240, tb - 1), word(0x438ffb, 240, tb - 1)]
+    # Entering or leaving a split game halves or doubles the viewport width
+    # on the spot. The other builds' 2D layer runs after the next viewport
+    # setup; this one's runs first, and would take it for a 4:3 frame narrower
+    # than the 640-wide picture. The setup writes the width every frame.
+    rows += [hexes(0x5b5a3a, 'd125c8346a00', '90' * 6),
+             hexes(0x5b5a89, 'a3c8346a00', '90' * 5)]
+    # The select's rectangles: when both planes hide the 3D the card does not
+    # run, and a software list draws the portrait frames. Engine 1's halves
+    # them under the split flag, which pre hides. Engine 2's halves them always,
+    # since stock only ever drew it in a half-size view, so it does as 1 does.
+    rows += [hexes(0x43c7fa, '30', '60')]
+    rows += [hexes(va, '2bc2d1f8', '90909090')
+             for va in (0x43c81f, 0x43c835, 0x43c848, 0x43c854)]
+    # The frame's 2D calls run whether or not plane B shows: stub1 is where
+    # the blob captures the frame, and the engines test the bit themselves.
+    rows += [hexes(0x4980d3, '0f8405000000', '90' * 6),
+             hexes(0x4980f7, '0f8405000000', '90' * 6)]
+    # The 2D row tables are 480 entries each and the second is followed by the
+    # draw-skip flags and the frame divisor. Nothing reads the second: it is not
+    # filled, so at this height the first can run into it.
+    rows += [hexes(0x498216, 'e8b4d9ffff', '90' * 5)]
+    # The two 24-pixel fonts behind the pause, loading and message text.
+    rows += [word(va, 24, 24 * h // 480) for va in (0x6ac4a8, 0x6ac528)]
+    # The clear on a mode change, in dwords a row.
+    rows += [word(0x419c42, 320, w // 2), word(0x419c3d, 480, h)]
+    # GDI text: the pause and message centre, its rectangles, and the wrap.
+    rows += [word(va, 320, w // 2) for va in (0x499daa, 0x499e3a)]
+    rows += [word(va, 640, w)
+             for va in (0x499306, 0x499362, 0x499386, 0x4991f1)]
+    rows += [word(va, 160, 160 * h // 480) for va in (0x499db1, 0x499e41)]
+    rows += [word(va, 480, h)
+             for va in (0x49930d, 0x499369, 0x49938d, 0x4990ca)]
+    rows += [word(0x4992ff, 336, 336 * h // 480)]
+    rows += [word(va, 432, 432 * h // 480) for va in (0x49935b, 0x49937f)]
+    # Where an unfitted movie goes: 320x200 in the middle.
+    rows += [word(0x4998c9, 160, (w - 320) // 2),
+             word(0x4998d3, 140, (h - 200) // 2)]
+    # The ending roll, as hires' build_sites has it for retail: the window
+    # moved 13 rows, 60 rows drawn and the destination's cap raised, in both
+    # engines; the strip watermarks floored; the letterbox off; the entering
+    # row's push re-encoded; the cut, its check and the SEGA card moved. The
+    # star field starts further left, by the extra width in columns.
+    for coarse, count, cap, push in ((0x41a15e, 0x41a12f, 0x41a4f7, 0x41a226),
+                                     (0x43948e, 0x43945f, 0x439827, 0x439556)):
+        rows += [hexes(coarse, '81e1ffff0000', '83e90d83e13f'),
+                 hexes(count, '32', '3c'), hexes(cap, '31', '3d'),
+                 hexes(push, 'b8080000002bc350', '8d43085090909090')]
+    rows += [hexes(va, '83e27f', '83e200') for va in (
+        0x439f17, 0x43a1f5, 0x43a573, 0x43a926, 0x41bd16, 0x41c441, 0x41c96b,
+        0x41cfa2, 0x41d45a, 0x41d6df, 0x41da3e, 0x41dcdf, 0x439f95, 0x43a30a,
+        0x43a6fe, 0x43aacc, 0x41be7e, 0x41c6c2, 0x41cb7a, 0x41d116, 0x41d4de,
+        0x41d763, 0x41dad0, 0x41dd63)]
+    rows += [hexes(va, '0f85a6000000', 'e9a700000090')
+             for va in (0x41a834, 0x439b74)]
+    rows += [word(0x51c434, 0x10e2, 0x10e2 + 80),
+             word(0x51c7d9, 0x10e3, 0x10e3 + 80), hexes(0x517c67, '16', '09')]
+    cols = int(math.ceil(max(0.0, w / h / (4 / 3) - 1) * 5)) + 1
+    rows += [word(0x51ca54, -9000 & 0xffffffff, (-9000 - cols * 1800)
+                  & 0xffffffff)]
+    # The enemy marker and its arrow: the x bounds in focal-600 space, a copy per renderer, and the
+    # bearing window with the extra half field of view.
+    f = 600 * 1.21875
+    wide = w / sy / 640
+    margin = math.degrees(math.atan(wide * 320 / f) - math.atan(320 / f))
+    win = 0x1500 + round(margin * 65536 / 360)
+    rows += [flt(va, -256.0, -256.0 * wide) for va in (0x6142d0, 0x641fd8)]
+    rows += [flt(va, 256.0, 256.0 * wide) for va in (0x6142d4, 0x641fdc)]
+    rows += [word(va, 0x1500, win)
+             for va in (0x462c4a, 0x462db2, 0x5c201a, 0x5c2182)]
+    rows += [word(va, 0xffffeb00, -win)
+             for va in (0x462c59, 0x462dc1, 0x5c2029, 0x5c2191)]
+    # Stage objects mesh outside a yaw window, the add and its compare: as
+    # the others', 22.5 degrees more, in the three windows each renderer calls.
+    for add, cmp_ in ((0x55e252, 0x55e263), (0x593cd2, 0x593ce3)):
+        rows += [word(add, 0x4800, 0x5800), word(cmp_, 0x9000, 0xb000)]
+    for add, cmp_ in ((0x55e369, 0x55e37a), (0x55e46f, 0x55e480),
+                      (0x593de9, 0x593dfa), (0x593eef, 0x593f00)):
+        rows += [word(add, 0x3800, 0x4800), word(cmp_, 0x7000, 0x9000)]
+    # The glue's hooks, and the glue. Every call to the viewport setup goes
+    # through the frame hook: this build's 2D layer runs after a whole frame,
+    # so any of them can come between the setup and the 2D layer that needs it.
+    rows += [hook(va, old_, 'WIDEFRAME') for va, old_ in (
+        (0x4981eb, 'e8e9010000'), (0x495867, 'e86d2b0000'),
+        (0x49a0c9, 'e80be3ffff'), (0x49a941, 'e893daffff'),
+        (0x49a9c2, 'e812daffff'))]
+    rows += [hook(0x4980c7, 'e8941bf8ff', 'WIDEDRAWN')]
+    rows += [hook(0x4980aa, 'e87ba6fdff', 'WIDEWAIT')]
+    rows += [hook(0x4961f9, 'e897d9fdff', 'WIDEREG1'),
+             hook(0x496238, 'e884dcfdff', 'WIDEREG2')]
+    rows += [hook_pad(0x419d51, '8b1db8346a00', 'WIDEFILL1'),
+             hook_pad(0x439071, '8b1dc0346a00', 'WIDEFILL2')]
+    code = link('PVRWIDE', PVR)
+    rows.append((at(cave_va('PVRWIDE', PVR)), '00' * len(code), code.hex()))
+    return rows
+
+
 FEATURES = [
     ('sound', 'Sound fixes',
      'Three small fixes.\n'
@@ -19571,6 +20079,9 @@ FEATURES = [
      '\tsame way.\n'
      'File\tbosses.bin beside the game, which keeps the unlocks.\n'
      '\tProgress already made is never taken back.', []),
+
+    # BY_KEY['hires'] below names it: the other builds' sites are computed.
+    ('hires', 'Native widescreen', '', pvr_wide_sites()),
 ]
 
 
@@ -19628,7 +20139,8 @@ def by_key(build):
     table = {key: (label, tip, sites)
              for key, label, tip, sites in features(build)}
     table['dinput'] = BY_KEY['dinput']
-    table['hires'] = BY_KEY['hires']
+    # Computed at apply time, except on a build whose rows are in FEATURES.
+    table['hires'] = BY_KEY['hires'][:2] + (table['hires'][2] or None,)
     return table
 
 
@@ -19657,7 +20169,10 @@ BY_KEY['hires'] = (
     '\tfull size; the photo screens of a two-player game\n'
     '\tfill the screen.\n'
     'Ending credits\tThe black bands are gone; the roll uses the whole\n'
-    '\tscreen.',
+    '\tscreen.\n'
+    'PowerVR version\t1024x576 instead: its card stops at 1024 wide. F4\n'
+    '\tstays its PVR Settings, and F5 has no Screen row. Needs\n'
+    '\tcnc-ddraw, or it may not start.',
     None)
 
 # The patches a lockstep match cannot differ on are the frame rate and the
@@ -21666,7 +22181,7 @@ def apply_selected(buf, wanted, build=RETAIL):
         if why:
             skipped.append((key, why))
             continue
-        if key == 'hires':
+        if key == 'hires' and table[key][2] is None:
             # Computed sites, own section append; wanted['hires'] carries
             # (width, height) from the window, or True from a caller that
             # takes the default.
@@ -21695,6 +22210,8 @@ def apply_selected(buf, wanted, build=RETAIL):
                 buf = apply_extras_template(buf, build)
             if key == 'nodisc':          # bytes first, then the section
                 buf = apply_cdaudio(buf)
+            if key == 'hires':           # the section, and what names it
+                pvr_ui_install(buf)
             if key == 'bosses':          # the select writes BS_FRX
                 _make_writable(buf, _PE(buf),
                                build.off(build.symbols['BS_FRX']))

@@ -223,6 +223,8 @@ patches write are linked for it (`build_blobs`).
   is a function of its own here (`0x498093`), and its call before the flip
   (`0x498178`) runs only behind a toggle the window procedure flips on a
   Shift key, so the build goes without the overlay (`Build.without`).
+- **Native widescreen**: 1024x576, the other builds' blob on this build's
+  frame; see [HIRES.md](HIRES.md#the-powervr-build).
 
 It reads and writes `v_on.ini`, not the `VONPVR.INI` its `ssp.ini` names,
 and the patcher keeps `Texture=7` in it; see *Why no v_on.ini* above.

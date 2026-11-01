@@ -42,6 +42,7 @@ and release workflow see [DEVELOPING.md](../docs/DEVELOPING.md).
 | `lockline.asm` | Fix the lock-on line: the clippers project 2D quads with the 2D scale |
 | `bosses.asm` | Playable bosses: the bosses in the select's row once unlocked, the unlocks and their screen, the boss's colour, and every place the game only handled the eight machines |
 | `ui.asm` | Native widescreen: the resolution blob, built by `tools/uibuild.py` (see below) |
+| `pvrwide.asm` | Native widescreen on the PowerVR build: what it needs on top of `ui.asm`, which it runs as the other builds do |
 | `layout.py` | data blob layout and string table, shared by `vocd.asm` and the blob |
 | `padtables.py` | gamepad: what each pad input is, what it is called, the F7 device list |
 | `dialogs.py` | the F11 Extras template and its tables, and the F5 frame rate labels |

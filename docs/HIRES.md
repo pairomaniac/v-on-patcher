@@ -4,7 +4,8 @@ The game renders at 640x480 and assumes it everywhere. The patch moves it
 to any size (the window applies 1920x1080), by rewriting every place the
 assumption is baked and adding a blob of new code (ui.asm) in an appended
 section, .vohr. This is its design, the game structures it stands on, and
-the record of porting it to the other builds.
+the record of porting it to the other builds. The PowerVR build does it
+differently; see [The PowerVR build](#the-powervr-build).
 
 ## What is patched
 
@@ -868,6 +869,168 @@ row 950 of 1080, under a band in stock.
   and the hangar's angle window, sized from the width but only checked
   at 16:9. The credits star grid takes its column
   count from the aspect and is untested past 16:9.
+
+## The PowerVR build
+
+The PowerVR build renders at 1024x576. It runs the same blob as the other
+builds (`asm/ui.asm`, in a `.vohr` section), so the 2D layer, the margins, the
+split layouts, the HUD and the credits are that code. `pvr_wide_sites` and
+`pvr_ui_install` wire it to this build, and `asm/pvrwide.asm` holds the few
+routines it needs on top. The software renderer's sites (coverage mask, row
+table moves, polygon pools, subdivision) have nothing to act on here: the card
+draws the 3D.
+
+### Why 1024x576
+
+The card cannot go wider than 1024. pvr-sgl-wrapper's frame is `PCXR_MAX_W`
+1024 by `PCXR_MAX_H` 1024, and a tile's position has 10 bits. So 1920x1080 and
+1280x720 are out, and 1024x576 is the largest 16:9 it can draw. It is also 32 by
+18 of the card's 32-pixel tiles, so the split views meet on tile lines. The 2D
+layer and HUD are at 1.2, nearest-neighbour; in split, 0.8 and 0.75.
+
+854x480 was tried and works: the 2D is pixel-exact at 1, but its width is not a
+whole number of tiles, so the card needed a buffer of its own copied to the surface
+each frame, and the split line fell inside a tile, which one view had to take.
+864x486 was tried too.
+
+The game asks for the mode with SetDisplayMode. cnc-ddraw accepts any size. On
+Proton's own DirectDraw 854x480 was refused, and the game stopped with its "Can not
+set display mode" message; 1024x576 runs there.
+The enumeration callback at `0x495c4a`
+still looks for 640x480, since cnc-ddraw may not list 1024x576, and
+SetDisplayMode is the judge.
+
+### How this build's frame differs
+
+The game owns the DirectDraw surfaces and uses SGL's address mode: the callback
+at `0x472b1e` hands the card `[0x200a234]`. `0x498093` waits for the card, draws
+the four 2D calls on the finished picture (`0x4980c7`..`0x498119`), flips, locks
+the next back buffer, calls the viewport setup `0x4983d9`, renders, starts the
+next scene and flushes the two renderers (`0x5e4400`, `0x5e4620`). Retail sets
+the viewport, draws the pre-3D 2D, flushes, then draws the post-3D 2D. That
+order accounts for most of what is different here:
+
+- **Every viewport setup goes through the frame hook.** The blob decides a
+  frame's layout in `frame_setup`. On retail that runs right before the 2D
+  calls. Here four other callers of `0x4983d9` can run in between, with the
+  split flag set, and leave a width the blob did not plan for: a 432-wide
+  "single" frame gives a negative margin count and a crash in `margins`.
+- **The blob's copies are refreshed right after the setup.** The blob takes the
+  view's centres and the viewport's size at its first 2D call. Between that and
+  the setup, here, lies a whole frame of game code, and its HUD passes restore
+  all of them from the blob's copies. The old values then get taken again and
+  stay: a layout switched on F5 kept the last one's centres and size, seen as
+  each viewport drawn off centre and cropped, the HUD out of place and a wedge of
+  the other view at the split line. `frame` saves the centres for `drawn3d` to
+  put back before stub1, and writes `D_W` and `D_H` itself.
+- **The split switch no longer writes the width.** `0x5b5a1d` halves or doubles
+  the viewport width on the spot (`0x5b5a3a`, `0x5b5a89`). Retail's next viewport
+  setup overwrites that before the 2D layer sees it; here it would not.
+- **The backdrop's fill starts at the canvas's left edge** (`fill1`, `fill2`).
+  It starts at the surface pointer, which is at the 640-wide picture. Retail
+  draws the 3D over the rest. Here the left margin kept the last 3D frame, seen
+  as a bright stripe beside the encounter grid.
+- **The 3D-behind question has its own answer** (`drawn3d`). The blob's DRAWN is
+  a pixel counter the rasterizers keep. This build has none, so plane B's hide
+  bit (`0x24a0641` bit 7) stands in.
+- **Each renderer flushes in the main loop.** A split game runs P1's logic, sets
+  P1's region and flushes (`0x496206`), then does the same for P2 (`0x496245`).
+  The two calls at the frame's end (`0x498268`, `0x49827a`) only reset the shared
+  list. The blob's flush wrappers, which keep the player not shown off the
+  screen, go on the first two. In a frame the blob shows from one engine, both
+  renderers take the whole frame's region (`region1`, `region2`).
+- **The select's frames are a software list.** When both 2D planes are showing,
+  `0x41de60` skips the card's render altogether: the hangar there is a photo, and
+  no polygon reaches the screen. The portrait frames are drawn by a rectangle list
+  in each engine (`0x41dea0` adds, `0x41df30` draws; engine 2 `0x43c750`,
+  `0x43c7e0`). Engine 1's halves them under the split flag, which the blob hides.
+  Engine 2's halves them always, because stock only ever drew it in a half-size
+  view, so with engine 2 on screen (2P on the select while P1 waits: `D_SHOW` 2)
+  they came out at half scale about the centre. It now does as engine 1 does.
+  Polygon logs say nothing about this screen.
+- **The 2D calls always run.** The gates at `0x4980d3` and `0x4980f7` are gone,
+  since stub1 is where the blob captures the frame. The engines test the plane
+  themselves.
+
+### What else is different
+
+- **Regions.** Stock tells the card which tiles to draw twice: the frame's region
+  (`0x66cd94`.. in `0x472be2`) and each renderer's own (`0x66cde4`.. in
+  `0x473b95`). Both tables are rewritten for the layouts. Missing the second one
+  left the 3D inside stock's staggered 320x240 boxes. The bands stock masks
+  around its layouts are skipped.
+- **Tiles and the views.** The card clips only on whole 32-pixel tiles, and
+  polygons reach past a viewport's edge until the tile ends, so a split line inside
+  a tile lets both views draw there. At 1024x576 the lines, column 512 and row 288,
+  are tile lines.
+- **The row tables.** The 2D row tables are 480 entries each, and the second is
+  followed by the draw-skip flags and the frame divisor. A taller frame ran over
+  them in a split: a black picture and `MODE` at 0. Nothing reads the second table,
+  so it is no longer filled (`0x498216`), and the first can run into it.
+- **A frame the card did not render is cleared first** (`waitcard`,
+  `clearsurface`). The composite writes only pixels that differ from what it
+  sampled, and away from a scale of 1 not every pixel is sampled. Where the card
+  did not render, what the last screen left showed through in those: a ghost of
+  the title on the SEGA card, and at 864x486 most of the 2D garbled, as far as can
+  be told. The other builds' rasterizers redraw the frame every time.
+- **The scale is rounded up.** Truncated to 16.16, 480 canvas rows at 1.2 come to
+  one short of the frame, and the last row of a 2D screen was never drawn.
+- **Glyph rows.** The 2D engines draw each tile on every row only when the
+  viewport is taller than a threshold (`0x419cda`, `0x438ffb`, stock 240), set
+  from the viewport even though the blob hands them a 640x480 canvas. It is one
+  below the top and bottom view's height. At or under it, the canvas gets every
+  other row, whatever the composite's scale: text and digits came out as bars.
+- **The second viewport's origin.** Stock adds `0x8a3950`/`0x8a3954` to a record
+  before the insert, where retail has none because its second viewport is a
+  surface pointer. `rescale` wants viewport-relative vertices, so `insert2` takes
+  the origin off around the blob's hook. Without that the second viewport's HUD
+  bars and timer box were out of place, and off screen in Hor.
+- **One list head.** Both renderers insert through `0x89b0c0`.
+- **The split radios.** This build's F5 has Type1 and Type2 and no Type3, and they
+  set `0x6a34a4`, saved as `SSHoriz`. They are labelled Ver (0) and Hor (1), and
+  `frame` sets FLAGS bit 1 from them. Hor is the setting a fresh `v_on.ini` has.
+- **No Screen row, no Normal, no low-resolution mode.** `frame` clears FLAGS
+  bits 0 and 2 every frame, the F5 row is hidden, the low-resolution toggle and
+  menu command go to the handler's exit, and a saved `ScrSize` above 3 takes the
+  default. On this build F4 is the PVR Settings dialog, as stock.
+- **Sites placed by hand.** `PVR_UI` is the blob's addresses, from the map where
+  it has one and otherwise by alignment or by callees: renderer B's setups and
+  submit (`0x4a084d`, `0x4a088e`, `0x4a0976`), the HUD passes (`0x435b36`,
+  `0x474906`, `0x5cf657`, `0x423c11`), `MATSCALE` (`0x418060`, the copy using
+  the current matrix pointer). `hiresport.py` does not run on this build, since
+  it stops at the coverage mask.
+
+### What has been seen
+
+Under Wine 11 with cnc-ddraw's GDI renderer and pvr-sgl-wrapper 0.1, in Xvfb:
+
+- **One player:** the title, machine select, the static and the encounter grid
+  across the whole width, a round with the timer left, the bars centred, the
+  TOTAL time right, the marker and arrow, the pause.
+- **Two players, Ver and Hor:** the encounter card once at full size, the round
+  with both HUDs in place, the pause, and in the two-player select both frames
+  around portraits 1, 3, 5 and 6, moved by writing the cursors. The round was reached with the title's
+  choice forced in a test executable, since the keyboard did not move the title's
+  cursor there.
+- **Ending:** the roll started by writing the sub-state, across the full height
+  with no bands.
+- **ALT+TAB:** `WM_ACTIVATEAPP` posted out and back during a round, which took the
+  game on at 1024x576. Real focus changes were not available.
+
+The state with engine 2 on screen was reached with the debug Kill 2P (`0x9c62`)
+in a round: the select's two frames are around portraits 1, 4 and 7, with the
+cursor moved by writing `0x20b1b98`.
+
+A layout switched during a round was tried by writing `0x6a34a4`, the value F5's
+OK writes, from Hor to Ver and back.
+
+The machine-select hangar's draw window and its fading outermost mech are the
+one part of the other builds' patch left out: they did not work here, so the
+window is stock, and a mech may pop in at the edge of the wider view. The lock-on
+line patch is not ported either (see NOTES.md).
+
+Not tried: a real PowerVR card, Windows, the intro movie, the end of the roll and
+the SEGA card after it, the two-player photo screens, and internet play.
 
 ## Per-build facts worth keeping
 

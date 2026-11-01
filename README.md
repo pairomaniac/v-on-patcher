@@ -689,9 +689,15 @@ It is a different program, `vonpvr.exe`, drawn by a PowerVR PCX1 or PCX2
 card. Its disc is not verified by Redump: the one this build was made from
 is the only dump known, from the Internet Archive.
 
-It takes every patch but **Native widescreen** and **Playable bosses**,
-whose rows are greyed out. The ending credits skip, but HOLD TO SKIP is not
-drawn. A match over internet play has not been tried on it.
+It takes every patch but **Playable bosses**, whose row is greyed out. The
+ending credits skip, but HOLD TO SKIP is not drawn. A match over internet
+play has not been tried on it.
+
+**Native widescreen** works as it does on the other versions, at a smaller
+size. The card stops at 1024 pixels wide, so the game renders at 1024x576, not
+1920x1080. It runs on Proton without [cnc-ddraw](#windowing-and-scaling-cnc-ddraw);
+Windows has not been tried. If the game cannot set the mode, add cnc-ddraw. **Screen Split** on F5 offers **Ver** and **Hor**. There is only the one
+size, so F5 has no **Screen** row, and F4 stays the game's PVR Settings.
 
 It draws through `sgl.dll`, which came with the card's driver and is not on
 the disc; see [PowerVR renderer](#powervr-renderer-pvr-sgl-wrapper).
