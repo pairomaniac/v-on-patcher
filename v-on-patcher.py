@@ -19985,10 +19985,17 @@ def _audio_spans(tracks):
 # before the first audio track is in the TOC but not in the file; track 2
 # starts where track 1 ends. A layout other than tracks back to back is
 # refused rather than guessed at.
+#
+# Subchannel mode 8 stores 96 bytes after each sector's 2352, and the sector
+# size in the .mds counts them. None of what the patcher reads is in them,
+# so they are stepped over. libmirage reads the format the same way; no real
+# dump of this layout has been tried.
 
 MDS_MAGIC = b'MEDIA DESCRIPTOR'
 MDS_AUDIO = 0x9                 # low nibble of a track block's mode byte
 MDS_MODE1 = 0xA
+MDS_PW = 0x08                   # subchannel: 96 bytes, interleaved
+MDS_PW_SIZE = 96
 MDS_TRACK = 80                  # bytes in a track block
 MDS_SESSION = 24                # bytes in a session block
 
@@ -20014,7 +20021,8 @@ def _mds_file(data, block, mds_path):
 
 def parse_mds(path):
     """Every track in an Alcohol 120% .mds, shaped as parse_cue's are, plus
-    'end': the sector after the track's last one in its file."""
+    'end', the sector after the track's last one in its file, and 'stride',
+    the bytes one sector takes there."""
     label = os.path.basename(path)
     with open(path, 'rb') as fh:
         data = fh.read()
@@ -20040,15 +20048,21 @@ def parse_mds(path):
                 offset = struct.unpack_from('<Q', data, block + 0x28)[0]
                 length = struct.unpack_from('<I', data, extra + 4)[0]
                 audio = mode & 0x0f == MDS_AUDIO
-                if sub or size not in ((RAW,) if audio
-                                       else (LOGICAL, 2336, RAW)):
+                if sub not in (0, MDS_PW):
                     raise ValueError(
-                        '%s stores track %d as %d-byte sectors%s. The '
-                        'patcher reads %s without subchannel data; image '
-                        'the disc again without it, or to BIN/CUE.'
+                        '%s stores track %d with subchannel mode %d, which '
+                        'the patcher cannot read. Image the disc again '
+                        'without subchannel data, or to BIN/CUE.'
+                        % (label, point, sub))
+                main = size - MDS_PW_SIZE if sub else size
+                if main not in ((RAW,) if audio or sub
+                                else (LOGICAL, 2336, RAW)):
+                    raise ValueError(
+                        '%s stores track %d as %d-byte sectors. The patcher '
+                        'reads %s; image the disc again, or to BIN/CUE.'
                         % (label, point, size,
-                           ' with subchannel data' if sub else '',
-                           'audio as 2352-byte sectors' if audio
+                           'audio and subchannel images as 2352-byte sectors'
+                           if audio or sub
                            else 'data as 2048, 2336 or 2352-byte sectors'))
                 if offset % size:
                     raise ValueError('%s puts track %d part way into a sector.'
@@ -20057,9 +20071,10 @@ def parse_mds(path):
                 tracks.append({
                     'no': point,
                     'mode': 'AUDIO' if audio else 'MODE%d/%d' % (
-                        1 if mode & 0x0f == MDS_MODE1 else 2, size),
+                        1 if mode & 0x0f == MDS_MODE1 else 2, main),
                     'bin': _mds_file(data, block, path),
-                    'start': start, 'end': start + length, 'pregap': None})
+                    'start': start, 'end': start + length, 'pregap': None,
+                    'stride': size})
                 spans.append((offset, length * size))
     except (struct.error, IndexError, ValueError, UnicodeDecodeError) as exc:
         if isinstance(exc, ValueError) and str(exc).startswith(label):
@@ -20120,14 +20135,18 @@ def rip_cue(cue_path, outdir, progress=None):
     for t, start, end in _audio_spans(tracks):
         out = os.path.join(outdir, 'track%02d.wav' % t['no'])
         total = (end - start) * RAW
+        stride = t.get('stride', RAW)
 
         with open(t['bin'], 'rb') as src, WavWriter(out) as dst:
-            src.seek(start * RAW)
+            src.seek(start * stride)
             left = total
             while left > 0:
-                chunk = src.read(min(left, RAW * 512))
+                chunk = src.read(min(left // RAW, 512) * stride)
                 if not chunk:
                     break
+                if stride != RAW:       # the audio, without the subchannel
+                    chunk = b''.join(chunk[i:i + RAW]
+                                     for i in range(0, len(chunk), stride))
                 dst.write(chunk)
                 left -= len(chunk)
                 if progress:
@@ -20311,13 +20330,16 @@ LOGICAL = 2048                  # user bytes in a sector, whatever its form
 
 # Sector layouts, walked in order; the one whose sector 16 holds an ISO9660
 # descriptor wins. Looking rather than trusting TRACK 01 means a cue sheet
-# that names the wrong mode still works, and the four cover every pressing.
+# that names the wrong mode still works, and the first four cover every
+# pressing. The last two are an .mds with subchannel data after each sector.
 #   name            stride  offset of the user bytes
 SECTOR_FORMS = (
     ('MODE1/2352', 2352, 16),
     ('MODE2/2352', 2352, 24),
     ('MODE1/2048', 2048, 0),
     ('MODE2/2336', 2336, 8),
+    ('MODE1/2448', 2448, 16),
+    ('MODE2/2448', 2448, 24),
 )
 
 PRIMARY_VD = 16                 # where the descriptors start, by the standard

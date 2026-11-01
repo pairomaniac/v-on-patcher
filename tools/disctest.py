@@ -242,27 +242,32 @@ def write_disc(directory, name, image, form, audio=0):
 
 
 def write_mds(directory, name, image, audio=0, file_name='*.mdf',
-              wide=True, version=1, sub=0, gap=0, cut=0):
+              wide=True, version=1, sub=0, gap=0, cut=0, mode2=False):
     """mds + mdf in the layout the PowerVR dump has. Returns mds and spans.
 
     One .mdf, 2352-byte sectors, tracks back to back from their INDEX 01,
     and an 0xA0 lead-in entry the reader has to skip. Each audio track is
     filled with its own number so a misaligned rip shows. gap puts sectors
-    between the data track and track 2, sub sets the subchannel byte, cut
-    trims the .mdf, and version writes another format version.
+    between the data track and track 2, sub sets the subchannel byte and
+    appends 96 marker bytes to every sector, so a rip that keeps them shows,
+    cut trims the .mdf, version writes another format version, and mode2
+    writes the data track as Mode 2.
     """
+    tail = b'\x5a' * 96 if sub else b''
+    stride = RAW + len(tail)
+    user = 24 if mode2 else 16
     raw = bytearray()
     for at in range(0, len(image), LOGICAL):
         sector = bytearray(RAW)
         sector[0:12] = b'\x00' + b'\xff' * 10 + b'\x00'
-        sector[16:16 + LOGICAL] = image[at:at + LOGICAL]
-        raw += sector
-    tracks = [(1, 0xAA, 0, len(raw) // RAW)]
-    raw += bytes(RAW * gap)
+        sector[user:user + LOGICAL] = image[at:at + LOGICAL]
+        raw += sector + tail
+    tracks = [(1, 0xAB if mode2 else 0xAA, 0, len(raw) // stride)]
+    raw += bytes(stride * gap)
     spans = []
     for number in range(2, 2 + audio):
-        start = len(raw) // RAW
-        raw += bytes([number]) * (RAW * 100)
+        start = len(raw) // stride
+        raw += (bytes([number]) * RAW + tail) * 100
         tracks.append((number, 0xA9, start, 100))
         spans.append((number, start, start + 100))
 
@@ -278,7 +283,7 @@ def write_mds(directory, name, image, audio=0, file_name='*.mdf',
     mds[16:18] = bytes([version, 5])
     struct.pack_into('<H', mds, 0x14, 1)
     struct.pack_into('<I', mds, 0x50, head)
-    struct.pack_into('<iiHBBHHII', mds, head, -150, len(raw) // RAW, 1,
+    struct.pack_into('<iiHBBHHII', mds, head, -150, len(raw) // stride, 1,
                      len(blocks), 1, 1, 1 + audio, 0, first_block)
     for i, entry in enumerate(blocks):
         block = first_block + 80 * i
@@ -287,9 +292,8 @@ def write_mds(directory, name, image, audio=0, file_name='*.mdf',
             continue
         number, mode, start, length = entry
         mds[block:block + 5] = bytes([mode, sub, 0x14, 0, number])
-        struct.pack_into('<IH', mds, block + 0x0c, extras + 8 * i,
-                         RAW + (96 if sub else 0))
-        struct.pack_into('<Q', mds, block + 0x28, start * RAW)
+        struct.pack_into('<IH', mds, block + 0x0c, extras + 8 * i, stride)
+        struct.pack_into('<Q', mds, block + 0x28, start * stride)
         struct.pack_into('<II', mds, block + 0x30, 1, names)
         struct.pack_into('<II', mds, extras + 8 * i, 0, length)
     struct.pack_into('<IB', mds, names, names + 16, 1 if wide else 0)
@@ -507,6 +511,37 @@ def main():
             check('mds: a ripped track holds its own sectors',
                   body == bytes([3]) * (100 * RAW), len(body))
 
+        # The same with subchannel data after every sector, in either mode.
+        for form, mode2 in (('MODE1/2448', False), ('MODE2/2448', True)):
+            here = os.path.join(tmp, 'mds-' + form.replace('/', '_'))
+            os.makedirs(here)
+            subbed, spans = write_mds(here, 'SUB',
+                                      build_iso(retail_tree(exe)), audio=3,
+                                      sub=8, mode2=mode2)
+            info = vp.probe_disc(subbed)
+            check('mds subchannel: %s found' % form, info['form'] == form,
+                  info['form'])
+            check('mds subchannel: build recognised',
+                  info['build']['supported'], info['build'])
+            dest = os.path.join(tmp, 'game-' + form.replace('/', '_'))
+            vp.install_disc(subbed, dest, 'ENGLISH')
+            with open(os.path.join(dest, 'v_on.exe'), 'rb') as fh:
+                check('mds subchannel: v_on.exe byte-exact', fh.read() == exe)
+            got = [(t['no'], start, end) for t, start, end
+                   in vp._audio_spans(vp.parse_image(subbed))]
+            check('mds subchannel: tracks at their offsets', got == spans, got)
+            check('mds subchannel: rip size leaves the subchannel out',
+                  vp.rip_bytes(subbed) == 3 * (100 * RAW + 44),
+                  vp.rip_bytes(subbed))
+            music = os.path.join(tmp, 'music-' + form.replace('/', '_'))
+            vp.rip_cue(subbed, music)
+            for number in (2, 3, 4):
+                with open(os.path.join(music, 'track%02d.wav' % number),
+                          'rb') as fh:
+                    body = fh.read()[44:]
+                check('mds subchannel: track %d is its audio alone' % number,
+                      body == bytes([number]) * (100 * RAW), len(body))
+
         here = os.path.join(tmp, 'mds-named')
         os.makedirs(here)
         named, _spans = write_mds(here, 'SHEET', build_iso(retail_tree(exe)),
@@ -576,7 +611,10 @@ def main():
 
         # .mds refusals, each a sentence rather than a wrong rip.
         for label, kwargs, words in (
-                ('subchannel data refused', {'sub': 8}, 'subchannel'),
+                ('another subchannel mode refused', {'sub': 1},
+                 'subchannel mode 1'),
+                ('truncated subchannel data refused',
+                 {'sub': 8, 'cut': RAW + 96}, 'truncated'),
                 ('tracks with a gap between refused', {'gap': 5},
                  'back to back'),
                 ('a truncated mdf refused', {'cut': RAW}, 'truncated'),
