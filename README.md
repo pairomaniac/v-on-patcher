@@ -70,7 +70,8 @@ The window is split into numbered sections. Work through them in order:
 5. **ADD-ONS** - starts collapsed. Press **Install** on the rows you want:
    **Internet play** for two-player versus over the internet (both players
    need it), **Windowing and scaling** for windowed and borderless play
-   through cnc-ddraw, and **PowerVR renderer** for the PowerVR version.
+   through cnc-ddraw, and **PowerVR renderer**, which the PowerVR version needs
+   unless you have the card. **Apply patches** offers to install it.
 
 Then play. **Restore original** puts the game back if you change your mind.
 Add-ons put files beside the game rather than editing it, so Apply and
@@ -642,10 +643,12 @@ gamescope -W 1920 -H 1080 -w 640 -h 480 -f -S integer -- %command%
 The PowerVR version draws through `sgl.dll`, the library that came with the
 PowerVR card's driver, and the disc does not carry it.
 [pvr-sgl-wrapper](https://github.com/z2k-retro/pvr-sgl-wrapper) is a
-replacement that emulates the card on the CPU, so the game runs without one.
-It is only for the PowerVR version; the row is greyed out for the others.
+replacement that emulates the card on the CPU. Without it, or the card's own
+driver, the game does not start. It is only for the PowerVR version; the row is
+greyed out for the others.
 
-**Install** under ADD-ONS downloads the current release from
+**Apply patches** offers to install it, and **Install** under ADD-ONS does the
+same. It downloads the current release from
 [its releases page](https://github.com/z2k-retro/pvr-sgl-wrapper/releases)
 and puts its `sgl.dll` beside `vonpvr.exe`. The same button then reads
 **Remove**, which deletes it again. From a terminal:
@@ -653,6 +656,10 @@ and puts its `sgl.dll` beside `vonpvr.exe`. The same button then reads
 ```bash
 python3 v-on-patcher.py --sgl path/to/game
 ```
+
+<p align="center">
+  <img src="assets/readme/powervr-renderer-prompt.png" alt="The prompt offering to install the PowerVR renderer" height="252" />
+</p>
 
 Wine has no `sgl.dll` of its own, so nothing needs setting in `winecfg`. With
 cnc-ddraw, keep `singlecpu=false` in `ddraw.ini`. Tested with release 0.1 under
@@ -686,7 +693,8 @@ whichever build the disc holds; only patching needs one from the table.
 
 This version is a separate program, `vonpvr.exe`, made for PowerVR PCX1 and
 PCX2 cards. It draws through `sgl.dll`, which came with the card's driver and
-is not on the disc; see [PowerVR renderer](#powervr-renderer-pvr-sgl-wrapper).
+is not on the disc, so it needs the [PowerVR
+renderer](#powervr-renderer-pvr-sgl-wrapper) add-on unless you have the card.
 Redump has not verified its disc. The only known dump is on the Internet
 Archive.
 
@@ -700,13 +708,17 @@ wide. Its row starts unticked, because 60 FPS at this size needs a fast CPU: a
 of about 4,000 or higher, estimated from the few CPUs tried. Below that, set 30
 FPS on F5 or leave the patch off.
 
+<p align="center">
+  <img src="assets/readme/powervr-widescreen-warning.png" alt="The warning shown when ticking Native widescreen on the PowerVR version" height="344" />
+</p>
+
 It runs on Proton without [cnc-ddraw](#windowing-and-scaling-cnc-ddraw); if the
 game cannot set the mode, add cnc-ddraw. Windows has not been tried.
 
 **Screen Split** on F5 offers **Ver** and **Hor**. F5 has no **Screen** row, and
 F4 stays the game's PVR Settings.
 
-Without a Texture value in `v_on.ini` the robots are black, and this version's
+Without a Texture value in `v_on.ini` the machines are black, and this version's
 F5 page cannot set one. The installer writes a `v_on.ini` with only `Texture=7`,
 and the gamepad patch keeps that value when it moves the file aside.
 

@@ -4886,7 +4886,7 @@ PVR = Build('PowerVR', 'pvr', PVR_MD5, PVR_SIZE, 0x33b3b0ae, sections=(
     # every-frame counterpart found here yet, so the skip goes without it
     without=('OVERLAY',),
     # Its F5 page has no Texture boxes, so nothing in the game can turn the
-    # robots' textures on; with no value they are off, and drawn black.
+    # machines' textures on; with no value they are off, and drawn black.
     fixed_ini={'Texture': '7'},
     cautions={'hires': PVR_WIDE_CAUTION})
 
@@ -23340,10 +23340,16 @@ DDRAW_WINE = ('Linux: also set ddraw to native in winecfg for this prefix, '
               'changes.')
 
 SGL_LINK = ('PowerVR renderer', 'pvr-sgl-wrapper', SGL_URL,
-            'The PowerVR version draws through sgl.dll, which came with the '
-            'PowerVR card\'s driver. This one emulates the card on the CPU, '
-            'so the game runs without it. Install downloads it and puts it '
+            'The PowerVR version needs this to run without a PowerVR card. It '
+            'replaces sgl.dll, which came with the card\'s driver, and '
+            'emulates the card on the CPU. Install downloads it and puts it '
             'beside vonpvr.exe.')
+SGL_NEEDED = 'Needed: this version does not start without sgl.dll.'
+SGL_OFFER = ('PowerVR renderer needed',
+             'This version does not start without sgl.dll, which came with '
+             'the PowerVR card\'s driver and is not on the disc. '
+             'pvr-sgl-wrapper replaces it, so no card is needed.\n\n'
+             'Download it now? It goes beside vonpvr.exe.')
 SGL_ONLY = 'For the PowerVR version only: pick its vonpvr.exe above.'
 SGL_GONE = 'Removed.'
 
@@ -24737,6 +24743,22 @@ def run_tk():
             if not wanted:
                 self.sgl_note.config(text=SGL_ONLY, foreground=self.dim)
 
+        def _sgl_nudge(self):
+            """A PowerVR game without sgl.dll: say so where the fix is."""
+            if sgl_wanted(self._ddraw_dir()) and not self.sgl_installed:
+                self.sgl_note.config(text=SGL_NEEDED,
+                                     foreground=PALETTE['amber'])
+                self._openers['5  ADD-ONS']()
+            elif self.sgl_note.cget('text') == SGL_NEEDED:
+                self.sgl_note.config(text='')
+
+        def _sgl_offer(self):
+            """After Apply: offer the one thing the game still lacks."""
+            if sgl_wanted(self._ddraw_dir()) and not self.sgl_installed \
+                    and self._ask(*SGL_OFFER, (), 'Install it', 'Not now',
+                                  focus_yes=True):
+                self._sgl_click()
+
         def _sgl_click(self):
             gamedir = self._ddraw_dir()
             if not sgl_wanted(gamedir):
@@ -25239,6 +25261,7 @@ def run_tk():
             self._sync_buttons()
             self._ddraw_sync()
             self._sgl_sync()
+            self._sgl_nudge()
             self._netplay_sync()
             if not ok:
                 self._log(note)
@@ -25271,13 +25294,21 @@ def run_tk():
             unless the warning is accepted."""
             caution = self.core.build.cautions.get(key)
             if caution and self.vars[key].get() \
-                    and not self._warn(*caution):
+                    and not self._caution(*caution):
                 self.vars[key].set(False)
             self._retally()
 
-        def _warn(self, title, text, wanted, otherwise):
-            """Ask before a patch goes on, in the window's own look. Whether
-            it was accepted; Leave it off has the focus, and Escape is it."""
+        def _caution(self, title, text, wanted, otherwise):
+            return self._ask(title, text, (
+                ('Recommended', wanted),
+                ('Your CPU', cpu_name() or 'Not detected'),
+                ('Its rating', None),
+                ('If too slow', otherwise)), 'Turn it on', 'Leave it off')
+
+        def _ask(self, title, text, rows, yes, no, focus_yes=False):
+            """A question in the window's own look. Rows are (key, value), a
+            value of None being the CPU chart's link. Whether yes was pressed;
+            Escape is no."""
             close_info()
             root = self.root
             answer = []
@@ -25302,12 +25333,9 @@ def run_tk():
             ttk.Label(body, text=text, style='Card.TLabel', justify='left',
                       wraplength=self.px(420)).pack(anchor='w')
             table = ttk.Frame(body, style='Card.TFrame')
-            table.pack(anchor='w', pady=self.px((12, 0)))
-            for line, (key, value) in enumerate((
-                    ('Recommended', wanted),
-                    ('Your CPU', cpu_name() or 'Not detected'),
-                    ('Its rating', None),
-                    ('If too slow', otherwise))):
+            if rows:
+                table.pack(anchor='w', pady=self.px((12, 0)))
+            for line, (key, value) in enumerate(rows):
                 ttk.Label(table, text=key, style='Card.TLabel', font=self.bold,
                           foreground=PALETTE['amber']).grid(
                               row=line, column=0, sticky='nw',
@@ -25329,11 +25357,12 @@ def run_tk():
                 answer.append(accepted)
                 win.grab_release()
                 win.destroy()
-            ttk.Button(buttons, text='Turn it on', style='Go.TButton',
-                       command=lambda: done(True)).pack(side='right')
-            off = ttk.Button(buttons, text='Leave it off', style='Vo.TButton',
-                             command=lambda: done(False))
-            off.pack(side='right', padx=self.px((0, 8)))
+            accept = ttk.Button(buttons, text=yes, style='Go.TButton',
+                                command=lambda: done(True))
+            accept.pack(side='right')
+            decline = ttk.Button(buttons, text=no, style='Vo.TButton',
+                                 command=lambda: done(False))
+            decline.pack(side='right', padx=self.px((0, 8)))
             win.bind('<Escape>', lambda _e: done(False))
             win.bind('<Return>', lambda _e: win.focus_get().invoke())
             win.update_idletasks()
@@ -25346,7 +25375,7 @@ def run_tk():
             win.wait_visibility()
             win.grab_set()
             win.lift()
-            off.focus_force()
+            (accept if focus_yes else decline).focus_force()
             root.wait_window(win)
             return bool(answer and answer[0])
 
@@ -25380,6 +25409,7 @@ def run_tk():
             # the add-on is installed, which catches a copy patched by an
             # older release.
             self._set_status(DONE % count, True)
+            self._sgl_offer()
 
         def _restore(self):
             # Keep the selection across the reload only if the boxes were

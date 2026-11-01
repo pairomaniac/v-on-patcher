@@ -294,8 +294,9 @@ def main():
                 shown.append(True)
                 said = ' '.join(text_of(w) for w in walk(popups[0])
                                 if isinstance(w, ttk.Label))
-                check('the warning names the CPU and the chart',
-                      'Your CPU' in said and 'cpubenchmark.net' in said)
+                if label == 'Leave it off':
+                    check('the warning names the CPU and the chart',
+                          'Your CPU' in said and 'cpubenchmark.net' in said)
                 [w for w in walk(popups[0]) if isinstance(w, ttk.Button)
                  and text_of(w) == label][0].invoke()
 
@@ -313,6 +314,17 @@ def main():
             pump(60)
             check('unticking it does not warn',
                   not shown and not box.instate(['selected']))
+
+            # ---- sgl.dll, which the game cannot start without ---------
+            check('a missing sgl.dll is flagged where it installs',
+                  note_says('does not start without sgl.dll'))
+            shutil.copy(os.path.join(game, 'escrgame.bin.bak'),
+                        os.path.join(tmp, 'escrgame.bin'))
+            del shown[:]
+            root.after(20, answer, 'Not now')
+            buttons['Apply patches'][0].invoke()
+            check('Apply offers to install it, and it can be declined',
+                  shown and not os.path.exists(os.path.join(tmp, 'sgl.dll')))
         finally:
             filedialog.askopenfilename = pick
 

@@ -272,7 +272,7 @@ defaults are patched in.
 
 The PowerVR build is the exception. Its F5 page has no Texture boxes, and the
 game's default for a missing `Texture` is all three off, which draws the
-robots untextured and black. Both of its disc's presets say `Texture=7`. The
+machines untextured and black. Both of its disc's presets say `Texture=7`. The
 install writes a `v_on.ini` holding that one line (`Build.fixed_ini`,
 `fix_ini`), and the gamepad patch, which moves `v_on.ini` aside, writes it
 into the new file too.
