@@ -28,10 +28,15 @@ credit.
 """
 
 import atexit
+import hashlib
+import io
+import json
 import os
 import shutil
+import struct
 import sys
 import tempfile
+import zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -267,16 +272,25 @@ def main():
              '13th Gen Intel Core i7-13700K')):
         check('the CPU name %s tidies' % want, vp.tidy_cpu_name(raw) == want,
               vp.tidy_cpu_name(raw))
+    # A stand-in the patcher takes for the PowerVR build, so this runs in CI.
+    # The real file, if there is one, is only for applying it.
     pvr = None
     if game:
         pvr, source = selftest.pristine(os.path.join(game, 'vonpvr.exe'), vp)
-    if pvr is not None:
-        from tkinter import filedialog
-        path = os.path.join(tmp, 'vonpvr.exe')
-        with open(path, 'wb') as fh:
-            fh.write(pvr)
-        pick = filedialog.askopenfilename
-        filedialog.askopenfilename = lambda **_kw: path
+    stand_in = bytearray(0x200)
+    struct.pack_into('<I', stand_in, 0x3c, 0x80)
+    stand_in[0x80:0x84] = b'PE\0\0'
+    struct.pack_into('<I', stand_in, 0x88, vp.PVR.stamp)
+    vp.BUILDS[hashlib.md5(bytes(stand_in)).hexdigest()] = vp.PVR
+    from tkinter import filedialog
+    pvr_dir = os.path.join(tmp, 'pvr')
+    os.makedirs(pvr_dir)
+    path = os.path.join(pvr_dir, 'vonpvr.exe')
+    with open(path, 'wb') as fh:
+        fh.write(stand_in)
+    pick = filedialog.askopenfilename
+    filedialog.askopenfilename = lambda **_kw: path
+    if True:                            # keeps the block's indent
         try:
             buttons['Browse\u2026'][-1].invoke()
             pump()
@@ -318,13 +332,110 @@ def main():
             # ---- sgl.dll, which the game cannot start without ---------
             check('a missing sgl.dll is flagged where it installs',
                   note_says('does not start without sgl.dll'))
-            shutil.copy(os.path.join(game, 'escrgame.bin.bak'),
-                        os.path.join(tmp, 'escrgame.bin'))
-            del shown[:]
-            root.after(20, answer, 'Not now')
-            buttons['Apply patches'][0].invoke()
-            check('Apply offers to install it, and it can be declined',
-                  shown and not os.path.exists(os.path.join(tmp, 'sgl.dll')))
+
+            # ---- the add-ons' installs, with a server of our own ---------
+            def row_button(name):
+                for w in walk(root):
+                    if isinstance(w, ttk.Button) and text_of(w) in (
+                            'Install', 'Remove'):
+                        line = w.grid_info().get('row')
+                        for cell in w.master.winfo_children():
+                            if cell.grid_info().get('row') == line and any(
+                                    name in text_of(x) for x in walk(cell)
+                                    if isinstance(x, ttk.Label)):
+                                return w
+                return None
+
+            def archive(*names):
+                blob = io.BytesIO()
+                with zipfile.ZipFile(blob, 'w') as zf:
+                    for name in names:
+                        zf.writestr(name, b'stand-in ' + name.encode())
+                return blob.getvalue()
+
+            class Reply(io.BytesIO):
+                headers = {'Content-Length': '0'}
+
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, *_exc):
+                    self.close()
+
+            failure = [None]
+
+            def serve(req, timeout=30):
+                if failure[0]:
+                    raise failure[0]
+                url = req.full_url
+                if url == vp.SGL_API:
+                    return Reply(json.dumps({'tag_name': 'v9', 'assets': [{
+                        'name': 'w.zip', 'browser_download_url': 'https://stand-in/sgl.zip'
+                    }]}).encode())
+                if url.endswith('sgl.zip'):
+                    return Reply(archive('w/sgl.dll', 'w/readme.txt'))
+                return Reply(archive('ddraw.dll'))
+
+            def settled(btn):
+                for _ in range(300):
+                    pump(10)
+                    if not btn.instate(['disabled']):
+                        return True
+                return False
+
+            urlopen, vp._urlopen = vp._urlopen, serve
+            try:
+                for name, dll in (('Windowing', 'ddraw.dll'),
+                                  ('PowerVR renderer', 'sgl.dll')):
+                    btn = row_button(name)
+                    dest = os.path.join(pvr_dir, dll)
+                    for exc, says, how in (
+                            (OSError('no route'), 'Download failed.',
+                             'a failed download'),
+                            (PermissionError('in use'), 'in use', 'a locked file')):
+                        failure[0] = exc
+                        btn.invoke()
+                        check('%s: %s comes back' % (dll, how), settled(btn))
+                        check('%s: %s is said, and nothing written' % (dll, how),
+                              not os.path.exists(dest)
+                              and text_of(btn) == 'Install'
+                              and (how != 'a failed download' or note_says(says)),
+                              text_of(btn))
+                    failure[0] = None
+                    btn.invoke()
+                    check('%s: it installs' % dll, settled(btn)
+                          and os.path.exists(dest) and text_of(btn) == 'Remove')
+                    btn.invoke()
+                    pump()
+                    check('%s: and removes' % dll, not os.path.exists(dest)
+                          and text_of(btn) == 'Install')
+                failure[0] = OSError('no route')
+                check('--sgl says a failed download',
+                      'failed' in str(vp.sgl_cli([pvr_dir])))
+                check('--ddraw says a failed download',
+                      'failed' in str(vp.ddraw_cli([pvr_dir])))
+                failure[0] = None
+            finally:
+                vp._urlopen = urlopen
+
+            # ---- applying it needs the real file ----------------------
+            if pvr is not None:
+                real_dir = os.path.join(tmp, 'pvr-real')
+                os.makedirs(real_dir)
+                real = os.path.join(real_dir, 'vonpvr.exe')
+                with open(real, 'wb') as fh:
+                    fh.write(pvr)
+                shutil.copy(os.path.join(game, 'escrgame.bin.bak'),
+                            os.path.join(real_dir, 'escrgame.bin'))
+                filedialog.askopenfilename = lambda **_kw: real
+                buttons['Browse\u2026'][-1].invoke()
+                pump()
+                del shown[:]
+                root.after(20, answer, 'Not now')
+                buttons['Apply patches'][0].invoke()
+                check('Apply offers to install it, and it can be declined',
+                      shown and not os.path.exists(
+                          os.path.join(real_dir, 'sgl.dll')))
         finally:
             filedialog.askopenfilename = pick
 

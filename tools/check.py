@@ -94,7 +94,7 @@ CHECKS = [
       'tools/uibuild.py', 'tools/hiresport.py', 'tools/vonpatcher_hires.py',
       'tools/rvload.py', 'tools/uiemu.py', 'tools/portaudit.py',
       'tools/assets.py', 'tools/map.py', 'tools/portraits.py',
-      'tools/portraittest.py', 'net/rendezvous.py'], False,
+      'tools/portraittest.py', 'tools/pvrrig.py', 'net/rendezvous.py'], False,
      False),
     ('map', 'docs/MAP.md region table matches the script',
      [PY, 'tools/map.py', '--check'], False, False),

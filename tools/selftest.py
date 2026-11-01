@@ -19,6 +19,7 @@ import importlib.util
 import itertools
 import os
 import random
+import struct
 import sys
 
 # MD5 of the original with every patch applied. Update deliberately, and only
@@ -170,6 +171,29 @@ def port_identity(vp, original):
     return '%d sites, identity' % len(moved)
 
 
+def pvr_loader_check(vp, patched):
+    """The rules the PowerVR machine select's loader change has to keep: every
+    use of the old table and lists is gone, every row's shift and loop moved, the
+    lists fit the rows, and the clears still fit a signed byte."""
+    P, text = vp.PVR, patched[0x400:0x400 + 0x1f7800]
+    for old in list(range(0x825548, 0x825584, 4)) + [
+            0x1d2cf30, 0x1d2cf34, 0xb7c920, 0xb7c924]:
+        if struct.pack('<I', old) in text:
+            return 'still refers to 0x%x' % old
+    code = bytes(patched[P.off(0x57f03f):P.off(0x580172)])
+    for reg in range(0xe0, 0xe8):
+        if bytes((0xc1, reg, 0x04)) in code:
+            return 'a row is still 16 bytes'
+    cap = {patched[P.off(0x5c9be9)], patched[P.off(0x41e319)]}
+    slots = {patched[P.off(a)] for a in vp.PVR_LOADER_LOOPS}
+    if len(cap) != 1 or slots != {cap.pop() + 1}:
+        return 'the lists do not fit the rows: %s' % slots
+    clears = {patched[P.off(a)] for a in (0x57faf2, 0x57fc1a, 0x5800a6, 0x58018a)}
+    if clears != {0x7c} or min(slots) * 4 + 3 * 0x20 > 0x7c:
+        return 'the clears do not fit: %s' % clears
+    return 'as laid out'
+
+
 def main(path):
     vp = load_patcher()
     original, read = pristine(path, vp)
@@ -239,6 +263,11 @@ def main(path):
             print('F4 table: %s' % note)
             if not note.endswith('entries') and 'no table' not in note:
                 bad += 1
+            if build is vp.PVR:
+                note = pvr_loader_check(vp, result)
+                print('machine select loader: %s' % note)
+                if note != 'as laid out':
+                    bad += 1
             if build.md5 == vp.ORIGINAL_MD5:
                 note = port_identity(vp, original)
                 print('port identity: %s' % note)

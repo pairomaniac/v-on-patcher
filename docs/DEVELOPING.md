@@ -124,7 +124,7 @@ those patches, and `uiemu` runs on the retail exe only.
 | `net` | `net/dpctrl.dll` was built from the current `net/dpctrl.c`, by hash - two mingw versions do not produce identical bytes - and is the file `v-on-patcher.py` expects |
 | `portraits` | `portraits.py --check`: the bosses' select portraits in `v-on-patcher.py` are what `assets/portrait_*.png` bake to. Without Pillow it says so and passes, having tested nothing; CI has Pillow |
 | `disc` | `disctest.py`: the disc reader, on ISO9660 images the test builds itself - one per sector layout, plus a cue that names the wrong one. Extraction is byte-exact, the `ssp.ini` rules give the retail and OEM file lists, and every refusal names what is wrong. Needs no game and no disc, so CI runs it |
-| `gui` | `guitest.py`: the window, opened under xvfb and driven without its loop - which button is offered for which source, that a copy holds both down until it finishes, and that the two columns end level whatever is open. None of these raise on their own, so each asserts the property. Needs a display; with none it skips and prints a note rather than passing quietly |
+| `gui` | `guitest.py`: the window, opened under xvfb and driven without its loop - which button is offered for which source, the PowerVR warning and renderer prompt on a stand-in file, both add-ons' installs and failures against a stand-in server, that a copy holds both down until it finishes, and that the two columns end level whatever is open. None of these raise on their own, so each asserts the property. Needs a display; with none it skips and prints a note rather than passing quietly |
 | `lint` | pyflakes |
 | `map` | `map.py --check`: the region table in MAP.md matches the script's line numbers; `map.py --write` regenerates it |
 | `tree` | nothing regenerated was left uncommitted. Skipped outside CI, where it would fail on every edit in progress |
@@ -317,6 +317,11 @@ tools/vo-dll.sh build
 tools/vo-dll.sh install               # or install /other/folder
 tools/vo-dll.sh restore
 ```
+
+`tools/pvrrig.py` runs the PowerVR build through a scripted scene on a hidden
+display, with its own Wine prefix and links to the install, and reports black and
+flat-colour frames from a 60 FPS capture. A clean capture is not proof: 2P's view of
+the select is out of its reach, and it has missed what a player sees.
 
 `tools/vo-dbg.sh` is gdb on the running game: interactive, or one of
 pixel / watch / break / read / cmd for a question answered in one go (who
