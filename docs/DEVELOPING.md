@@ -263,7 +263,8 @@ skips the rest, and what the map cannot place goes in `HAND` in
 `ANNEX_BLOBS` plus any blob only it carries, like the PowerVR F5 template,
 so the layout matches; `build_blobs()` names the blobs it links, those its
 patches write. A blob a ported patch cannot use on it goes in `without=`,
-with its hook sites `None` in `HAND`.
+with its hook sites `None` in `HAND`. A `v_on.ini` value the build has no
+way to set in the game goes in `fixed_ini=`.
 
 Two things to check by eye before anyone runs it. A site placed by its
 bytes may be in the wrong function: ten bytes of `cmp [ebp-8], 0x1a; jge`

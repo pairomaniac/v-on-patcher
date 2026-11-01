@@ -139,7 +139,8 @@ Then put the `.cue` in **Source**. On Linux a drive can also go straight in
 
 The install copies the game directory and the chosen manual, nothing else.
 No `v_on.ini` is written: the game makes its own on first run, and with
-**Better defaults** applied it is a good one. How the copy rules are read
+**Better defaults** applied it is a good one. The PowerVR version is the
+exception; see [Builds](#builds). How the copy rules are read
 off the disc is in [NOTES.md](docs/NOTES.md#installing-from-a-disc-image).
 
 ## What the patches do
@@ -669,7 +670,12 @@ Without No disc required it checks for the disc: a drive Windows sees as a
 CD-ROM, with `V_ON\VONPVR.EXE` on it. It draws through `sgl.dll`, which came
 with the card's driver and is not on the disc. Without the card,
 [pvr-sgl-wrapper](https://github.com/z2k-retro/pvr-sgl-wrapper) 0.1 runs it
-under Wine and Proton, with the robots drawn black during matches.
+under Wine and Proton.
+
+Its F5 page has no Texture option, and with no Texture value in `v_on.ini`
+the robots are drawn untextured, as black shapes. So installing it writes a
+`v_on.ini` with `Texture=7` and nothing else, and when the gamepad patch
+moves `v_on.ini` aside the new one gets the same value.
 
 ### What gets written
 

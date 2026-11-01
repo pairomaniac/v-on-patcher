@@ -2802,7 +2802,7 @@ class Build(object):
     def __init__(self, name, short, md5, size, stamp, sections, caves,
                  symbols, art, sites=None, annex=None, own=None,
                  patches=None, reasons=None, note=None, exe='v_on.exe',
-                 without=None):
+                 without=None, fixed_ini=None):
         # the name on screen, and a word for a label or a log line
         self.name, self.short = name, short
         self.md5, self.size = md5, size
@@ -2838,6 +2838,9 @@ class Build(object):
         # Blobs a patch it takes goes without here: their sites are skipped
         # and they are not linked. The hooks that call them map to None.
         self.without = tuple(without or ())
+        # [Option] values v_on.ini must hold for this build, set whenever
+        # the patcher installs it or moves its v_on.ini aside (fix_ini)
+        self.fixed_ini = dict(fixed_ini or {})
         # A line worth knowing about the build, said where it is identified
         self.note = note
         self.exe = exe                  # the game's file name in its folder
@@ -4617,7 +4620,10 @@ PVR = Build('PowerVR', 'pvr', PVR_MD5, PVR_SIZE, 0x33b3b0ae, sections=(
     note=PVR_NOTE, exe='vonpvr.exe',
     # HOLD TO SKIP over the credits: the pre-flip call retail hooks has no
     # every-frame counterpart found here yet, so the skip goes without it
-    without=('OVERLAY',))
+    without=('OVERLAY',),
+    # Its F5 page has no Texture boxes, so nothing in the game can turn the
+    # robots' textures on; with no value they are off, and drawn black.
+    fixed_ini={'Texture': '7'})
 
 BUILDS = {RETAIL.md5: RETAIL, JPRE.md5: JPRE, OEM.md5: OEM,
           JP.md5: JP, PVR.md5: PVR}
@@ -4648,6 +4654,43 @@ def build_blobs(build, blobs=None):
     if 'debugbox' in build.patches:
         out.add('VOXT')             # linked when the template is appended
     return out
+
+
+def fix_ini(folder, build):
+    """Set the build's fixed [Option] values in the v_on.ini in folder,
+    writing the file if there is none. Every other line is kept as it is;
+    the game fills in the rest on its first run. Returns the keys set."""
+    if not build.fixed_ini:
+        return []
+    path = os.path.join(folder, 'v_on.ini')
+    try:
+        with open(path, 'rb') as fh:
+            lines = fh.read().decode('latin-1').splitlines()
+    except FileNotFoundError:
+        lines = []
+    for key, value in build.fixed_ini.items():
+        line = '%s=%s' % (key, value)
+        at = [i for i, l in enumerate(lines)
+              if l.split('=', 1)[0].strip().lower() == key.lower()]
+        if at:
+            for i in at:
+                lines[i] = line
+            continue
+        sect = [i for i, l in enumerate(lines)
+                if l.strip().lower() == '[option]']
+        if sect:
+            lines.insert(sect[0] + 1, line)
+        else:
+            lines += ['[Option]', line]
+    with open(path, 'wb') as fh:
+        fh.write(('\r\n'.join(lines) + '\r\n').encode('latin-1'))
+    return list(build.fixed_ini)
+
+
+def build_for_exe(name):
+    """The build whose game file has this name, if only one does."""
+    found = [b for b in BUILDS.values() if b.exe == name.lower()]
+    return found[0] if len(found) == 1 else None
 
 
 def unsupported(build, key):
@@ -20556,6 +20599,12 @@ def install_disc(cue_path, dest, language=None, progress=None):
         #
         # Both files are copied as the disc has them, so the settings are
         # not lost, and the game writes its own v_on.ini on first run.
+        #
+        # The exception is a value the game offers no way to set: the
+        # PowerVR build's Texture. That one file holds it alone.
+        build = build_for_exe(plan.exe)
+        if build and fix_ini(dest, build):
+            written.append('v_on.ini')
         return written
     finally:
         track.close()
@@ -22020,6 +22069,16 @@ class Patcher:
             log.append('patch: could not move v_on.ini - %s, delete it by '
                        'hand'
                        % exc)
+            return
+        # what the build must have even in a fresh one; see fix_ini
+        try:
+            keys = fix_ini(os.path.dirname(self.exe_path), self.build)
+        except OSError as exc:
+            log.append('patch: could not write v_on.ini - %s' % exc)
+            return
+        if keys:
+            log.append('patch: wrote v_on.ini with %s set'
+                       % ', '.join(keys))
 
     @staticmethod
     def _backup(path, log):

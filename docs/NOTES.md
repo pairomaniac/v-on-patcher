@@ -224,7 +224,8 @@ patches write are linked for it (`build_blobs`).
   (`0x498178`) runs only behind a toggle the window procedure flips on a
   Shift key, so the build goes without the overlay (`Build.without`).
 
-It reads and writes `v_on.ini`, not the `VONPVR.INI` its `ssp.ini` names.
+It reads and writes `v_on.ini`, not the `VONPVR.INI` its `ssp.ini` names,
+and the patcher keeps `Texture=7` in it; see *Why no v_on.ini* above.
 Its disc check (`0x49828e`) takes the first drive Windows reports as a
 CD-ROM with `V_ON\VONPVR.EXE` in its root; it reads no label. It ships the
 same `dpctrl.dll` as the other builds, byte for byte, so the netplay DLL
@@ -262,6 +263,13 @@ wins over the default in the code - so a freshly installed and patched game
 would run at a third speed. Both files are copied as the disc has them and no
 `v_on.ini` is written; the game writes its own on first run, against whatever
 defaults are patched in.
+
+The PowerVR build is the exception. Its F5 page has no Texture boxes, and the
+game's default for a missing `Texture` is all three off, which draws the
+robots untextured and black. Both of its disc's presets say `Texture=7`. The
+install writes a `v_on.ini` holding that one line (`Build.fixed_ini`,
+`fix_ini`), and the gamepad patch, which moves `v_on.ini` aside, writes it
+into the new file too.
 
 ### What setup.exe writes that the game reads
 

@@ -546,9 +546,33 @@ def main():
         dest = os.path.join(tmp, 'game-pvr')
         vp.install_disc(pvr, dest, 'ENGLISH')
         check('pvr file list',
-              sorted(os.listdir(dest)) == ['dpctrl.dll', 'von.hlp',
-                                           'vonpvr.exe'],
+              sorted(os.listdir(dest)) == ['dpctrl.dll', 'v_on.ini',
+                                           'von.hlp', 'vonpvr.exe'],
               sorted(os.listdir(dest)))
+        # Its F5 page has no Texture boxes, so the install sets the value
+        # and writes nothing else into the file.
+        with open(os.path.join(dest, 'v_on.ini'), 'rb') as fh:
+            check('pvr v_on.ini holds Texture alone',
+                  fh.read() == b'[Option]\r\nTexture=7\r\n')
+        # An existing file keeps its other lines; the value is replaced.
+        ini = os.path.join(dest, 'v_on.ini')
+        with open(ini, 'wb') as fh:
+            fh.write(b'[View]\r\nSky=On\r\n[Option]\r\nTexture=0\r\n'
+                     b'Motion=2\r\n')
+        vp.fix_ini(dest, vp.PVR)
+        with open(ini, 'rb') as fh:
+            check('fix_ini replaces the value and keeps the rest',
+                  fh.read() == b'[View]\r\nSky=On\r\n[Option]\r\n'
+                               b'Texture=7\r\nMotion=2\r\n')
+        with open(ini, 'wb') as fh:
+            fh.write(b'[View]\r\nSky=On\r\n')
+        vp.fix_ini(dest, vp.PVR)
+        with open(ini, 'rb') as fh:
+            check('fix_ini adds the section when there is none',
+                  fh.read() == b'[View]\r\nSky=On\r\n[Option]\r\n'
+                               b'Texture=7\r\n')
+        check('and does nothing for a build without fixed values',
+              vp.fix_ini(dest, vp.RETAIL) == [])
 
         # .mds refusals, each a sentence rather than a wrong rip.
         for label, kwargs, words in (
