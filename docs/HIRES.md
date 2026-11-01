@@ -106,7 +106,7 @@ Limits of the canvas: OFF_PITCH is 2048 bytes, so the pre-3D canvas is
 capped at 1024 px wide (2.13:1; a wider viewport gets a centred canvas
 and its outer columns untouched), and the patcher refuses widths over
 2040 because the coverage-mask stride is an 8-bit immediate. Neither
-has been exercised past 16:9; see *Queued work*.
+has been exercised past 16:9; see *Wider than 16:9*.
 
 Rules tried at pixel level before the map was read, on record:
 
@@ -640,6 +640,10 @@ over the twelve degrees inside that edge instead of drawing it lit. The
 PRESS BUTTON and MACHINE SELECT words on that screen are sprites, not
 text.
 
+Machines pop in at the edges on 2P's full machine select, as played on retail. The
+second renderer has its own copy of the window, at file 0x21dec0 (read at 0x584cf2),
+which the patch leaves stock.
+
 ### The match HUD and the enemy marker
 
 Angles in the game code are 16-bit binary angles (0x10000 a turn).
@@ -679,8 +683,8 @@ Not the marker, though they read the same way:
   bearing per quadrant;
 - 0x4c5772's 0x1000/0x2000 buckets at 0x4c692f quantise a heading into
   stick directions;
-- 0x57f1b0 and 0x5829c3 are two of the four phase drivers of scene 0xc
-  (see *Queued work*), whose four 0x4a729f quads are the iris wipe;
+- 0x57f1b0 and 0x5829c3 are two of the four phase drivers of scene 0xc,
+  whose four 0x4a729f quads are the iris wipe;
   first read as the demo and tutorial, but neither runs in either (the
   readout).
 
@@ -847,29 +851,14 @@ tiles at the 640 step, which is not attempted. Also open: in the SEGA
 card phase after the roll both the stars and the moon are cut at about
 row 950 of 1080, under a band in stock.
 
-## Queued work
+## Wider than 16:9
 
-- **The rest of the HUD at 16:9.** The spread moves the top band and
-  the TOTAL time; the weapon strips and the distance digits keep their
-  4:3 places.
-- **A per-layout marker window.** The x bounds and the bearing window
-  are baked for the 1P view; split viewports want their own, keyed on
-  D_LAYOUT like the split FOV factors. Needs the two compare pairs to
-  read section data instead of immediates.
-- **The pass list after the cut.** Six entries remain (*The pass
-  functions*). One check still owed with the readout on: the F5
-  settings toggled once - Field Graphic Normal, Sky and the Texture
-  boxes off, the top/bottom split - in case a setting selects a
-  different draw path.
-- **JPRE, OEM and JP on video.** The three tables ship after lessons 6
-  and 7; none has had the retail build's hours of play yet.
-- **Wider than 16:9.** Untested and partly blocked. The limits: width
-  2040 (the mask stride immediates); the 1024-px canvas (OFF_PITCH and
-  the cap in pre; the guard/copy layout in UI_OFF_SIZE follows it);
-  1440p and up generally; and on the game's side the enemy marker window
-  and the hangar's angle window, sized from the width but only checked
-  at 16:9. The credits star grid takes its column
-  count from the aspect and is untested past 16:9.
+This is untested and partly blocked. The limits are width 2040 (the mask stride
+immediates), the 1024-px canvas (OFF_PITCH and the cap in pre, with the guard/copy
+layout in UI_OFF_SIZE following it), and 1440p and up generally. The enemy marker
+window and the hangar's angle window are sized from the width, but only checked at
+16:9. The credits star grid takes its column count from the aspect and is untested
+past 16:9.
 
 ## The PowerVR build
 
@@ -990,7 +979,8 @@ the differences follow from that order.
   has no slot and drew in flat, wrong colours, so it is not drawn (`0x5c9bea`). The
   second renderer, for 2P's view of the select, has its own window (`0x5fc148`), draw
   (`0x41e2d3`) and list (`0xb7c920`), treated the same. The other builds' fade is left
-  out.
+  out. The loader has 8 memory blocks for machines; two full lists would exceed them,
+  and no problem from that has been seen.
 - **Sites placed by hand.** `PVR_UI` holds the blob's addresses, from the map where
   it has one and otherwise by alignment or callees: renderer B's setups and submit
   (`0x4a084d`, `0x4a088e`, `0x4a0976`), the HUD passes (`0x435b36`, `0x474906`,
@@ -998,7 +988,7 @@ the differences follow from that order.
   matrix pointer). `hiresport.py` stops at the coverage mask, so it does not run
   on this build.
 
-The lock-on line patch is not ported (see NOTES.md).
+The lock-on line patch is not needed here (see NOTES.md).
 
 ### What has been seen
 
@@ -1038,7 +1028,8 @@ Not tried: a real PowerVR card and Windows.
 The window's recommendation of 4,000 is an estimate between those two. In a round
 under Wine on the 9800X3D, the game used about 370% of a thread at 1024x576 and
 about 210% at 640x480. About 18% of real time went to the wrapper's single-threaded
-`pcxr_prepare` and `plane_q`, and about 6% to the blob.
+`pcxr_prepare` and `plane_q`, and about 6% to the blob. The cost of the machine
+select's extra machines has not been measured.
 
 ## Per-build facts worth keeping
 

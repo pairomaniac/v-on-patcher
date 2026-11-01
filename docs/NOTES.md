@@ -171,10 +171,9 @@ patches write are linked for it (`build_blobs`).
 
 - **Processor check**: none. The `ProcessorCheck` keys are not in the
   file.
-- **Lock-on line**: not ported. Its software renderer has one projection
-  value, read by 52 divides, where retail has two renderers with 17 each,
-  so retail's sites do not map onto it. Whether the grey band appears in
-  this build has not been seen.
+- **Lock-on line**: not needed, as played. Its software renderer has one
+  projection value, read by 52 divides, where retail has two renderers with 17
+  each, so retail's sites do not map onto it.
 - **Round loss**: the same ten blocks in the same order, reading through
   `[ebp-0x14]` where retail reads `[ebp-4]`. Unpatched, a time-out loss
   crashes at `0x46698c`, in the seventh.

@@ -4953,7 +4953,8 @@ PVR = Build('PowerVR', 'pvr', PVR_MD5, PVR_SIZE, 0x33b3b0ae, sections=(
     sites=None, annex=ANNEX_BLOBS + ('F5_PVR', 'PVRWIDE'),
     patches=('framerate', 'continuefix', 'dinput', 'activate', 'sound',
              'defaults', 'nodisc', 'debugbox', 'movie', 'padxinput', 'hires'),
-    reasons={'nocpucheck': 'the PowerVR build has no processor check'},
+    reasons={'nocpucheck': 'the PowerVR build has no processor check',
+             'lockline': 'the PowerVR build does not need this fix'},
     note=PVR_NOTE, exe='vonpvr.exe',
     # HOLD TO SKIP over the credits: the pre-flip call retail hooks has no
     # every-frame counterpart found here yet, so the skip goes without it

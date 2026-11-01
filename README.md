@@ -696,9 +696,16 @@ renderer](#powervr-renderer-pvr-sgl-wrapper) add-on unless you have the card.
 Redump has not verified its disc. The only known dump is on the Internet
 Archive.
 
-It takes every patch except **Playable bosses**, whose row is greyed out. The
-ending credits can be skipped, but HOLD TO SKIP is not drawn. Internet play
-works, including against the other versions.
+It does not have:
+
+- **Playable bosses** and **Pre-unlock the bosses**.
+- **Version and credit in the game**.
+- **HOLD TO SKIP**. The ending credits can still be skipped, but the prompt is
+  not drawn.
+
+Their rows are greyed out. **Fix the lock-on line** is greyed out too, because
+this version does not need it. Internet play works, including against the other
+versions.
 
 **Native widescreen** renders at 1024x576, because the card stops at 1024 pixels
 wide. Its row starts unticked, because 60 FPS at this size needs a fast CPU: a
@@ -709,7 +716,7 @@ FPS on F5 or leave the patch off.
 <img src="assets/readme/powervr-widescreen-warning.png" alt="The warning shown when ticking Native widescreen on the PowerVR version" height="258" />
 
 It runs on Proton without [cnc-ddraw](#windowing-and-scaling-cnc-ddraw); if the
-game cannot set the mode, add cnc-ddraw. Windows has not been tried.
+game cannot set the mode, add cnc-ddraw.
 
 **Screen Split** on F5 offers **Ver** and **Hor**. F5 has no **Screen** row, and
 F4 stays the game's PVR Settings.
@@ -775,10 +782,15 @@ python3 v-on-patcher.py --selfcheck          # validate the patch tables
 
 ## Known issues
 
-- **Widescreen machine select** - the hangar floor does not reach the
-  bottom left corner. Cosmetic only.
-  - One player, after a continue on a space stage: a slice of stars.
-  - Two players, 2P's full machine select: black.
+- **Widescreen machine select** - cosmetic only.
+  - The hangar floor does not reach the bottom left corner. After a continue on
+    a space stage in one player, the gap shows a slice of stars. On 2P's full
+    machine select it is black, on every version.
+  - On 2P's full machine select, machines pop in at the edges of the view on the
+    four `v_on.exe` versions.
+- **PowerVR version** - 60 FPS at 1024x576 needs a fast CPU; see
+  [The PowerVR version](#the-powervr-version). It has not been tried on Windows
+  or on a real PowerVR card.
 - **Playable bosses** - the CPU's Z-Gradt may get stuck at the arena's
   edge, and its movement and attacks can differ from the unpatched game.
   Under investigation.
