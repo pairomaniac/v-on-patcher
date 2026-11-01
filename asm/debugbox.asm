@@ -50,6 +50,9 @@ extern F11WRAP                  ; asm/f11pause.asm
 extern GAMEMODE                 ; 2 during a network match, when every F-key
                                 ; command handler returns before doing
                                 ; anything; so does this
+extern DLGOK                    ; and the two tests F5 to F8 make before
+extern DLGBUSY                  ; theirs: () -> 0 when no dialog may open,
+                                ; the intro among them, and bit 0 set
 
 ; ----------------------------------------------------------------
 ; Window procedure hook. Everything except F11 goes on to the original.
@@ -63,6 +66,11 @@ hook:
     jne     .pass
     cmp     dword [GAMEMODE], 2         ; a network match: as F5 to F8
     je      .pass
+    call    DLGOK                       ; no dialog now: as F5 to F8. On the
+    test    eax, eax                    ; PowerVR build there are no surfaces
+    je      .pass                       ; to pause over in the intro
+    test    byte [DLGBUSY], 1
+    jne     .pass
 
     ; DialogBoxIndirectParamA is not in the import table, so it is fetched.
     push    USER32

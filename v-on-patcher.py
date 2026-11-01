@@ -2972,6 +2972,8 @@ RETAIL = Build('English retail', 'retail', ORIGINAL_MD5, EXE_SIZE,
     'GPAUSE': 0x005c67c5,          # the built-in dialogs' pause, arg 0
     'GRESUME': 0x005c680b,         # and their resume
     'GAMEMODE': 0x006bc94c,        # loop mode: 1 two players, 2 network
+    'DLGOK': 0x005c54a0,         # () -> 0 when no F-key dialog may open
+    'DLGBUSY': 0x006bc598,       # bit 0: nor then
     'MODE2': 0x01ef8a90,           # 2P state machine's mode; ticks in mode 1
     'PENDING': 0x0365cb9c,         # a recreate owed
     'RETADDR': 0x0365cba0,         # where one returns to
@@ -3360,6 +3362,8 @@ JPRE = Build('Japanese rerelease', 'jpre', JPRE_MD5, JPRE_SIZE, 0x345107fa,
     'GPAUSE': 0x005c1094,          # the built-in dialogs' pause, arg 0
     'GRESUME': 0x005c10da,         # and their resume
     'GAMEMODE': 0x006b86ac,        # loop mode: 1 two players, 2 network
+    'DLGOK': 0x005bfd40,         # () -> 0 when no F-key dialog may open
+    'DLGBUSY': 0x006b82f8,       # bit 0: nor then
     'MODE2': 0x01ef4230,           # 2P state machine's mode; ticks in mode 1
     'PENDING': 0x036577fc,
     'RETADDR': 0x03657800,
@@ -3748,6 +3752,8 @@ OEM = Build('USA OEM', 'oem', OEM_MD5, OEM_SIZE, 0x3317246a, sections=(
     'GPAUSE': 0x005c62de,   # func
     'GRESUME': 0x005c6324,   # func
     'GAMEMODE': 0x006bc8e4,        # loop mode: 1 two players, 2 network
+    'DLGOK': 0x005c4f70,         # () -> 0 when no F-key dialog may open
+    'DLGBUSY': 0x006bc530,       # bit 0: nor then
     'MODE2': 0x01ef8a20,           # 2P state machine's mode; ticks in mode 1
     'PENDING': 0x0365cb1c,
     'RETADDR': 0x0365cb20,
@@ -4128,6 +4134,8 @@ JP = Build('Japanese original', 'jp', JP_MD5, JP_SIZE,
     'GPAUSE': 0x005c56ae,   # func
     'GRESUME': 0x005c56f4,   # func
     'GAMEMODE': 0x006bb644,        # loop mode: 1 two players, 2 network
+    'DLGOK': 0x005c4340,         # () -> 0 when no F-key dialog may open
+    'DLGBUSY': 0x006bb290,       # bit 0: nor then
     'MODE2': 0x01ef75b0,           # 2P state machine's mode; ticks in mode 1
     'PENDING': 0x0365b6dc,
     'RETADDR': 0x0365b6e0,
@@ -5952,36 +5960,38 @@ BLOBS = {
         'procname': 0x2e,
     }),
     'DEBUGBOX': (bytes.fromhex(
-        '5589e553817d0c00010000753b817d107a0000007532833d0000000002742968'
-        '00000000ff1500000000680000000050ff150000000085c0740789c3e8fcffff'
-        'ff31c05b5dc210005b5de9fcffffff5589e55356578b450c3d100100007532ff'
-        '7508e8fcffffff31ff8d475250ff7508ff15000000008d14bd00000000526a00'
-        '6a0c50ff15000000004783ff0272daeb453d1101000075450fb74d108d51ae83'
-        'fa01763283f902740d83f954740881f9419c000075308b5508e8eaeaeaea85c0'
-        '74146a00516811010000ff3500000000ff1500000000b801000000eb0231c05f'
-        '5e5b5dc2100083f9517518833d0000000004750d6a1f8f0500000000e8fcffff'
-        'ffebd3ebbd'
+        '5589e553817d0c00010000754d817d107a0000007544833d0000000002743be8'
+        'fcffffff85c07432f605000000000175296800000000ff150000000068000000'
+        '0050ff150000000085c0740789c3e8fcffffff31c05b5dc210005b5de9fcffff'
+        'ff5589e55356578b450c3d100100007532ff7508e8fcffffff31ff8d475250ff'
+        '7508ff15000000008d14bd00000000526a006a0c50ff15000000004783ff0272'
+        'daeb453d1101000075450fb74d108d51ae83fa01763283f902740d83f9547408'
+        '81f9419c000075308b5508e8eaeaeaea85c074146a00516811010000ff350000'
+        '0000ff1500000000b801000000eb0231c05f5e5b5dc2100083f9517518833d00'
+        '00000004750d6a1f8f0500000000e8fcffffffebd3ebbd'
     ), (
         (0x18, 'abs', 'GAMEMODE', 0),
-        (0x20, 'abs', 'USER32', 0),
-        (0x26, 'abs', 'LOADLIB', 0),
-        (0x2b, 'abs', 'DLGBOXPROC', 0),
-        (0x32, 'abs', 'GETPROC', 0),
-        (0x3d, 'rel', 'F11WRAP', -4),
-        (0x4b, 'rel', 'ORIGWNDPROC', -4),
-        (0x63, 'rel', 'F11CHECKS', -4),
-        (0x72, 'abs', 'GETDLGITEM', 0),
-        (0x79, 'abs', 'DZSTR1', 0),
-        (0x85, 'abs', 'SENDMSG', 0),
-        (0xcc, 'abs', 'HWND', 0),
-        (0xd2, 'abs', 'POSTMSG', 0),
-        (0xed, 'abs', 'MODE', 0),
-        (0xf8, 'abs', 'SUBMODE', 0),
-        (0xfd, 'rel', 'CDSTOP', -4),
+        (0x20, 'rel', 'DLGOK', -4),
+        (0x2a, 'abs', 'DLGBUSY', 0),
+        (0x32, 'abs', 'USER32', 0),
+        (0x38, 'abs', 'LOADLIB', 0),
+        (0x3d, 'abs', 'DLGBOXPROC', 0),
+        (0x44, 'abs', 'GETPROC', 0),
+        (0x4f, 'rel', 'F11WRAP', -4),
+        (0x5d, 'rel', 'ORIGWNDPROC', -4),
+        (0x75, 'rel', 'F11CHECKS', -4),
+        (0x84, 'abs', 'GETDLGITEM', 0),
+        (0x8b, 'abs', 'DZSTR1', 0),
+        (0x97, 'abs', 'SENDMSG', 0),
+        (0xde, 'abs', 'HWND', 0),
+        (0xe4, 'abs', 'POSTMSG', 0),
+        (0xff, 'abs', 'MODE', 0),
+        (0x10a, 'abs', 'SUBMODE', 0),
+        (0x10f, 'rel', 'CDSTOP', -4),
     ), {
         'hook': 0x0,
-        'dlgproc': 0x4f,
-        'credits': 0xe6,
+        'dlgproc': 0x61,
+        'credits': 0xf8,
     }),
     'PADX': (bytes.fromhex(
         '687c030000e81a01000083c404e9fcffffff68a4030000e80801000083c404e9'

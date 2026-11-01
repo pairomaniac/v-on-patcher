@@ -190,8 +190,8 @@ in [NOTES.md](docs/NOTES.md).
   Scorekeeping and Quit Game. **Credits** is new: it jumps to the credit
   roll from any match. With the gamepad patch on, F11 also sets each
   player's [stick deadzone](#stick-deadzone). Like the other F keys, it
-  does nothing during an internet match. Every other menu was already on a
-  key:
+  does nothing during an internet match or the intro. Every other menu was
+  already on a key:
 
     | Key | Opens |
     | --- | --- |

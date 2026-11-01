@@ -628,7 +628,10 @@ F11 because F9 disconnects a network game and F10 is a Windows system key.
 
 The dialog runs through `asm/f11pause.asm`, which wraps it in the same
 pause and resume calls the built-in F-key dialogs use, so the game and the
-music stop and restart around it identically.
+music stop and restart around it identically. Before that the hook makes
+the two tests F5 to F8 make: the game's own may-a-dialog-open check
+(`DLGOK`, `0x5c54a0` in retail) and bit 0 of `DLGBUSY` (`0x6bc598`), so F11
+does nothing wherever they do, the intro among them.
 
 Motion is not among them any more, the F5 page having taken it over.
 
