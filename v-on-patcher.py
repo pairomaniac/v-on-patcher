@@ -20593,10 +20593,10 @@ def rip_in_background(source, gamedir, progress, done):
 
 # --- netplay hashes: written by net/build.py, do not edit ---
 # Source: net/dpctrl.c, compiled by net/build.py.
-NETPLAY_SRC_SHA = 'b4e2bd8716663cbb9eb1636f74f4f0dc818b4892c8ff6971a5a41773334d2323'
+NETPLAY_SRC_SHA = '631f49b7a7408ae458ca0a0f15ba553b89b1a667da56fd2c66bb3f06ee6fd7a0'
 # sha256 of net/dpctrl.dll, so the patcher can tell its own build
 # from an older one already installed.
-NETPLAY_DLL_SHA = 'b9014dcaaba9a4a0654bd0b47434a65b7f954d56be9caae027e0674b6ec54551'
+NETPLAY_DLL_SHA = '8710228482f25e0ad89bd73b804a524fdd9e00dc41a9e66e61dc210f254cd410'
 # --- end netplay hashes ---
 
 NETPLAY_NAME = 'dpctrl.dll'
@@ -20656,10 +20656,11 @@ SYNC_SITES = {build.md5: ((site_in(0x0010afbe, build) + 6, 0x01),
 
 
 def netplay_sync_ready(gamedir):
-    """True if v_on.exe here has both simulation-affecting patches, False if
+    """True if the game here has both simulation-affecting patches, False if
     either is missing, None if the exe cannot be read (so: do not warn)."""
     try:
-        with open(os.path.join(gamedir, 'v_on.exe'), 'rb') as fh:
+        with open(game_exe(gamedir) or os.path.join(gamedir, 'v_on.exe'),
+                  'rb') as fh:
             data = fh.read()
     except OSError:
         return None
@@ -20698,11 +20699,6 @@ def install_netplay(gamedir):
     if not os.path.exists(path) and not os.path.exists(keep):
         raise ValueError('no %s here - is this the game folder?'
                          % NETPLAY_NAME)
-    # The DLL knows the four builds the patcher patches whole; the PowerVR
-    # one is not among them, and its matches have not been tried.
-    if (os.path.exists(os.path.join(gamedir, PVR.exe))
-            and not os.path.exists(os.path.join(gamedir, 'v_on.exe'))):
-        raise ValueError(NETPLAY_NOT_PVR)
     # Only ever keep a DLL that is not ours. Installing over our own copy
     # with the .stock one missing used to save that copy as the stock file,
     # and the game's own was then gone for good.
@@ -20712,9 +20708,6 @@ def install_netplay(gamedir):
     with open(path, 'wb') as f:
         f.write(netplay_dll())
     return path
-
-
-NETPLAY_NOT_PVR = 'Internet play does not work with the PowerVR build.'
 
 
 def remove_netplay(gamedir):

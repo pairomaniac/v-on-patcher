@@ -216,9 +216,12 @@ CD-ROM with `V_ON\VONPVR.EXE` in its root; it reads no label. It ships the
 same `dpctrl.dll` as the other builds, byte for byte, so the netplay DLL
 takes it with a row of its own in `fp_builds`.
 
-Tested under Wine 11 with pvr-sgl-wrapper 0.1: patched, a time-out loss
-reaches the continue screen instead of crashing, and F5 shows 30 FPS and
-60 FPS, selected from `Motion`. The two ALT+TAB fixes have not been tried.
+Tested under Wine 11 with pvr-sgl-wrapper 0.1, patched: a time-out loss
+reaches the continue screen instead of crashing; F5 shows 30 FPS and 60
+FPS, selected from `Motion`, and with no `v_on.ini` the new defaults; the
+game starts with no CD drive and opens the ripped tracks; F11 opens the
+Extras dialog, and does nothing during the intro; the credits skip. The
+two ALT+TAB fixes and an internet match have not been tried.
 
 ### Why no v_on.ini
 

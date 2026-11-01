@@ -40,10 +40,10 @@ is stale, so the line numbers are current.
 | 17720–18528 | banner and credit bitmaps, tile expansion | `LEVERS_CODE = link('LEVERS',` |
 | 18529–19597 | the patch table: `FEATURES`, `BY_KEY`, labels, tips, apply order | `FEATURES = [` |
 | 19598–20586 | ripping (`RAW = 2352`) and installing (`LOGICAL = 2048`) | `# --- ripping --------------` |
-| 20587–21447 | netplay setup, `SYNC_SITES`, cnc-ddraw, CD audio | `# --- netplay --------------` |
-| 21448–21972 | `Patcher`: reading a file, applying, restoring | `class Patcher:` |
-| 21973–22540 | the logo and icon (`tools/assets.py`), then the window strings | `# ASSETS BLOB BEGIN - tools/` |
-| 22541–24598 | the window (`run_tk`), the CLI, `main` | `def run_tk():` |
+| 20587–21440 | netplay setup, `SYNC_SITES`, cnc-ddraw, CD audio | `# --- netplay --------------` |
+| 21441–21965 | `Patcher`: reading a file, applying, restoring | `class Patcher:` |
+| 21966–22533 | the logo and icon (`tools/assets.py`), then the window strings | `# ASSETS BLOB BEGIN - tools/` |
+| 22534–24591 | the window (`run_tk`), the CLI, `main` | `def run_tk():` |
 <!-- REGIONS END -->
 
 ## 3. `v_on.exe`
