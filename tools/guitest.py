@@ -257,6 +257,65 @@ def main():
     check('an .mds is offered for the rip', enabled('Rip soundtrack'))
     check('and for the install', enabled('Install game'))
 
+    # ---- a patch the build warns about --------------------------------
+    for raw, want in (
+            ('AMD Ryzen 7 9800X3D 8-Core Processor', 'AMD Ryzen 7 9800X3D'),
+            ('AMD Ryzen 5 5600G with Radeon Graphics', 'AMD Ryzen 5 5600G'),
+            ('Intel(R) Core(TM) i5-12400F CPU @ 2.50GHz',
+             'Intel Core i5-12400F'),
+            ('13th Gen Intel(R) Core(TM) i7-13700K',
+             '13th Gen Intel Core i7-13700K')):
+        check('the CPU name %s tidies' % want, vp.tidy_cpu_name(raw) == want,
+              vp.tidy_cpu_name(raw))
+    pvr = None
+    if game:
+        pvr, source = selftest.pristine(os.path.join(game, 'vonpvr.exe'), vp)
+    if pvr is not None:
+        from tkinter import filedialog
+        path = os.path.join(tmp, 'vonpvr.exe')
+        with open(path, 'wb') as fh:
+            fh.write(pvr)
+        pick = filedialog.askopenfilename
+        filedialog.askopenfilename = lambda **_kw: path
+        try:
+            buttons['Browse\u2026'][-1].invoke()
+            pump()
+            box = [w for w in walk(root) if isinstance(w, ttk.Checkbutton)
+                   and text_of(w) == 'Native widescreen'][0]
+            shown = []
+
+            def answer(label):
+                """Press a button of the warning once it has opened."""
+                popups = [w for w in root.winfo_children()
+                          if isinstance(w, tk.Toplevel) and w.winfo_viewable()]
+                if not popups:
+                    root.after(20, answer, label)
+                    return
+                shown.append(True)
+                said = ' '.join(text_of(w) for w in walk(popups[0])
+                                if isinstance(w, ttk.Label))
+                check('the warning names the CPU and the chart',
+                      'Your CPU' in said and 'cpubenchmark.net' in said)
+                [w for w in walk(popups[0]) if isinstance(w, ttk.Button)
+                 and text_of(w) == label][0].invoke()
+
+            check('PowerVR widescreen starts unticked',
+                  not box.instate(['selected']))
+            root.after(20, answer, 'Leave it off')
+            box.invoke()
+            check('ticking it warns, and declining leaves it off',
+                  shown and not box.instate(['selected']))
+            root.after(20, answer, 'Turn it on')
+            box.invoke()
+            check('accepting ticks it', box.instate(['selected']))
+            del shown[:]
+            box.invoke()
+            pump(60)
+            check('unticking it does not warn',
+                  not shown and not box.instate(['selected']))
+        finally:
+            filedialog.askopenfilename = pick
+
     # ---- the layout --------------------------------------------------
     if inner.grid_size()[0] >= 2:
         columns = [c for c in inner.winfo_children() if isinstance(c, ttk.Frame)]

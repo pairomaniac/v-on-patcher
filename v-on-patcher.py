@@ -2993,7 +2993,7 @@ class Build(object):
     def __init__(self, name, short, md5, size, stamp, sections, caves,
                  symbols, art, sites=None, annex=None, own=None,
                  patches=None, reasons=None, note=None, exe='v_on.exe',
-                 without=None, fixed_ini=None):
+                 without=None, fixed_ini=None, cautions=None):
         # the name on screen, and a word for a label or a log line
         self.name, self.short = name, short
         self.md5, self.size = md5, size
@@ -3032,6 +3032,9 @@ class Build(object):
         # [Option] values v_on.ini must hold for this build, set whenever
         # the patcher installs it or moves its v_on.ini aside (fix_ini)
         self.fixed_ini = dict(fixed_ini or {})
+        # Patches that start unticked here, and the (title, text) to agree
+        # to before one is ticked
+        self.cautions = dict(cautions or {})
         # A line worth knowing about the build, said where it is identified
         self.note = note
         self.exe = exe                  # the game's file name in its folder
@@ -4647,6 +4650,44 @@ PVR_MD5 = '383d3bff66504954f84924a0b41dc3fa'
 PVR_SIZE = 8412672
 PVR_NOTE = ('vonpvr.exe draws through sgl.dll, which came with the PowerVR '
             'card\'s driver and is not on the disc.')
+PVR_WIDE_CAUTION = (
+    'Native widescreen needs a fast CPU',
+    'The PowerVR renderer draws on the CPU, and 60 FPS at 1024x576 is demanding.',
+    'PassMark single-thread rating of 4,000 or higher (estimate)',
+    'Set 30 FPS on F5, or leave this off')
+CPU_CHART = 'https://www.cpubenchmark.net/singleThread.html'
+
+
+def tidy_cpu_name(name):
+    """A processor's name as a benchmark list has it: no trademarks, clock
+    or core count."""
+    name = re.sub(r'\((?:R|TM)\)', '', name, flags=re.I)
+    name = re.sub(r'\s+(?:CPU\s+)?@.*$', '', name)
+    name = re.sub(r'\s+(?:with\s+Radeon.*|\d+-Core\s+Processor.*)$', '', name,
+                  flags=re.I)
+    return ' '.join(name.split())
+
+
+def cpu_name():
+    """The name of the processor this runs on, or None. Wine answers the
+    registry read with the real one."""
+    try:
+        if os.name == 'nt':
+            import winreg
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,
+                                r'HARDWARE\DESCRIPTION\System'
+                                r'\CentralProcessor\0') as key:
+                name = winreg.QueryValueEx(key, 'ProcessorNameString')[0]
+        else:
+            with open('/proc/cpuinfo', encoding='utf-8',
+                      errors='replace') as fh:
+                name = next(line.split(':', 1)[1] for line in fh
+                            if line.startswith('model name'))
+    except (OSError, StopIteration):
+        return None
+    return tidy_cpu_name(name) or None
+
+
 PVR = Build('PowerVR', 'pvr', PVR_MD5, PVR_SIZE, 0x33b3b0ae, sections=(
     (0x00000400, 0x00401000),       # .text
     (0x001f7c00, 0x005f9000),       # .rdata
@@ -4846,7 +4887,8 @@ PVR = Build('PowerVR', 'pvr', PVR_MD5, PVR_SIZE, 0x33b3b0ae, sections=(
     without=('OVERLAY',),
     # Its F5 page has no Texture boxes, so nothing in the game can turn the
     # robots' textures on; with no value they are off, and drawn black.
-    fixed_ini={'Texture': '7'})
+    fixed_ini={'Texture': '7'},
+    cautions={'hires': PVR_WIDE_CAUTION})
 
 BUILDS = {RETAIL.md5: RETAIL, JPRE.md5: JPRE, OEM.md5: OEM,
           JP.md5: JP, PVR.md5: PVR}
@@ -20156,8 +20198,8 @@ BY_KEY['hires'] = (
     'Ending credits\tThe black bands are gone; the roll uses the whole\n'
     '\tscreen.\n'
     'PowerVR version\t1024x576 instead: its card stops at 1024 wide. F4\n'
-    '\tstays its PVR Settings, and F5 has no Screen row. Needs\n'
-    '\tcnc-ddraw, or it may not start.',
+    '\tstays its PVR Settings, and F5 has no Screen row. It\n'
+    '\tstarts unticked, because 60 FPS needs a fast CPU.',
     None)
 
 # The patches a lockstep match cannot differ on are the frame rate and the
@@ -24931,7 +24973,8 @@ def run_tk():
                 else:
                     check = self._static_label(ttk.Checkbutton(
                         row, text=label, variable=var,
-                        style='Card.TCheckbutton', command=self._retally))
+                        style='Card.TCheckbutton',
+                        command=lambda key=key: self._ticked(key)))
                     check.state(['disabled'])
                     check.pack(side='left')
                     self.checks[key] = check
@@ -25174,6 +25217,8 @@ def run_tk():
                 if unsupported(build, key):
                     self.vars[key].set(False)
                     check.state(['disabled'])
+                elif key in build.cautions:
+                    self.vars[key].set(False)
             for key, line in self.essential_lines.items():
                 line.configure(foreground=self.dim
                                if ok and unsupported(build, key) else '')
@@ -25220,6 +25265,90 @@ def run_tk():
                 else:
                     self.vars[key].set(False)
                     self.checks[key].state(['disabled'])
+
+        def _ticked(self, key):
+            """A box was clicked. One this build cautions about stays off
+            unless the warning is accepted."""
+            caution = self.core.build.cautions.get(key)
+            if caution and self.vars[key].get() \
+                    and not self._warn(*caution):
+                self.vars[key].set(False)
+            self._retally()
+
+        def _warn(self, title, text, wanted, otherwise):
+            """Ask before a patch goes on, in the window's own look. Whether
+            it was accepted; Leave it off has the focus, and Escape is it."""
+            close_info()
+            root = self.root
+            answer = []
+            win = tk.Toplevel(root)
+            win.withdraw()
+            win.wm_overrideredirect(True)
+            win.transient(root)
+            frame = tk.Frame(win, background=PALETTE['card'], borderwidth=0,
+                             highlightbackground=PALETTE['amber'],
+                             highlightcolor=PALETTE['amber'],
+                             highlightthickness=2)
+            frame.pack()
+            head = ttk.Frame(frame, style='Head.TFrame',
+                             padding=self.px((12, 8)))
+            head.pack(fill='x')
+            ttk.Label(head, text=title, style='Head.TLabel',
+                      foreground=PALETTE['amber'],
+                      font=self.head_font).pack(anchor='w')
+            body = ttk.Frame(frame, style='Card.TFrame',
+                             padding=self.px(12))
+            body.pack(fill='x')
+            ttk.Label(body, text=text, style='Card.TLabel', justify='left',
+                      wraplength=self.px(420)).pack(anchor='w')
+            table = ttk.Frame(body, style='Card.TFrame')
+            table.pack(anchor='w', pady=self.px((12, 0)))
+            for line, (key, value) in enumerate((
+                    ('Recommended', wanted),
+                    ('Your CPU', cpu_name() or 'Not detected'),
+                    ('Its rating', None),
+                    ('If too slow', otherwise))):
+                ttk.Label(table, text=key, style='Card.TLabel', font=self.bold,
+                          foreground=PALETTE['amber']).grid(
+                              row=line, column=0, sticky='nw',
+                              padx=self.px((0, 12)), pady=self.px(2))
+                if value:
+                    cell = ttk.Label(table, text=value, style='Card.TLabel',
+                                     justify='left',
+                                     wraplength=self.px(320))
+                else:
+                    cell = ttk.Label(table, text='cpubenchmark.net',
+                                     style='Link.TLabel', cursor='hand2')
+                    cell.bind('<Button-1>',
+                              lambda _e: webbrowser.open(CPU_CHART))
+                cell.grid(row=line, column=1, sticky='w', pady=self.px(2))
+            buttons = ttk.Frame(body, style='Card.TFrame')
+            buttons.pack(fill='x', pady=self.px((14, 0)))
+
+            def done(accepted):
+                answer.append(accepted)
+                win.grab_release()
+                win.destroy()
+            ttk.Button(buttons, text='Turn it on', style='Go.TButton',
+                       command=lambda: done(True)).pack(side='right')
+            off = ttk.Button(buttons, text='Leave it off', style='Vo.TButton',
+                             command=lambda: done(False))
+            off.pack(side='right', padx=self.px((0, 8)))
+            win.bind('<Escape>', lambda _e: done(False))
+            win.bind('<Return>', lambda _e: win.focus_get().invoke())
+            win.update_idletasks()
+            x = root.winfo_rootx() + (root.winfo_width()
+                                      - win.winfo_reqwidth()) // 2
+            y = root.winfo_rooty() + (root.winfo_height()
+                                      - win.winfo_reqheight()) // 2
+            win.wm_geometry('+%d+%d' % (max(4, x), max(4, y)))
+            win.deiconify()
+            win.wait_visibility()
+            win.grab_set()
+            win.lift()
+            off.focus_force()
+            root.wait_window(win)
+            return bool(answer and answer[0])
 
         def _retally(self, *_args):
             """Keep the count honest as boxes are ticked."""

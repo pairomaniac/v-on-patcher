@@ -34,17 +34,17 @@ is stale, so the line numbers are current.
 | 1–40 | header, imports, PE helpers | `#!/usr/bin/env python3` |
 | 41–2659 | widescreen: the layouts, `UI_CODE`, the port tables, the site builder | `# The resolution patch: the` |
 | 2660–2974 | widescreen apply: `hires_install`, section append, F4 table | `def hires_install(buf, width` |
-| 2975–3086 | disc images table, `Build` class, annex order | `DISC_IMAGES = {` |
-| 3087–4933 | the five builds: symbols, caves, site maps, `unsupported()` | `RETAIL = Build('English reta` |
-| 4934–6514 | generated site maps for three builds (`tools/buildsites.py`), the PowerVR one by hand | `# SITES JPRE BEGIN` |
-| 6515–18211 | the blobs, `BLOBS`, and `link()` | `BLOBS = {` |
-| 18212–19212 | banner and credit bitmaps, tile expansion | `LEVERS_CODE = link('LEVERS',` |
-| 19213–20288 | the patch table: `FEATURES`, `BY_KEY`, labels, tips, apply order | `FEATURES = [` |
-| 20289–21305 | ripping (`RAW = 2352`) and installing (`LOGICAL = 2048`) | `# --- ripping --------------` |
-| 21306–22261 | netplay setup, `SYNC_SITES`, cnc-ddraw, CD audio | `# --- netplay --------------` |
-| 22262–22796 | `Patcher`: reading a file, applying, restoring | `class Patcher:` |
-| 22797–23372 | the logo and icon (`tools/assets.py`), then the window strings | `# ASSETS BLOB BEGIN - tools/` |
-| 23373–25545 | the window (`run_tk`), the CLI, `main` | `def run_tk():` |
+| 2975–3089 | disc images table, `Build` class, annex order | `DISC_IMAGES = {` |
+| 3090–4975 | the five builds: symbols, caves, site maps, `unsupported()` | `RETAIL = Build('English reta` |
+| 4976–6556 | generated site maps for three builds (`tools/buildsites.py`), the PowerVR one by hand | `# SITES JPRE BEGIN` |
+| 6557–18253 | the blobs, `BLOBS`, and `link()` | `BLOBS = {` |
+| 18254–19254 | banner and credit bitmaps, tile expansion | `LEVERS_CODE = link('LEVERS',` |
+| 19255–20330 | the patch table: `FEATURES`, `BY_KEY`, labels, tips, apply order | `FEATURES = [` |
+| 20331–21347 | ripping (`RAW = 2352`) and installing (`LOGICAL = 2048`) | `# --- ripping --------------` |
+| 21348–22303 | netplay setup, `SYNC_SITES`, cnc-ddraw, CD audio | `# --- netplay --------------` |
+| 22304–22838 | `Patcher`: reading a file, applying, restoring | `class Patcher:` |
+| 22839–23414 | the logo and icon (`tools/assets.py`), then the window strings | `# ASSETS BLOB BEGIN - tools/` |
+| 23415–25674 | the window (`run_tk`), the CLI, `main` | `def run_tk():` |
 <!-- REGIONS END -->
 
 ## 3. `v_on.exe`
