@@ -917,11 +917,15 @@ the differences follow from that order.
   3D frame, a bright stripe beside the encounter grid, so `fill1` and `fill2`
   start at the canvas's left edge.
 - **3D behind the 2D.** The blob's DRAWN is a pixel counter the rasterizers keep.
-  This build has none, so `drawn3d` uses plane B's hide bit (`0x24a0641` bit 7).
+  This build has none, so `drawn3d` uses plane B's hide bit for the engine on screen
+  (`0x24a0641` bit 7, engine 2 `0x1ff3401`). With engine 1's alone, P2's view of the
+  two-player machine select lost its margins and, on skipped frames, its 3D.
 - **Flushes.** A split game sets P1's region and flushes (`0x496206`), then does
   the same for P2 (`0x496245`). The two calls at the frame's end (`0x498268`,
   `0x49827a`) only reset the shared list. The blob's flush wrappers, which keep
-  the player not shown off the screen, go on the first two.
+  the player not shown off the screen, go on the first two. In a frame the blob shows
+  from one engine, both renderers take the whole frame's region (`region1`, `region2`).
+  Without that the two-player machine select's 3D is cut to one view's region.
 - **The select's frames.** When both 2D planes show, `0x41de60` skips the card's
   render, and a rectangle list in each engine draws the portrait frames
   (`0x41dea0` adds, `0x41df30` draws; engine 2 `0x43c750`, `0x43c7e0`). Engine 1
@@ -948,7 +952,10 @@ the differences follow from that order.
 - **Unrendered frames.** The composite writes only pixels that differ from what it
   sampled, and away from a scale of 1 it does not sample every pixel. When the card
   did not render, the last screen showed through, a ghost of the title on the SEGA
-  card. `waitcard` and `clearsurface` clear the surface first.
+  card. `waitcard` and `clearsurface` clear the surface first, on screens with no 3D
+  behind the 2D. The card also misses a frame each time the machine select's cursor
+  moves. Clearing there showed a black frame, and flipping showed an older picture, so
+  `clearsurface` sets the game's skip flag (`0x6ac400`) and the newest picture stays.
 - **Near-black.** A dark texel of value 4 is true black on retail, whose rasterizers
   do not dither. The card's dither turned the star field into a checkerboard of
   `(8,4,8)` and `(0,4,0)`, and the moon card's true black showed against it as a
@@ -971,6 +978,18 @@ the differences follow from that order.
 - **One size.** `frame` clears FLAGS bits 0 and 2 every frame, and the F5 Screen row
   is hidden. The low-resolution toggle and menu command go to the handler's exit,
   and a saved `ScrSize` above 3 takes the default. F4 stays the PVR Settings dialog.
+- **The machine select.** The draw window (`0x642a30`, `0x642a38`) is widened as on
+  the other builds, which adds a fourth machine. The draw lists its machines for the
+  loader (`0x5c9be3`, count `0x84c5f4`, list `0x1d2cf34`), capped at 3, and the loader
+  (`0x57f03f`) has four rows of four slots at `0x825548`: the stage and three machines.
+  A machine with no slot is not drawn, so the widened window alone made the machine
+  on the right vanish. Machines stand 20 degrees apart and the widened window spans
+  about 88, so it can hold five. The table moves to the section at 8 slots a row, of
+  which six are used, and the list moves with it and takes 5. A machine past the list
+  has no slot and drew in flat, wrong colours, so it is not drawn (`0x5c9bea`). The
+  second renderer, for 2P's view of the select, has its own window (`0x5fc148`), draw
+  (`0x41e2d3`) and list (`0xb7c920`), treated the same. The other builds' fade is left
+  out.
 - **Sites placed by hand.** `PVR_UI` holds the blob's addresses, from the map where
   it has one and otherwise by alignment or callees: renderer B's setups and submit
   (`0x4a084d`, `0x4a088e`, `0x4a0976`), the HUD passes (`0x435b36`, `0x474906`,
@@ -978,10 +997,7 @@ the differences follow from that order.
   matrix pointer). `hiresport.py` stops at the coverage mask, so it does not run
   on this build.
 
-Two parts of the other builds' patches are left out. The machine-select hangar's
-draw window and fading outermost mech did not work here, so the window is stock
-and a mech may pop in at the edge of the wider view. The lock-on line patch is not
-ported (see NOTES.md).
+The lock-on line patch is not ported (see NOTES.md).
 
 ### What has been seen
 
@@ -995,15 +1011,21 @@ Under Wine 11 with cnc-ddraw's GDI renderer and pvr-sgl-wrapper 0.1, in Xvfb:
 - **Engine 2 on screen:** reached with the debug Kill 2P (`0x9c62`) in a round, with
   the select's cursor moved by writing `0x20b1b98`.
 - **Layout switch:** during a round, by writing `0x6a34a4`, the value F5's OK writes.
+- **Machine select sweep:** rightward through the row, by writing what a key press
+  writes (`0x1df6738`, `0x1df6700`, `0x1df673c`), with the machines in their colours.
+  A match and two-player, Ver and Hor, were run after it.
 - **Ending:** the roll, started by writing the sub-state, across the full height
   with no bands.
 - **ALT+TAB:** `WM_ACTIVATEAPP` posted out and back during a round. Real focus
   changes were not available.
 
-Played: the intro movie, the end of the roll and the SEGA card after it, and the
-two-player photo screens.
+P2's view of the two-player machine select, played only: the 3D across the whole
+width. The bottom left corner stays black, as the README's known issue has it.
 
-Not tried: a real PowerVR card, Windows and internet play.
+Played: the intro movie, the end of the roll and the SEGA card after it, the
+two-player photo screens, and internet play, including against the software builds.
+
+Not tried: a real PowerVR card and Windows.
 
 ### CPU load
 

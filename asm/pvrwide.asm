@@ -7,10 +7,15 @@ extern FSFLAGS                  ; bit 0: Screen=Normal, bit 1: split layout,
                                 ; bit 2: low resolution
 extern SPLITTYPE                ; the F5 Screen Split radio, Ver 0, Hor 1
 extern PLANEB                   ; byte holding the 2D plane's hide bit, 0x80
+extern PLANEB2                  ; and the second engine's
+extern SKIPFLIP                 ; set: the frame's flip is skipped, once
 extern PRE2D                    ; the first of the frame's 2D calls
 extern SCENE                    ; the SGL context
 extern SCENEFLAGS               ; its flags
 extern PIXFMT                   ; the surface's pixel format
+extern REGION1                  ; (layout, radio) cdecl: renderer A's region
+extern REGION2                  ; and B's, in a split game
+extern REGIONFULL               ; (Screen=Normal) cdecl: one view's region
 extern SURFBASE                 ; the locked surface
 extern SURFPITCH                ; and its pitch
 extern RENDERING                ; nonzero while a render is owed
@@ -62,6 +67,24 @@ frame:
     mov     eax, [VIEWH]
     mov     [ecx+4], eax
     xor     eax, eax
+    ret
+
+; In place of each renderer's call to set its own region in a split game. A
+; frame ui.asm shows from one engine is one view, so it takes the whole frame.
+region1:
+    mov     eax, [uishow]
+    cmp     dword [eax], 0
+    jne     whole
+    jmp     REGION1
+region2:
+    mov     eax, [uishow]
+    cmp     dword [eax], 0
+    jne     whole
+    jmp     REGION2
+whole:
+    push    0
+    call    REGIONFULL
+    add     esp, 4
     ret
 
 ; In place of the pushes of the scene's context for its render. The
@@ -117,6 +140,8 @@ waitcard:
 clearsurface:
     cmp     dword [rendered], 0
     jne     .out
+    call    behind3d
+    jne     .hold
     mov     edx, [SURFBASE]
     test    edx, edx
     je      .out
@@ -136,14 +161,28 @@ clearsurface:
     pop     edi
 .out:
     ret
+.hold:                          ; 3D behind: no flip, the newest picture stays
+    mov     dword [SKIPFLIP], 1
+    ret
+
+; Not zero if 3D is behind the 2D layer: the plane of the engine on screen.
+behind3d:
+    mov     eax, [uishow]
+    cmp     dword [eax], 2
+    mov     eax, PLANEB
+    jne     .test
+    mov     eax, PLANEB2
+.test:
+    test    byte [eax], 0x80
+    ret
 
 ; In place of the frame's first 2D call. ui.asm's margins ask whether 3D is
 ; behind the 2D layer; here the plane that covers it says.
 drawn3d:
     call    clearsurface
-    xor     eax, eax
-    test    byte [PLANEB], 0x80
+    call    behind3d
     setne   al
+    movzx   eax, al
     mov     [drawn], eax
     mov     eax, [centres]
     test    eax, eax
@@ -215,5 +254,6 @@ centres:    dd 0, 0, 0, 0
 rendered:   dd 0
 framefn:    dd 0
 uisize:     dd 0
+uishow:     dd 0
 insertfn:   dd 0
 drawn:      dd 0

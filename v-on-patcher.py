@@ -2796,8 +2796,31 @@ PVR_UI = {
 # for it, and the blob's table has it by retail's address.
 PVR_MATSCALE = 0x00408790, 0x00418060
 
+# The loader's slot table (0x825548, four rows of 0x10): where each address
+# is an immediate, the shifts that turn a row into its offset, and the loops
+# over a row's slots.
+PVR_LOADER_TABLE = {
+    0x825548: (0x57f122, 0x57f153, 0x57f1a0, 0x57f1bb, 0x57f1e3, 0x57f3f0,
+               0x57f92d, 0x57f9af, 0x57faf6, 0x57fc1e, 0x57fc55, 0x57fc99,
+               0x57fccb, 0x57fce4, 0x57fd23, 0x57fd34, 0x57fd43, 0x57fe80,
+               0x57ff55, 0x57ff6d, 0x580002, 0x5800aa, 0x58018e),
+    0x82554c: (0x57f4eb,),
+    0x825550: (0x57f505, 0x57fb4c),
+    0x825554: (0x57f51f, 0x57fb5d),
+    0x825558: (0x57f947, 0x57fd6d, 0x57fe36, 0x57fe47, 0x57fe56),
+    0x825568: (0x57f920, 0x57f954, 0x57f9a2, 0x57f9bc),
+    0x825578: (0x57f93a, 0x57f965),
+}
+PVR_LOADER_SHIFTS = (
+    0x57f10b, 0x57f149, 0x57f196, 0x57f1b1, 0x57f1d9, 0x57f3ed, 0x57f4e8,
+    0x57f502, 0x57f51c, 0x57fb49, 0x57fb5a, 0x57fc4e, 0x57fc88, 0x57fcc4,
+    0x57fcdd, 0x57ff4e, 0x57ff66, 0x57fffb)
+PVR_LOADER_LOOPS = (
+    0x57f0fe, 0x57f189, 0x57f910, 0x57f992, 0x57fc41, 0x57fd16, 0x57fd5d,
+    0x57fe29, 0x57fe70, 0x57ff41)
 PVR_ROWTAB = 0x006ab4d8         # the 2D row table: it stays where it is
 UI_VIEWSIZE = 0x1c08            # ui.asm's D_W and D_H
+UI_SHOW = 0x1e88                # and its D_SHOW
 
 
 def pvr_ui_install(buf):
@@ -2811,7 +2834,7 @@ def pvr_ui_install(buf):
     for o, ref in UI_REFS:
         assert struct.unpack_from('<I', code, o)[0] == ref
         struct.pack_into('<I', code, o, va.get(ref, ref))
-    sec_va, rawptr = add_section(buf, UI_OFF + UI_OFF_SIZE,
+    sec_va, rawptr = add_section(buf, UI_OFF + UI_OFF_SIZE + 0x100,
                                  raw=bytes(code.ljust(UI_OFF, b'\0')))
     fileoff = PVR.off
     def rel(site, target):
@@ -2873,6 +2896,8 @@ def pvr_ui_install(buf):
                      sec_va + UI_FRAME)
     struct.pack_into('<I', buf, fileoff(symbol_va('WIDESIZE', PVR)),
                      sec_va + UI_VIEWSIZE)
+    struct.pack_into('<I', buf, fileoff(symbol_va('WIDESHOW', PVR)),
+                     sec_va + UI_SHOW)
     # The row loads the tile planes index past either end, in both engines.
     for site in (0x41a02d, 0x41a07d, 0x41a5f9, 0x41a65e, 0x41aac9,
                  0x439355, 0x4393ad, 0x439931, 0x43999e, 0x439e11):
@@ -2883,6 +2908,39 @@ def pvr_ui_install(buf):
                b'\xe9' + rel(0x419a40, sec_va + UI_ROLLBLIT) + b'\x90'),
               (fileoff(0x51c989), b'\xe8' + rel(0x51c989, 0x503df0),
                b'\xe8' + rel(0x51c989, sec_va + UI_CREDITS_MOON))]
+    # The model loader: four rows of four slots, the stage and three machines,
+    # and the select's list of machines capped to match. The widened window
+    # spans 88 degrees of a row 20 apart, so it can hold five, and one with no
+    # slot is not loaded. The table moves to the section, 8 slots a row so that
+    # a row's shl only changes by one, and takes six; the list moves with it.
+    table = sec_va + UI_OFF + UI_OFF_SIZE
+    def row_slot(old):
+        row, slot = divmod(old - 0x825548, 0x10)
+        return table + row * 0x20 + slot
+    sites += [(fileoff(a), u32(old), u32(row_slot(old)))
+              for old, where in PVR_LOADER_TABLE.items() for a in where]
+    sites += [(fileoff(a), b'\x04', b'\x05') for a in PVR_LOADER_SHIFTS]
+    sites += [(fileoff(a), b'\x04', b'\x06') for a in PVR_LOADER_LOOPS]
+    # The clears' size is a signed byte: 0x7c reaches the last row's fifth slot.
+    sites += [(fileoff(a), b'\x40', b'\x7c')
+              for a in (0x57faf2, 0x57fc1a, 0x5800a6, 0x58018a)]
+    machines = table + 0x80
+    # A machine past the list's end has no slot and would draw with no colours,
+    # so it is not drawn: the jump past the list goes to the routine's exit.
+    sites += [(fileoff(0x5c9bec), u32(0x5c9c0b - 0x5c9bf0),
+               u32(0x5cab5d - 0x5c9bf0))]
+    sites += [(fileoff(0x5c9be9), b'\x03', b'\x05'),
+              (fileoff(0x5c9bfc), u32(0x1d2cf34), u32(machines + 4)),
+              (fileoff(0x5cf748), u32(0x1d2cf30), u32(machines)),
+              (fileoff(0x5cf75a), u32(0x1d2cf30), u32(machines))]
+    # And the second renderer's, for 2P's view of the select.
+    machines2 = table + 0xa0
+    sites += [(fileoff(0x41e31c), u32(0x41e33b - 0x41e320),
+               u32(0x41f2ae - 0x41e320)),
+              (fileoff(0x41e319), b'\x03', b'\x05'),
+              (fileoff(0x41e32c), u32(0xb7c924), u32(machines2 + 4)),
+              (fileoff(0x423cb6), u32(0xb7c920), u32(machines2)),
+              (fileoff(0x423cc8), u32(0xb7c920), u32(machines2))]
     # The split block: each viewport's scale from the layout, out of line.
     ksbs, ktb = sec_va + UI_KSBS, sec_va + UI_KSBS + 4
     scale_a, scale_b, aspect_a, aspect_b = (0x74b1d0, 0x6b3d78,
@@ -4855,6 +4913,14 @@ PVR = Build('PowerVR', 'pvr', PVR_MD5, PVR_SIZE, 0x33b3b0ae, sections=(
     'VIEWW': 0x006a34c8,            # the viewport width
     'VIEWH': 0x006a34cc,            # and height
     'PIXFMT': 0x01df50fc,           # the surface's pixel format
+    'WIDESHOW': ('PVRWIDE', 'uishow'),
+    'REGION1': 0x00473b95,          # (layout, radio): renderer A's region
+    'REGION2': 0x00473ec1,          # and B's, in a split game
+    'REGIONFULL': 0x00473977,       # (Screen=Normal): one view's region
+    'WIDEREG1': ('PVRWIDE', 'region1'),
+    'WIDEREG2': ('PVRWIDE', 'region2'),
+    'PLANEB2': 0x01ff3401,          # and the second engine's
+    'SKIPFLIP': 0x006ac400,         # set: the frame's flip is skipped, once
     'SCENE': 0x0200a0a0,            # the SGL context
     'SCENEFLAGS': 0x0200a0b8,       # its flags
     'WIDENODITHER': ('PVRWIDE', 'nodither'),
@@ -17797,89 +17863,105 @@ BLOBS = {
         'fx2save': 0x440d8,
     }),
     'PVRWIDE': (bytes.fromhex(
-        '83250000000000833d00000000007407830d0000000002ff742404ff15e50100'
-        '0083c404a100000000a3d1010000a100000000a3d5010000a100000000a3d901'
-        '0000a100000000a3dd0100008b0de9010000a1000000008901a1000000008941'
-        '0431c0c3810d0000000000008000586800000000ffe0a100000000a3e1010000'
-        'e8fcffffff833de1010000007440813d000000003502000075348b1500000000'
-        '85d2742a5753bb4002000089d7b90004000066833f20750566c707000083c702'
-        '4975ef0315000000004b75df5b5fc3833de101000000752b8b150000000085d2'
-        '742157538b1d0000000031c089d78b0d00000000d1e9f3ab0315000000004b75'
-        'eb5b5fc3e8c6ffffff31c0f60500000000800f95c0a3f1010000a1d101000085'
-        'c07423a300000000a1d5010000a300000000a1d9010000a300000000a1dd0100'
-        '00a300000000e9fcffffff8b1d00000000eb068b1d00000000a1000000002d80'
-        '02000029c3c3e836000000ff15ed0100005051a1000000008b0d000000006601'
-        '421066014a126601421466014a166601421866014a1a6601421c66014a1e5958'
-        'c35051a1000000008b0d000000006629421066294a126629421466294a166629'
-        '421866294a1a6629421c66294a1e5958c3000000000000000000000000000000'
-        '000000000000000000000000000000000000000000'
+        '83250000000000833d00000000007407830d0000000002ff742404ff15370200'
+        '0083c404a100000000a323020000a100000000a327020000a100000000a32b02'
+        '0000a100000000a32f0200008b0d3b020000a1000000008901a1000000008941'
+        '0431c0c3a13f0200008338007514e9fcffffffa13f0200008338007505e9fcff'
+        'ffff6a00e8fcffffff83c404c3810d0000000000008000586800000000ffe0a1'
+        '00000000a333020000e8fcffffff833d33020000007440813d00000000350200'
+        '0075348b150000000085d2742a5753bb4002000089d7b90004000066833f2075'
+        '0566c707000083c7024975ef0315000000004b75df5b5fc3833d330200000075'
+        '32e839000000752c8b150000000085d2742157538b1d0000000031c089d78b0d'
+        '00000000d1e9f3ab0315000000004b75eb5b5fc3c7050000000001000000c3a1'
+        '3f020000833802b8000000007505b800000000f60080c3e89cffffffe8deffff'
+        'ff0f95c00fb6c0a347020000a12302000085c07423a300000000a127020000a3'
+        '00000000a12b020000a300000000a12f020000a300000000e9fcffffff8b1d00'
+        '000000eb068b1d00000000a1000000002d8002000029c3c3e836000000ff1543'
+        '0200005051a1000000008b0d000000006601421066014a126601421466014a16'
+        '6601421866014a1a6601421c66014a1e5958c35051a1000000008b0d00000000'
+        '6629421066294a126629421466294a166629421866294a1a6629421c66294a1e'
+        '5958c30000000000000000000000000000000000000000000000000000000000'
+        '0000000000000000000000'
     ), (
         (0x2, 'abs', 'FSFLAGS', 0),
         (0x9, 'abs', 'SPLITTYPE', 0),
         (0x12, 'abs', 'FSFLAGS', 0),
-        (0x1d, 'abs', '.', 485),
+        (0x1d, 'abs', '.', 567),
         (0x25, 'abs', 'CENTREAX', 0),
-        (0x2a, 'abs', '.', 465),
+        (0x2a, 'abs', '.', 547),
         (0x2f, 'abs', 'CENTREAY', 0),
-        (0x34, 'abs', '.', 469),
+        (0x34, 'abs', '.', 551),
         (0x39, 'abs', 'CENTREBX', 0),
-        (0x3e, 'abs', '.', 473),
+        (0x3e, 'abs', '.', 555),
         (0x43, 'abs', 'CENTREBY', 0),
-        (0x48, 'abs', '.', 477),
-        (0x4e, 'abs', '.', 489),
+        (0x48, 'abs', '.', 559),
+        (0x4e, 'abs', '.', 571),
         (0x53, 'abs', 'VIEWW', 0),
         (0x5a, 'abs', 'VIEWH', 0),
-        (0x66, 'abs', 'SCENEFLAGS', 0),
-        (0x70, 'abs', 'SCENE', 0),
-        (0x77, 'abs', 'RENDERING', 0),
-        (0x7c, 'abs', '.', 481),
-        (0x81, 'rel', 'WAITRENDER', -4),
-        (0x87, 'abs', '.', 481),
-        (0x90, 'abs', 'PIXFMT', 0),
-        (0x9c, 'abs', 'SURFBASE', 0),
-        (0xc5, 'abs', 'SURFPITCH', 0),
-        (0xd1, 'abs', '.', 481),
-        (0xda, 'abs', 'SURFBASE', 0),
-        (0xe6, 'abs', 'VIEWH', 0),
-        (0xf0, 'abs', 'VIEWW', 0),
-        (0xfa, 'abs', 'SURFPITCH', 0),
-        (0x10d, 'abs', 'PLANEB', 0),
-        (0x116, 'abs', '.', 497),
-        (0x11b, 'abs', '.', 465),
-        (0x124, 'abs', 'CENTREAX', 0),
-        (0x129, 'abs', '.', 469),
-        (0x12e, 'abs', 'CENTREAY', 0),
-        (0x133, 'abs', '.', 473),
-        (0x138, 'abs', 'CENTREBX', 0),
-        (0x13d, 'abs', '.', 477),
-        (0x142, 'abs', 'CENTREBY', 0),
-        (0x147, 'rel', 'PRE2D', -4),
-        (0x14d, 'abs', 'SURF1', 0),
-        (0x155, 'abs', 'SURF2', 0),
-        (0x15a, 'abs', 'VIEWW', 0),
-        (0x16d, 'abs', '.', 493),
-        (0x174, 'abs', 'ORGX2', 0),
-        (0x17a, 'abs', 'ORGY2', 0),
-        (0x1a4, 'abs', 'ORGX2', 0),
-        (0x1aa, 'abs', 'ORGY2', 0),
+        (0x65, 'abs', '.', 575),
+        (0x6f, 'rel', 'REGION1', -4),
+        (0x74, 'abs', '.', 575),
+        (0x7e, 'rel', 'REGION2', -4),
+        (0x85, 'rel', 'REGIONFULL', -4),
+        (0x8f, 'abs', 'SCENEFLAGS', 0),
+        (0x99, 'abs', 'SCENE', 0),
+        (0xa0, 'abs', 'RENDERING', 0),
+        (0xa5, 'abs', '.', 563),
+        (0xaa, 'rel', 'WAITRENDER', -4),
+        (0xb0, 'abs', '.', 563),
+        (0xb9, 'abs', 'PIXFMT', 0),
+        (0xc5, 'abs', 'SURFBASE', 0),
+        (0xee, 'abs', 'SURFPITCH', 0),
+        (0xfa, 'abs', '.', 563),
+        (0x10a, 'abs', 'SURFBASE', 0),
+        (0x116, 'abs', 'VIEWH', 0),
+        (0x120, 'abs', 'VIEWW', 0),
+        (0x12a, 'abs', 'SURFPITCH', 0),
+        (0x136, 'abs', 'SKIPFLIP', 0),
+        (0x140, 'abs', '.', 575),
+        (0x148, 'abs', 'PLANEB', 0),
+        (0x14f, 'abs', 'PLANEB2', 0),
+        (0x168, 'abs', '.', 583),
+        (0x16d, 'abs', '.', 547),
+        (0x176, 'abs', 'CENTREAX', 0),
+        (0x17b, 'abs', '.', 551),
+        (0x180, 'abs', 'CENTREAY', 0),
+        (0x185, 'abs', '.', 555),
+        (0x18a, 'abs', 'CENTREBX', 0),
+        (0x18f, 'abs', '.', 559),
+        (0x194, 'abs', 'CENTREBY', 0),
+        (0x199, 'rel', 'PRE2D', -4),
+        (0x19f, 'abs', 'SURF1', 0),
+        (0x1a7, 'abs', 'SURF2', 0),
+        (0x1ac, 'abs', 'VIEWW', 0),
+        (0x1bf, 'abs', '.', 579),
+        (0x1c6, 'abs', 'ORGX2', 0),
+        (0x1cc, 'abs', 'ORGY2', 0),
+        (0x1f6, 'abs', 'ORGX2', 0),
+        (0x1fc, 'abs', 'ORGY2', 0),
     ), {
         'frame': 0x0,
-        'nodither': 0x64,
-        'waitcard': 0x76,
-        'clearsurface': 0xcf,
-        'drawn3d': 0x104,
-        'fill1': 0x14b,
-        'fill2': 0x153,
-        'fillfrom': 0x159,
-        'insert2': 0x166,
-        'origin_on': 0x171,
-        'origin_off': 0x1a1,
-        'centres': 0x1d1,
-        'rendered': 0x1e1,
-        'framefn': 0x1e5,
-        'uisize': 0x1e9,
-        'insertfn': 0x1ed,
-        'drawn': 0x1f1,
+        'region1': 0x64,
+        'region2': 0x73,
+        'whole': 0x82,
+        'nodither': 0x8d,
+        'waitcard': 0x9f,
+        'clearsurface': 0xf8,
+        'behind3d': 0x13f,
+        'drawn3d': 0x157,
+        'fill1': 0x19d,
+        'fill2': 0x1a5,
+        'fillfrom': 0x1ab,
+        'insert2': 0x1b8,
+        'origin_on': 0x1c3,
+        'origin_off': 0x1f3,
+        'centres': 0x223,
+        'rendered': 0x233,
+        'framefn': 0x237,
+        'uisize': 0x23b,
+        'uishow': 0x23f,
+        'insertfn': 0x243,
+        'drawn': 0x247,
     }),
     'PAD_COND': (bytes.fromhex(
         '0200000000100000020000000020000002000000004000000200000000800000'
@@ -19076,6 +19158,8 @@ def pvr_wide_sites():
         return (at(va), u32(old).hex(), u32(new).hex())
     def flt(va, old, new):
         return (at(va), f32(old).hex(), f32(new).hex())
+    def f64(value):
+        return struct.pack('<d', value)
     def hexes(va, old, new):
         return (at(va), old, new)
     def skip(va, old, to):
@@ -19219,6 +19303,13 @@ def pvr_wide_sites():
     wide = w / sy / 640
     margin = math.degrees(math.atan(wide * 320 / f) - math.atan(320 / f))
     win = 0x1500 + round(margin * 65536 / 360)
+    # The machine select's draw window, as on the others: the wider view's
+    # half field plus eight degrees for a machine's own width. The loader's
+    # fifth slot, in pvr_ui_install, is what lets the extra machine load.
+    # Each renderer has a copy.
+    for lo, hi in ((0x642a30, 0x642a38), (0x5fc148, 0x5fc150)):
+        rows += [hexes(lo, f64(31.57).hex(), f64(31.57 + margin + 8).hex()),
+                 hexes(hi, f64(28.43).hex(), f64(28.43 + margin + 8).hex())]
     rows += [flt(va, -256.0, -256.0 * wide) for va in (0x6142d0, 0x641fd8)]
     rows += [flt(va, 256.0, 256.0 * wide) for va in (0x6142d4, 0x641fdc)]
     rows += [word(va, 0x1500, win)
@@ -19241,6 +19332,8 @@ def pvr_wide_sites():
         (0x49a9c2, 'e812daffff'))]
     rows += [hook(0x4980c7, 'e8941bf8ff', 'WIDEDRAWN')]
     rows += [hook(0x4980aa, 'e87ba6fdff', 'WIDEWAIT')]
+    rows += [hook(0x4961f9, 'e897d9fdff', 'WIDEREG1'),
+             hook(0x496238, 'e884dcfdff', 'WIDEREG2')]
     # Near-black: the card's dither off at both render calls, as the other
     # builds' rasterizers have none.
     rows += [hook(va, '68a0a00002', 'WIDENODITHER')

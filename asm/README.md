@@ -715,6 +715,8 @@ next frame's viewport and renders.
 
 - `frame` replaces every call to the viewport setup. It takes the layout from the
   F5 split radios and refreshes `ui.asm`'s copies of the view centres and size.
+- `region1` and `region2` give a renderer the whole frame when `ui.asm` shows one
+  engine.
 - `nodither` turns the card's dither off before each render.
 - `waitcard` records whether the card rendered, and turns `(0,4,0)` to true black
   if it did.
