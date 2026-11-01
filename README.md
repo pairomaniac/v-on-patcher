@@ -99,14 +99,12 @@ The patcher reads the image itself, so there is nothing to mount.
 3. Pick the **Manual** language and press **Install game**.
 
 The **Manual** box only picks which `readme.txt`, `von.hlp` and `von.cnt` are
-copied. The game itself is the same language in every pressing. `von.hlp` is 1997
-WinHelp, which Windows has not opened since Windows 10; the readme is plain text.
+copied. The game itself is the same language in every pressing. The readme is the one
+you can open on a modern system.
 
 The install copies the game directory and the chosen manual, nothing else. The game
 makes its own `v_on.ini` on first run, and with **Better defaults** applied it is a
-good one. [The PowerVR version](#the-powervr-version) is the exception. How the copy
-rules are read off the disc is in
-[NOTES.md](docs/NOTES.md#installing-from-a-disc-image).
+good one. [The PowerVR version](#the-powervr-version) is the exception.
 
 ### If you have the disc, not an image
 
@@ -128,10 +126,6 @@ not for the install; see [Music](#music).
 
 ## What the patches do
 
-<p align="center">
-  <img src="assets/readme/patched-game.png" alt="Patched game" height="160" />
-</p>
-
 Every patch works with every other, on all four [builds](#builds) of `v_on.exe`, and
 with cnc-ddraw. [The PowerVR version](#the-powervr-version) takes most of them. How
 each works inside the game is in [NOTES.md](docs/NOTES.md).
@@ -142,7 +136,7 @@ Always applied.
 
 | Patch | What it fixes |
 | --- | --- |
-| **Skip processor check** | The game refuses to start on a modern CPU. `ProcessorCheck=Off` in `v_on.ini` is no longer needed. |
+| **Skip processor check** | The game refuses to start on a modern CPU. |
 | **Fix frame rate (60 FPS)** | The game ran at about 70% speed on Windows 2000 and later, and ignored the `Motion=` line in `v_on.ini`. The *Motion Type* radios on F5, which only offered 1/3 and 1/2 speed, now read **30 FPS** and **60 FPS**. |
 | **Fix crash on round loss** | The game crashes when you lose as Temjin, Viper II, Apharmd or Raiden. |
 | **Fix the lock-on line** | The line from the enemy to the distance readout flashed across the screen as a grey band when the enemy was far off to one side. |
@@ -239,9 +233,9 @@ fullscreen, so for a window add
 ## Playable bosses
 
 **Off by default**, because it changes the game rather than fixes it. Jaguarandi and
-Z-Gradt become playable in a one-player game. The game could already run them as
-fighters; the patch adds them to the machine select, fits the camera and the hangar
-to their size, and fixes every screen the game drew for the eight only.
+Z-Gradt become playable in a one-player game. The patch adds them to the machine
+select, fits the camera and the hangar to their size, and fixes every screen the game
+drew for the eight only.
 
 It is one player only, on purpose: the bosses are far stronger than the eight, so
 two-player and internet play keep the select to the eight.
@@ -268,8 +262,8 @@ which survives restarts, re-patching and **Restore original**.
 | Where | What changes |
 | --- | --- |
 | **Machine select** | An unlocked boss stands in the row after Raiden with its own portrait, and the countdown gives 20 seconds more to reach it. The Quick VR Select and Machine Color Select work on them too. |
-| **In a match** | Each boss fights with its own weapons, and the HUD names Jaguarandi's as the Sega Ages release does. Z-Gradt fires its super laser with Dash and has a fourth gauge for it under the other three. It cannot jump, so the jump button turns it to face the opponent. The chase camera, the KO replay and the win shots stand further back to fit them. |
-| **Elsewhere** | The Player Data Report shows the boss itself, the ending plays with it, and the scoreboard spells both names correctly. |
+| **In a match** | Each boss fights with its own weapons. Z-Gradt fires its super laser with Dash and has a fourth gauge for it under the other three. It cannot jump, so the jump button turns it to face the opponent. The chase camera, the KO replay and the win shots stand further back to fit them. |
+| **Elsewhere** | The Player Data Report shows the boss itself, and the ending plays with it. |
 
 <details>
 <summary>Screenshots</summary>
@@ -324,8 +318,8 @@ UNPAUSE**, and the title and scoreboard screens read **Press A Button**.
 <summary>Screenshots</summary>
 
 <p align="center">
-  <img src="assets/readme/pause-prompt.png" alt="Pause screen prompt" width="49.5%" />
-  <img src="assets/readme/title-prompt.png" alt="Title screen prompt" width="49.5%" />
+  <img src="assets/readme/pause-prompt.png" alt="Pause screen prompt" height="270" />
+  <img src="assets/readme/title-prompt.png" alt="Title screen prompt" height="270" />
 </p>
 
 </details>
@@ -391,8 +385,7 @@ hand. Two digits, `05` to `95`:
 
 **Internet play**, under ADD-ONS, replaces the game's Link mode network layer with
 plain UDP. One player hosts and gets a short code, the other types it in. No port
-forwarding, no VPN. Stock Link mode never leaves the LAN, and direct IP is still there
-for LAN play.
+forwarding, no VPN. Direct IP is still there for LAN play.
 
 <p align="center">
   <img src="assets/readme/internet-play.png" alt="Internet play dialog" height="360" />
@@ -455,8 +448,7 @@ nothing forwarded.
 The BGM is CD audio, so unpatched the game needs a disc or a virtual drive with the
 audio tracks; a data-only ISO plays nothing. **No disc required** reads the music from
 WAV files beside the game instead. With `music\` missing or empty it reads the drive as
-before. Under Wine the files play without any `dosdevices` entry, raw device link or
-cdemu instance.
+before. This also works under Wine with no extra setup.
 
 ### Ripping the tracks
 
@@ -701,8 +693,7 @@ Some patches touch more files:
 The patcher is one Python script, `v-on-patcher.py`; the Windows download is that script
 with Python beside it. `v-on-patcher-*-python.zip` from the
 [latest release](https://github.com/pairomaniac/v-on-patcher/releases/latest) is the
-script with the netplay DLL beside it in `net/`, nothing else. A checkout of this
-repository has the same two files in the same places.
+script with the netplay DLL beside it in `net/`, nothing else.
 
 | System | How to run it |
 | --- | --- |
@@ -727,7 +718,6 @@ python3 v-on-patcher.py --ddraw DIR          # fetch and install cnc-ddraw
 python3 v-on-patcher.py --sgl DIR            # fetch the PowerVR sgl.dll replacement
 python3 v-on-patcher.py --netplay DIR        # install the UDP netplay DLL
 python3 v-on-patcher.py --netplay DIR --remove  # put the stock one back
-python3 v-on-patcher.py --selfcheck          # validate the patch tables
 ```
 
 ## Working on the patcher
