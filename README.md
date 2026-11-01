@@ -665,8 +665,9 @@ Wine and Proton.
 
 ## Builds
 
-Five builds of the game exist. Every patch works on the four builds of
-`v_on.exe`; the PowerVR version takes most of them. The window names the
+The patcher knows five builds of the game, and
+[one more is wanted](#wanted-the-japanese-powervr-version). Every patch works on
+the four builds of `v_on.exe`; the PowerVR version takes most of them. The window names the
 build it is looking at; say which in a bug report, since the English retail
 build has had by far the most play.
 
@@ -724,6 +725,17 @@ F4 stays the game's PVR Settings.
 Without a Texture value in `v_on.ini` the machines are black, and this version's
 F5 page cannot set one. The installer writes a `v_on.ini` with only `Texture=7`,
 and the gamepad patch keeps that value when it moves the file aside.
+
+### Wanted: the Japanese PowerVR version
+
+One known release has no dump yet: NEC's Japanese release of the PowerVR version,
+seen packed with the manual of its PC 3DEngine2 card. Look for `VRNHE706` and the
+NEC logo on the disc. `SPB-016` is on the English disc too, so it does not tell them
+apart. The English disc reads *O.E.M. Product, Made in USA*.
+
+If you have this disc, please write to
+[pairo@segaonline.net](mailto:pairo@segaonline.net) so it can be preserved and
+supported.
 
 ### What gets written
 
