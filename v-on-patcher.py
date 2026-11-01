@@ -2193,9 +2193,7 @@ def build_sites(w, h, sec_va, span_va, rowtab_va, pool, A=None):
     # inside that edge, so the outermost mech is a silhouette that lights
     # up as it turns in (ui.asm hangar_draw, wrapping the platform draw
     # at 0x59e4ea).
-    f = 600 * 1.21875                    # focal times the 1P aspect
-    margin = math.degrees(math.atan(w / (h / 480) / 2 / f)
-                          - math.atan(320 / f))
+    wide, margin, win = wider_view(w, h)
     if margin > 0:
         sites += [(0x2213f0, struct.pack('<d', 31.57),
                    struct.pack('<d', 31.57 + margin + 8)),
@@ -2213,8 +2211,6 @@ def build_sites(w, h, sec_va, span_va, rowtab_va, pool, A=None):
     # the extra half field of view; the y bounds stay, since the
     # vertical view is unchanged. Both renderers keep their own copy of
     # the float pool; the compare immediates are in the code.
-    wide = w / (h / 480) / 640           # visible width over 4:3's
-    win = 0x1500 + round(margin * 65536 / 360)
     sites += [(0x205d38, f32(-256.0), f32(-256.0 * wide)),
               (0x205d3c, f32(256.0), f32(256.0 * wide)),
               (0x1fb4a0, f32(-256.0), f32(-256.0 * wide)),
@@ -2344,8 +2340,7 @@ def build_sites(w, h, sec_va, span_va, rowtab_va, pool, A=None):
     # than 4:3: it starts further left, by the extra width in columns
     # plus one. The moon card's commit (0x58f549) goes through ui.asm
     # credits_moon, which scales it to the full height (UI_CMOON).
-    cols = int(math.ceil(max(0.0, w / h / (4 / 3) - 1) * 5)) + 1
-    sites += imm_sites([0x18ea14], -9000, -9000 - cols * 1800)
+    sites += imm_sites([0x18ea14], -9000, star_start(w, h))
     sites.append((0x18e949, b'\xe8' + u32(0x514430 - (0x58f549 + 5)),
                   b'\xe8' + u32(sec_va + UI_CREDITS_MOON - (0x58f549 + 5))))
     return sites
@@ -2369,6 +2364,36 @@ def apply(buf, sites, mask_load=MASK_LOAD, mask_store=MASK_STORE):
         buf[off:off + len(new)] = new
 
 
+def wider_view(w, h):
+    """How a wider picture differs from 4:3: its visible width over 4:3's, its
+    extra half field of view in degrees, and the marker's bearing window."""
+    f = 600 * 1.21875                    # focal times the 1P aspect
+    margin = math.degrees(math.atan(w / (h / 480) / 2 / f)
+                          - math.atan(320 / f))
+    return (w / (h / 480) / 640, margin,
+            0x1500 + round(margin * 65536 / 360))
+
+
+def star_start(w, h):
+    """Where the credits' star field starts: -9000, further left by the extra
+    width in columns of 1800, plus one."""
+    return -9000 - (int(math.ceil(max(0.0, w / h / (4 / 3) - 1) * 5)) + 1) * 1800
+
+
+def _f5_item(buf, old, ident, lo, hi):
+    """Where a control's text is in an F5 template, by string and control id."""
+    pat = old.encode('utf-16-le') + b'\0\0'
+    hits = []
+    i = buf.find(pat, lo, hi)
+    while i >= 0:
+        if struct.unpack_from('<H', buf, i - 6)[0] == ident:
+            hits.append(i)
+        i = buf.find(pat, i + 1, hi)
+    if len(hits) != 1:
+        raise ValueError('F5 item %s not found once' % old)
+    return hits[0]
+
+
 def _split_dialog(buf):
     """Relabel the F5 Screen Split radios for the two layouts this patch
     keeps: Type1 -> Ver (side by side), Type3 -> Hor (top/bottom). Type2
@@ -2382,19 +2407,10 @@ def _split_dialog(buf):
                                   ('Type3', 'Hor  ', False, 0x431),
                                   ('Normal', '720p  ', False, 0x420),
                                   ('Large', '1080p', False, 0x421)):
-        pat = old.encode('utf-16-le') + b'\0\0'
-        hits = []
-        i = buf.find(pat, lo, hi)
-        while i >= 0:
-            if struct.unpack_from('<H', buf, i - 6)[0] == ident:
-                hits.append(i)
-            i = buf.find(pat, i + 1, hi)
-        if len(hits) != 1:
-            raise ValueError('F5 radio %s not found once' % old)
-        i = hits[0]
+        i = _f5_item(buf, old, ident, lo, hi)
         if new:
             enc = new.encode('utf-16-le')
-            assert len(enc) == len(pat) - 2
+            assert len(enc) == len(old) * 2
             buf[i:i + len(enc)] = enc
         if hide:
             so = i - 22                     # the item's style dword
@@ -2981,16 +2997,7 @@ def _pvr_dialog(buf):
     for old, new, ident in (('Type1', 'Ver  ', 0x42e), ('Type2', 'Hor  ', 0x42f),
                             ('Normal', None, 0x420), ('Large', None, 0x421),
                             ('Screen', None, 0xffff)):
-        pat = old.encode('utf-16-le') + b'\0\0'
-        hits = []
-        i = buf.find(pat, lo, hi)
-        while i >= 0:
-            if struct.unpack_from('<H', buf, i - 6)[0] == ident:
-                hits.append(i)
-            i = buf.find(pat, i + 1, hi)
-        if len(hits) != 1:
-            raise ValueError('F5 item %s not found once' % old)
-        i = hits[0]
+        i = _f5_item(buf, old, ident, lo, hi)
         if new:
             enc = new.encode('utf-16-le')
             buf[i:i + len(enc)] = enc
@@ -4942,7 +4949,7 @@ PVR = Build('PowerVR', 'pvr', PVR_MD5, PVR_SIZE, 0x33b3b0ae, sections=(
     'WIDEFN': ('PVRWIDE', 'framefn'),
     'WIDESIZE': ('PVRWIDE', 'uisize'),
     'WIDE3D': ('PVRWIDE', 'drawn'),
-}, art=('escrgame.bin', 4194304, 'f0c2b33c6d32e8e25cee840a0de65dc0'),
+}, art=RETAIL.art,
     sites=None, annex=ANNEX_BLOBS + ('F5_PVR', 'PVRWIDE'),
     patches=('framerate', 'continuefix', 'dinput', 'activate', 'sound',
              'defaults', 'nodisc', 'debugbox', 'movie', 'padxinput', 'hires'),
@@ -19169,8 +19176,8 @@ def pvr_wide_sites():
         rel = symbol_va(target, PVR) - (va + 5)
         return hexes(va, old, 'e8' + struct.pack('<i', rel).hex())
     def hook_pad(va, old, target):
-        rel = symbol_va(target, PVR) - (va + 5)
-        return hexes(va, old, 'e8' + struct.pack('<i', rel).hex() + '90')
+        site, was, new = hook(va, old, target)
+        return site, was, new + '90'
     # The window, SetDisplayMode's callers, the SGL device and viewport, and
     # the ALT+TAB recreate.
     rows = [word(va + 1, 640, w) for va in (
@@ -19294,15 +19301,10 @@ def pvr_wide_sites():
              for va in (0x41a834, 0x439b74)]
     rows += [word(0x51c434, 0x10e2, 0x10e2 + 80),
              word(0x51c7d9, 0x10e3, 0x10e3 + 80), hexes(0x517c67, '16', '09')]
-    cols = int(math.ceil(max(0.0, w / h / (4 / 3) - 1) * 5)) + 1
-    rows += [word(0x51ca54, -9000 & 0xffffffff, (-9000 - cols * 1800)
-                  & 0xffffffff)]
+    rows += [word(0x51ca54, -9000 & 0xffffffff, star_start(w, h) & 0xffffffff)]
     # The enemy marker and its arrow: the x bounds in focal-600 space, a copy per renderer, and the
     # bearing window with the extra half field of view.
-    f = 600 * 1.21875
-    wide = w / sy / 640
-    margin = math.degrees(math.atan(wide * 320 / f) - math.atan(320 / f))
-    win = 0x1500 + round(margin * 65536 / 360)
+    wide, margin, win = wider_view(w, h)
     # The machine select's draw window, as on the others: the wider view's
     # half field plus eight degrees for a machine's own width. The loader's
     # fifth slot, in pvr_ui_install, is what lets the extra machine load.
@@ -21761,16 +21763,16 @@ def remove_ddraw(gamedir):
     return gone
 
 
-def install_ddraw_in_background(gamedir, progress, done):
-    """Same shape as rip_in_background: both callbacks fire off the UI
-    thread."""
+def addon_in_background(install, gamedir, progress, done):
+    """An add-on's install, shaped as rip_in_background: both callbacks fire
+    off the UI thread."""
     def work():
         try:
-            files = install_ddraw(gamedir, progress)
+            result = install(gamedir, progress)
         except Exception as exc:
             done(exc, None)
         else:
-            done(None, files)
+            done(None, result)
 
     thread = threading.Thread(target=work, daemon=True)
     thread.start()
@@ -21850,19 +21852,6 @@ def remove_sgl(gamedir):
     return []
 
 
-def install_sgl_in_background(gamedir, progress, done):
-    """As install_ddraw_in_background."""
-    def work():
-        try:
-            tag = install_sgl(gamedir, progress)
-        except Exception as exc:
-            done(exc, None)
-        else:
-            done(None, tag)
-
-    thread = threading.Thread(target=work, daemon=True)
-    thread.start()
-    return thread
 
 
 # --- CD audio ------------------------------------------------------------
@@ -24868,54 +24857,12 @@ def run_tk():
                     self._log('sgl: removed %s' % SGL_DLL)
                 self._sgl_sync()
                 return
-            self.sgl_btn.state(['disabled'])
-            self.sgl_note.config(text=DDRAW_BUSY, foreground=self.dim)
-            self._log('sgl: fetching the latest release of %s' % SGL_REPO)
-            self._sglq = queue.Queue()
-
-            def progress(got, total):
-                self._sglq.put(('progress', got, total))
-
-            def done(exc, tag):
-                self._sglq.put(('done', exc, tag))
-
-            install_sgl_in_background(gamedir, progress, done)
-            self._drain_sgl()
-
-        def _drain_sgl(self):
-            """Poll the worker's queue on the UI thread, as cnc-ddraw does."""
-            try:
-                while True:
-                    item = self._sglq.get_nowait()
-                    if item[0] == 'progress':
-                        _kind, got, total = item
-                        if total:
-                            self.sgl_note.config(
-                                text='%s %d%%' % (DDRAW_BUSY,
-                                                  100 * got // total))
-                        continue
-                    _kind, exc, tag = item
-                    if isinstance(exc, PermissionError):
-                        self.sgl_note.config(text=DDRAW_LOCKED,
-                                             foreground=PALETTE['bad'])
-                        self._log('sgl: failed - %s' % DDRAW_LOCKED)
-                    elif exc:
-                        self.sgl_note.config(text='Download failed.',
-                                             foreground=PALETTE['bad'])
-                        self._log('sgl: failed - %s' % exc)
-                        self._log('sgl: install it by hand from the link '
-                                  'in the add-on row')
-                    else:
-                        self.sgl_note.config(
-                            text='Installed %s, %s, beside vonpvr.exe.'
-                                 % (SGL_DLL, tag), foreground=PALETTE['ok'])
-                        self._log('sgl: installed %s from %s'
-                                  % (SGL_DLL, tag))
-                    self._sgl_sync()
-                    return
-            except queue.Empty:
-                pass
-            self.root.after(100, self._drain_sgl)
+            self._fetch_addon(
+                'sgl', self.sgl_btn, self.sgl_note,
+                'fetching the latest release of %s' % SGL_REPO, install_sgl,
+                gamedir, self._sgl_sync,
+                lambda tag: ('Installed %s, %s, beside vonpvr.exe.' % (SGL_DLL, tag),
+                             'installed %s from %s' % (SGL_DLL, tag)))
 
         def _netplay_row(self, parent):
             """Ours, so there is nowhere to link: the explanation lives in
@@ -25013,55 +24960,63 @@ def run_tk():
                                        foreground=PALETTE['cyan'])
                 return
 
-            self.ddraw_btn.state(['disabled'])
-            self.ddraw_note.config(text=DDRAW_BUSY, foreground=self.dim)
-            self._log('ddraw: fetching %s' % DDRAW_URL)
-            self._ddrawq = queue.Queue()
+            self._fetch_addon(
+                'ddraw', self.ddraw_btn, self.ddraw_note,
+                'fetching %s' % DDRAW_URL, install_ddraw, gamedir,
+                self._ddraw_sync,
+                lambda files: ('Installed %d files beside v_on.exe.' % len(files),
+                               'installed %s' % ', '.join(sorted(files)[:6])))
+
+        def _fetch_addon(self, log, btn, note, fetching, install, gamedir, sync,
+                         installed):
+            """Run an add-on's install off the UI thread and poll its queue,
+            as the rip does. installed(result) gives the note and the log line
+            for a success."""
+            btn.state(['disabled'])
+            note.config(text=DDRAW_BUSY, foreground=self.dim)
+            self._log('%s: %s' % (log, fetching))
+            work = queue.Queue()
 
             def progress(got, total):
-                self._ddrawq.put(('progress', got, total))
+                work.put(('progress', got, total))
 
-            def done(exc, files):
-                self._ddrawq.put(('done', exc, files))
+            def done(exc, result):
+                work.put(('done', exc, result))
 
-            install_ddraw_in_background(gamedir, progress, done)
-            self._drain_ddraw()
+            def drain():
+                try:
+                    while True:
+                        item = work.get_nowait()
+                        if item[0] == 'progress':
+                            _kind, got, total = item
+                            if total:
+                                note.config(text='%s %d%%' % (
+                                    DDRAW_BUSY, 100 * got // total))
+                            continue
+                        _kind, exc, result = item
+                        btn.state(['!disabled'])
+                        if isinstance(exc, PermissionError):
+                            note.config(text=DDRAW_LOCKED,
+                                        foreground=PALETTE['bad'])
+                            self._log('%s: failed - %s' % (log, DDRAW_LOCKED))
+                        elif exc:
+                            note.config(text='Download failed.',
+                                        foreground=PALETTE['bad'])
+                            self._log('%s: failed - %s' % (log, exc))
+                            self._log('%s: install it by hand from the link '
+                                      'in the add-on row' % log)
+                        else:
+                            said, logged = installed(result)
+                            note.config(text=said, foreground=PALETTE['ok'])
+                            self._log('%s: %s' % (log, logged))
+                        sync()
+                        return
+                except queue.Empty:
+                    pass
+                self.root.after(100, drain)
 
-        def _drain_ddraw(self):
-            """Poll the worker's queue on the UI thread, as the rip does."""
-            try:
-                while True:
-                    item = self._ddrawq.get_nowait()
-                    if item[0] == 'progress':
-                        _kind, got, total = item
-                        if total:
-                            self.ddraw_note.config(
-                                text='%s %d%%' % (DDRAW_BUSY,
-                                                  100 * got // total))
-                        continue
-                    _kind, exc, files = item
-                    self.ddraw_btn.state(['!disabled'])
-                    if isinstance(exc, PermissionError):
-                        self.ddraw_note.config(text=DDRAW_LOCKED,
-                                               foreground=PALETTE['bad'])
-                        self._log('ddraw: failed - %s' % DDRAW_LOCKED)
-                    elif exc:
-                        self.ddraw_note.config(text='Download failed.',
-                                               foreground=PALETTE['bad'])
-                        self._log('ddraw: failed - %s' % exc)
-                        self._log('ddraw: install it by hand from the link '
-                                  'in the add-on row')
-                    else:
-                        self.ddraw_note.config(
-                            text='Installed %d files beside v_on.exe.'
-                                 % len(files), foreground=PALETTE['ok'])
-                        self._log('ddraw: installed %s'
-                                  % ', '.join(sorted(files)[:6]))
-                    self._ddraw_sync()
-                    return
-            except queue.Empty:
-                pass
-            self.root.after(100, self._drain_ddraw)
+            addon_in_background(install, gamedir, progress, done)
+            drain()
 
         def _patch_body(self, parent, keys, hint):
             if hint:
@@ -25626,10 +25581,11 @@ def netplay_cli(argv):
     return None
 
 
-def ddraw_cli(argv):
-    """--ddraw GAMEDIR, for a machine with no display."""
+def _addon_cli(argv, flag, label, install, report):
+    """--flag GAMEDIR, for a machine with no display. report(gamedir, result)
+    prints what was installed."""
     if len(argv) != 1:
-        return 'Usage: v-on-patcher.py --ddraw GAMEDIR'
+        return 'Usage: v-on-patcher.py %s GAMEDIR' % flag
     gamedir = argv[0]
     if not os.path.isdir(gamedir):
         return 'Not a directory: %s' % gamedir
@@ -25639,35 +25595,26 @@ def ddraw_cli(argv):
             sys.stderr.write('\r%5.1f%%  ' % (100.0 * got / total))
 
     try:
-        files = install_ddraw(gamedir, progress)
+        result = install(gamedir, progress)
     except Exception as exc:
-        return '\ncnc-ddraw failed: %s' % exc
+        return '\n%s failed: %s' % (label, exc)
     sys.stderr.write('\r')
-    print('Installed %d files into %s' % (len(files), gamedir))
-    print('On Linux, set ddraw to native in winecfg for that prefix.')
+    report(gamedir, result)
     return None
+
+
+def ddraw_cli(argv):
+    def report(gamedir, files):
+        print('Installed %d files into %s' % (len(files), gamedir))
+        print('On Linux, set ddraw to native in winecfg for that prefix.')
+    return _addon_cli(argv, '--ddraw', 'cnc-ddraw', install_ddraw, report)
 
 
 def sgl_cli(argv):
-    """--sgl GAMEDIR, as --ddraw."""
-    if len(argv) != 1:
-        return 'Usage: v-on-patcher.py --sgl GAMEDIR'
-    gamedir = argv[0]
-    if not os.path.isdir(gamedir):
-        return 'Not a directory: %s' % gamedir
-
-    def progress(got, total):
-        if total:
-            sys.stderr.write('\r%5.1f%%  ' % (100.0 * got / total))
-
-    try:
-        tag = install_sgl(gamedir, progress)
-    except Exception as exc:
-        return '\npvr-sgl-wrapper failed: %s' % exc
-    sys.stderr.write('\r')
-    print('Installed %s from pvr-sgl-wrapper %s into %s'
-          % (SGL_DLL, tag, gamedir))
-    return None
+    def report(gamedir, tag):
+        print('Installed %s from pvr-sgl-wrapper %s into %s'
+              % (SGL_DLL, tag, gamedir))
+    return _addon_cli(argv, '--sgl', 'pvr-sgl-wrapper', install_sgl, report)
 
 
 def install_cli(args):

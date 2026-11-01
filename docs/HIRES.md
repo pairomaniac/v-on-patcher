@@ -568,7 +568,8 @@ to it on 0x6bea88/0x6bea8c), sub-states 2 and 6 (0x4b1b87, 0x4b1f99,
 block 1) and the network cards 0x4d54c1 and its neighbours, which pick
 one of the three at random. 0x4d1328 leaves plane B's scroll y at
 0x4000 (tile row 0). Each block has 1088..1804 distinct tiles; the
-splash has 287. The maps are byte-identical in all four builds, which
+splash has 287. The maps are byte-identical in all four builds of
+`v_on.exe`, which
 is why the recognition is by cell content rather than by address. The
 copy is a plain memcpy, yet the ring reads back with every index lowered
 by one constant (0xe32 on the select, another on the encounter card):
@@ -979,7 +980,7 @@ the differences follow from that order.
   is hidden. The low-resolution toggle and menu command go to the handler's exit,
   and a saved `ScrSize` above 3 takes the default. F4 stays the PVR Settings dialog.
 - **The machine select.** The draw window (`0x642a30`, `0x642a38`) is widened as on
-  the other builds, which adds a fourth machine. The draw lists its machines for the
+  the other builds, which adds more machines. The draw lists its machines for the
   loader (`0x5c9be3`, count `0x84c5f4`, list `0x1d2cf34`), capped at 3, and the loader
   (`0x57f03f`) has four rows of four slots at `0x825548`: the stage and three machines.
   A machine with no slot is not drawn, so the widened window alone made the machine

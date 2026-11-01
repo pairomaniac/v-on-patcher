@@ -720,8 +720,10 @@ next frame's viewport and renders.
 - `nodither` turns the card's dither off before each render.
 - `waitcard` records whether the card rendered, and turns `(0,4,0)` to true black
   if it did.
-- `clearsurface` clears the surface on a frame the card did not render.
-- `drawn3d` answers the blob's 3D-behind question from the plane's hide bit.
+- `clearsurface`, on a frame the card did not render, clears the surface on a 2D
+  screen, and with 3D behind sets the game's skip flag so the newest picture stays.
+- `drawn3d` answers the blob's 3D-behind question from the hide bit of the plane of
+  the engine on screen (`behind3d`).
 - `fill1` and `fill2` start the backdrop's fill at the canvas's left edge.
 - `insert2` takes the second viewport's origin off around the blob's record hook.
 

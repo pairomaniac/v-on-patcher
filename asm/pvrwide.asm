@@ -137,6 +137,8 @@ waitcard:
 ; alone whatever matches what it sampled, and away from a scale of 1 it does not
 ; sample every pixel, so what the last screen left on the surface would show
 ; through in those. The other builds' rasterizers redraw the frame every time.
+; With 3D behind, as when the machine select's cursor moves, a clear would show
+; black and a flip an older picture, so the flip is skipped.
 clearsurface:
     cmp     dword [rendered], 0
     jne     .out
