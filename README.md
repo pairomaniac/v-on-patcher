@@ -604,9 +604,10 @@ its own DirectDraw and nothing changes.
 
 A fresh `ddraw.ini` is cnc-ddraw's own file with `fullscreen`, `windowed`,
 `maintas`, `noactivateapp`, `toggle_borderless`, `devmode` and
-`game_handles_close` set to `true`, and `singlecpu` set to `false`. That
-gives a borderless window at the right aspect ratio that does not trap the
-cursor. Change any of it with `cnc-ddraw config.exe`.
+`game_handles_close` set to `true`, `singlecpu` set to `false`, and scaling
+set to nearest neighbour (`shader=Nearest neighbor`, `d3d9_filter=0`). That
+gives a borderless window at the right aspect ratio, with hard pixels, that
+does not trap the cursor. Change any of it with `cnc-ddraw config.exe`.
 
 `game_handles_close` is the one that is not about the picture: without it,
 closing the window loses your settings and records for that session. If you

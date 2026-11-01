@@ -20971,6 +20971,8 @@ DDRAW_SETTINGS = (
                                     # of its own, and the PowerVR build's
                                     # sgl.dll replacement draws on every
                                     # core: pinned, it runs in slow motion.
+    ('shader', 'Nearest neighbor'),  # hard pixels when scaling up, under
+    ('d3d9_filter', '0'),           # either renderer it may pick
 )
 
 
