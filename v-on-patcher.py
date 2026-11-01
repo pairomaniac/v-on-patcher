@@ -4460,7 +4460,10 @@ PVR = Build('PowerVR', 'pvr', PVR_MD5, PVR_SIZE, 0x33b3b0ae, sections=(
     (0x0077a200, 0x024a2000),       # .idata
     (0x0077b800, 0x024a4000),       # .rsrc
     (0x00785600, 0x024ae000),       # .reloc
-), caves={}, symbols={
+), caves={
+    'PAD_DEVLIST': 0x007816e0,      # the F7 device list's own run, in .data
+    'LEVERS': ('PADX', 'end'),
+}, symbols={
     'SPEEDSEL': 0x01d2cc3c,         # the F5 speed choice
     'FRAMEDIV': 0x006ac3e0,         # frames per draw, which it set
     'ORIGENTRY': 0x005e7720,        # the entry point this replaces
@@ -4500,6 +4503,59 @@ PVR = Build('PowerVR', 'pvr', PVR_MD5, PVR_SIZE, 0x33b3b0ae, sections=(
     'TICK': ('PADX', 'tick'),
     'CAMSKIP': ('CAMSKIP', 0),
     'GPAUSE': 0x004967cd,           # the built-in dialogs' pause, arg 0
+    # XInput gamepad support
+    'EXIT1P': 0x0043cd7b,           # where the 1P profile switch resumes
+    'EXIT2P': 0x0054b477,           # and the 2P one
+    'KBD1P': 0x0043cf2b,            # stock keyboard handlers, called by the tick
+    'KBD2P': 0x0054b60d,
+    'SIMPLESTUB1': 0x0043cd07,      # Keyboard (Simple)'s profile stubs
+    'SIMPLESTUB2': 0x0054b403,
+    'PEEKMSG': 0x024a2688,          # IAT: PeekMessageA
+    'GETMSG': 0x024a2684,           # IAT: GetMessageA
+    'MODE2': 0x01ff1250,            # 2P state machine's mode
+    'DEVICES': 0x020b3540,          # 1P's profile, 0 being the keyboard
+    'BINDS1': 0x020b3130,           # 1P bind bytes
+    'BINDS2': 0x020b3148,           # 2P bind bytes, 0x18 on as in retail
+    'LEV1A': 0x01e15944,            # 1P lever words, left then right
+    'LEV1B': 0x01e15946,
+    'LEV2A': 0x01ff0674,            # 2P
+    'LEV2B': 0x01ff0676,
+    'MASK1A': 0x00648820,           # 1P key masks
+    'MASK1B': 0x0064882d,
+    'MASK2A': 0x007a8028,           # 2P, from its handler at 0x54b60d
+    'MASK2B': 0x007a8035,
+    'CURPLAYER': 0x00d75508,        # the side being configured, 0 or 1
+    'BLOCKS': 0x00d756b0,           # saved bind blocks: + player * 0x70
+    'KEYLIST': 0x00781700,          # the game's 33 named keys
+    'GAMEPADDEF': 0x007818c8,       # the gamepad's shipped binds
+    'CROSSCHECK': 0x00526b6a,       # key page: look at 1P's key map
+    'KBACCEPT': 0x00526bc2,         # take the key
+    'DEFAULTS': 0x00526d0b,         # fill a player's binds from the shipped set
+    'RESUME': 0x00526c96,           # what the Default button does next
+    'DIGITLOOP': 0x0052706c,        # bind page fill: the digit loop
+    'LISTLOOP': 0x005270ac,         # and the list loop
+    'FILLDONE': 0x005270f3,         # where the fill loop's jge went
+    'STORESHIFT': 0x0052726e,       # bind page store: shift down, try digits
+    'STORELIST': 0x00527293,        # and the list id store
+    'SELDIGITS': 0x00527453,        # bind page preselect: the digit loop
+    'SELLIST': 0x00527497,          # the list loop
+    'SELSET': 0x005274d3,           # search loop exit, then set the selection
+    'MEMCPY': 0x005e5840,
+    'CASEB': 0x00525f2b,            # the stock device 1 apply-and-serialize
+    'FINDLINE': 0x00445781,         # (key) -> value text, 0 if absent
+    'WRITELINE': 0x00445743,        # (key, value): one v_on.ini line
+    'JOYCHECKOK': 0x0052523d,       # startup device check: passes
+    'SPENDNONE': 0x00526747,        # F7 OK: a device that spends no joystick
+    'NODIALOG': 0x00525bb1,         # F7 page table: no dialog, success
+    'BINDPAGE12': 0x00525af1,       # and the twelve-bind page
+    # Locals of the game's own functions our stubs read
+    'FILLIDX': -0x18,               # the bind page fill's loop counter
+    'STOREIDX': -0x14,              # its store's combo index
+    'SELIDX': -0xc,                 # the preselect's loop counter
+    'DEVSEL': -0x10,                # the F7 page's combo selection
+    'DEVNUM': -0x14,                # and the device it maps to
+    'SAVEPLAYER': -0xc8,            # the OK handler's player
+    'SAVELINE': -0x18c,             # and its line buffer
     # Intro, loading and ending screens
     'MOVIEX': 0x02009c74,           # the offsets the replaced code read
     'MOVIEY': 0x02009c78,
@@ -4556,7 +4612,7 @@ PVR = Build('PowerVR', 'pvr', PVR_MD5, PVR_SIZE, 0x33b3b0ae, sections=(
 }, art=('escrgame.bin', 4194304, 'f0c2b33c6d32e8e25cee840a0de65dc0'),
     sites=None, annex=ANNEX_BLOBS + ('F5_PVR',),
     patches=('framerate', 'continuefix', 'dinput', 'activate', 'sound',
-             'defaults', 'nodisc', 'debugbox', 'movie'),
+             'defaults', 'nodisc', 'debugbox', 'movie', 'padxinput'),
     reasons={'nocpucheck': 'the PowerVR build has no processor check'},
     note=PVR_NOTE, exe='vonpvr.exe',
     # HOLD TO SKIP over the credits: the pre-flip call retail hooks has no
@@ -6085,6 +6141,91 @@ PVR.sites = {
     0x000c0ada: (0x0006a2b7,
         '8b45ecd94008d9e083ec04d91c248b45ec8b4004508b45ecd900d9e083ec04d9'
         '1c24e812d1faff83c40c'
+    ),
+    0x000970bf: (0x001264bb, '837de8210f8d2e000000'),
+    0x000970d5: (0x001264d1, '8b04c500177800'),
+    0x0009729c: (0x00126696, '8a04c504177800'),
+    0x000974ac: (0x001268a6, '837df4210f8d23000000'),
+    0x000974be: (0x001268b8, '390cc504177800'),
+    0x00095f35: (0x0012533d, '05b056d70083c008'),
+    0x0009724c: (0x00126646, '05b056d70083c008'),
+    0x0009736d: (0x00126767, '05b056d70083c008'),
+    0x00097355: (0x0012674f, '8d04408d04c5c8187800'),
+    0x00097397: (0x00126791, '05b056d70083c008'),
+    0x00097531: (0x0012692b, '05b056d70083c008'),
+    0x0009740f: (0x00126809, '8a8441b856d700'),
+    0x0026c88c: (0x0037fd40,
+        '4b6579626f617264206f6e6c79202853696d706c652074797065202d20256450'
+        '20736964652900'
+    ),
+    0x0026c400: (0x0037f8c8,
+        '11001f001e002000100012002e0022002d0013002f002100'
+    ),
+    0x0026c418: (0x0037f8e0,
+        'c700cf00d300d100d200c900520051004f004c0053005000'
+    ),
+    0x000422a8: (0x0003c15f, '07cd4300'),
+    0x001bc13b: (0x0014a85b, '03b45400'),
+    0x001c530e: (0x00095339, 'ff1588264a02'),
+    0x000971bd: (0x001265b8, '0f8558000000'),
+    0x0026c218: (0x0037f6e0,
+        '8c167800741678006016780054167800301678002016780008167800f8157800'
+    ),
+    0x000422ac: (0x0003c163, '11cd4300'),
+    0x001bc13f: (0x0014a85f, '0db45400'),
+    0x000422b0: (0x0003c167, '22cd4300'),
+    0x001bc143: (0x0014a863, '1eb45400'),
+    0x00095e46: (0x0012524e, '83c008'),
+    0x00095ec7: (0x001252cf, 'b856d700'),
+    0x00096d37: (0x00126133, '83c008'),
+    0x00096d61: (0x0012615d, '83c008'),
+    0x00096f19: (0x00126315, '83c008'),
+    0x00096c0a: (0x00126006, 'b856d700'),
+    0x00096c40: (0x0012603c, 'b856d700'),
+    0x00096c6d: (0x00126069, 'b856d700'),
+    0x00096de8: (0x001261e4, 'b856d700'),
+    0x00096e3f: (0x0012623b, 'b856d700'),
+    0x00096e9a: (0x00126296, 'b856d700'),
+    0x00096b61: (0x00125f5d, '833d0855d700010f8558000000'),
+    0x00096c8e: (0x0012608a, '6a016a00e87800000083c408'),
+    0x00094ea0: (0x00124319, 'e8da2a0000'),
+    0x00094eaf: (0x0012432b, '2a330000'),
+    0x00095217: (0x00124631, '71515200'),
+    0x00095213: (0x0012462d, '89515200'),
+    0x00096731: (0x00125b2f, 'e3665200'),
+    0x00096735: (0x00125b33, '04675200'),
+    0x00095bdc: (0x00124fe4, '305b5200'),
+    0x00095be0: (0x00124fe8, 'b15b5200'),
+    0x00096253: (0x0012565b, '2b5f5200'),
+    0x0009625b: (0x00125663, '33625200'),
+    0x00095604: (0x001249fe, 'e8562c0000'),
+    0x000958a1: (0x00124caa, '03'),
+    0x000958aa: (0x00124cb3, 'e900000000'),
+    0x0009522e: None,  # padxinput
+    0x00095248: None,  # padxinput
+    0x0009651a: (0x00125922, '8b80b056d700'),
+    0x00096784: (0x00125b82, '8b45f08b4dec'),
+    0x000959f7: (0x00124dff, '89048d40350b02'),
+    0x0060b34e: (0x00783f7a, '3100500020007300690064006500'),
+    0x0009703f: (0x0012643b, '837de81a0f8d27000000'),
+    0x00097257: (0x00126651, '837dec1a0f8d13000000'),
+    0x00097428: (0x00126822, '837df41a0f8d27000000'),
+    0x000974cb: (0x001268c5, '8345f424e905000000'),
+    0x0009753a: (0x00126934, 'e807e30b00'),
+    0x001c52ac: (0x000952c3, 'ff1584264a02'),
+    0x00285e04: (0x0024307c, '20505245535320535041434520424152'),
+    0x002c7654: (0x002aa75c,
+        '546f20526573756d652047616d652c20507265737320463300000000'
+    ),
+    0x00269b60: (0x00243750,
+        '000001000200030004000500060007000800090007000a000b000c000d000e00'
+        '0f00100011001200040004001300090004001400150004001600170007000800'
+        '180019001a001b001c0014001d001e001f002000210022002300240025002600'
+        '2700280029002a002b002c002d002e002f003000310032003300340035003600'
+        '3700380039003a003b003c003d003e00280029003f003a004000410042004300'
+        '4400450046004700480049004a004b004c004a004d004e004f00500051005200'
+        '53005400550056005700580059005a005b005c005d005e005f00600061006200'
+        '63004d004e004f006400650066006700680069006a006b006c004a00'
     ),
 }
 # SITES PVR END

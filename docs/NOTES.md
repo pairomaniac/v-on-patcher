@@ -204,6 +204,20 @@ patches write are linked for it (`build_blobs`).
   during the intro, F11 crashed: this build has no surfaces then, and the
   pause locked a null back buffer. The hook now makes the two tests the
   game's own F5 to F8 make first, on every build (`DLGOK`, `DLGBUSY`).
+- **Gamepad**: the device list, the bind tables, both players' keyboard
+  handlers and profile switches are retail's at other addresses; the 2P
+  handler (`0x54b60d`) and its masks were found from the 2P bind table,
+  0x18 past 1P's as in retail. Each switch table the patch repoints was
+  paired with retail's entry by entry through its function's alignment.
+  The bind page fill reads its counter at `[ebp-0x18]`, the F7 page its
+  selection at `[ebp-0x10]` and the save its line buffer at `[ebp-0x18c]`.
+  The startup check of the saved device is different code: it counts the
+  enumerated joysticks and spends them per device, Keyboard (Simple)'s
+  slot among them, and has no last check for devices 3 and 7. The
+  patch's two table entries (devices 3 and 4 to the loop's continue,
+  `0x52523d`) cover it, and the two `cmp 3` sites map to `None`.
+  `escrgame.bin` is retail's, byte for byte, so the banner's tiles go
+  where they go there.
 - **Intro, loading and ending screens**: the movie placer reads
   `[ebp-0x14]` and `[ebp-0x18]`. HOLD TO SKIP is not ported: the frame end
   is a function of its own here (`0x498093`), and its call before the flip
@@ -220,8 +234,13 @@ Tested under Wine 11 with pvr-sgl-wrapper 0.1, patched: a time-out loss
 reaches the continue screen instead of crashing; F5 shows 30 FPS and 60
 FPS, selected from `Motion`, and with no `v_on.ini` the new defaults; the
 game starts with no CD drive and opens the ripped tracks; F11 opens the
-Extras dialog, and does nothing during the intro; the credits skip. The
-two ALT+TAB fixes and an internet match have not been tried.
+Extras dialog, and does nothing during the intro; the credits skip. With
+the gamepad patch, the title and scoreboard banner reads Press A Button, F7
+lists the four profiles and its Next opens the bind page with the pad's
+inputs, and Keyboard (Simple) saved on F7 survives a restart. Played with
+a controller: the menus, a match, twin-stick, the soft reset, the deadzones
+and bindings kept across a restart. The two ALT+TAB fixes and an internet
+match have not been tried.
 
 ### Why no v_on.ini
 

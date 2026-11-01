@@ -657,13 +657,13 @@ PowerVR PCX1 or PCX2 card. It takes these patches:
 
 - Essential: the frame rate, the round-loss crash and both ALT+TAB fixes.
   It has no processor check, and the lock-on line fix is not ported.
-- Extra: the menu bar and F11, better defaults, the sound fixes, no disc
-  required, and the intro, loading and ending screens. The credits skip,
-  but HOLD TO SKIP is not drawn.
+- Extra: XInput gamepad support, the menu bar and F11, better defaults, the
+  sound fixes, no disc required, and the intro, loading and ending screens.
+  The credits skip, but HOLD TO SKIP is not drawn.
 
-The gamepad, the playable bosses and the version and credit are not ported,
-so their rows are greyed out. The ALT+TAB fixes are untested on it. Internet
-play installs into its folder; a match on it has not been tried.
+The playable bosses and the version and credit are not ported, so their rows
+are greyed out. The ALT+TAB fixes are untested on it. Internet play installs
+into its folder; a match on it has not been tried.
 
 Without No disc required it checks for the disc: a drive Windows sees as a
 CD-ROM, with `V_ON\VONPVR.EXE` on it. It draws through `sgl.dll`, which came

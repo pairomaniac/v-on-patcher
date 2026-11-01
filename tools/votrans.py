@@ -237,6 +237,24 @@ HAND = {'d19320bdc3381a48228990907910a391': ({           # Japanese rerelease
     # the call before the flip that HOLD TO SKIP hooks: not placed (the one
     # at 0x498178 runs only behind a toggle), so the build goes without it
     0x001c58e7: None,
+    # padxinput: the bind page fill, which the map does not match; its loop
+    # counter is [ebp-0x18] here, which also put "raw unique" for 0x9703f
+    # in the wrong function
+    0x000970bf: 0x001264bb, 0x000970d5: 0x001264d1, 0x0009703f: 0x0012643b,
+    0x000958aa: 0x00124cb3,                           # the ini load loop's exit
+    # switch-table entries, paired entry by entry with retail's through
+    # each function's alignment: the 2P profile switch (0x54b457), the
+    # startup check (0x525229), the F7 OK spend (0x52672f), the F7 page
+    # (0x525bdc) and the save switch (0x526257)
+    0x001bc13b: 0x0014a85b, 0x001bc13f: 0x0014a85f, 0x001bc143: 0x0014a863,
+    0x00095213: 0x0012462d, 0x00095217: 0x00124631,
+    0x00096731: 0x00125b2f, 0x00096735: 0x00125b33,
+    0x00095bdc: 0x00124fe4, 0x00095be0: 0x00124fe8,
+    0x00096253: 0x0012565b, 0x0009625b: 0x00125663,
+    # the startup check spends joysticks per device here, Keyboard (Simple)
+    # among them, and has no last check for devices 3 and 7: the two table
+    # entries above cover it
+    0x0009522e: None, 0x00095248: None,
 }, {
 })}
 
