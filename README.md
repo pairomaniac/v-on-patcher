@@ -68,8 +68,8 @@ The window is split into numbered sections. Work through them in order:
    **Apply patches**.
 5. **ADD-ONS** - starts collapsed. Press **Install** on the rows you want:
    **Internet play** for two-player versus over the internet (both players
-   need it), and **Windowing and scaling** for windowed and borderless play
-   through cnc-ddraw.
+   need it), **Windowing and scaling** for windowed and borderless play
+   through cnc-ddraw, and **PowerVR renderer** for the PowerVR version.
 
 Then play. **Restore original** puts the game back if you change your mind.
 Add-ons put files beside the game rather than editing it, so Apply and
@@ -234,8 +234,9 @@ missing, the whole box is skipped and everything else still applies.
 
 Open the collapsed **ADD-ONS** header and press **Install** on a row; the
 same button reads **Remove** once installed. The rows are
-[Internet play](#internet-play) and
-[Windowing and scaling](#windowing-and-scaling-cnc-ddraw).
+[Internet play](#internet-play),
+[Windowing and scaling](#windowing-and-scaling-cnc-ddraw) and
+[PowerVR renderer](#powervr-renderer-pvr-sgl-wrapper).
 
 <p align="center">
   <img src="assets/readme/add-ons-section.png" alt="ADD-ONS section" height="360" />
@@ -633,6 +634,28 @@ gamescope -W 1920 -H 1080 -w 640 -h 480 -f -S integer -- %command%
 ```
 
 `-S fit` fills more of the screen without whole-number scaling.
+
+## PowerVR renderer (pvr-sgl-wrapper)
+
+The PowerVR version draws through `sgl.dll`, the library that came with the
+PowerVR card's driver, and the disc does not carry it.
+[pvr-sgl-wrapper](https://github.com/z2k-retro/pvr-sgl-wrapper) is a
+replacement that emulates the card on the CPU, so the game runs without one.
+It is only for the PowerVR version; the row is greyed out for the others.
+
+**Install** under ADD-ONS downloads the current release from
+[its releases page](https://github.com/z2k-retro/pvr-sgl-wrapper/releases)
+and puts its `sgl.dll` beside `vonpvr.exe`. The same button then reads
+**Remove**, which deletes it again. From a terminal:
+
+```bash
+python3 v-on-patcher.py --sgl path/to/game
+```
+
+Wine has no `sgl.dll` of its own, so nothing needs setting in `winecfg`. It
+draws on every CPU core: with cnc-ddraw, keep `singlecpu=false` in
+`ddraw.ini`, or the game runs in slow motion. Tested with release 0.1 under
+Wine and Proton.
 
 ## Builds
 

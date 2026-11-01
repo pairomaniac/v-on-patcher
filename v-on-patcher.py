@@ -5,6 +5,7 @@
     python3 v-on-patcher.py --install IMAGE DIR   install from a .cue or .mds
     python3 v-on-patcher.py --rip SRC DIR   rip the soundtrack, no window needed
     python3 v-on-patcher.py --ddraw DIR     fetch cnc-ddraw into the game folder
+    python3 v-on-patcher.py --sgl DIR       fetch the PowerVR sgl.dll replacement
     python3 v-on-patcher.py --netplay DIR   install the UDP netplay DLL
     python3 v-on-patcher.py --selfcheck     validate the patch tables and exit
     python3 v-on-patcher.py --version
@@ -19,6 +20,7 @@ import ctypes
 import errno
 import hashlib
 import io
+import json
 import math
 import os
 import queue
@@ -21027,13 +21029,9 @@ def _ddraw_configure(text):
     return '\n'.join(lines)
 
 
-def install_ddraw(gamedir, progress=None):
-    """Download cnc-ddraw and unpack it beside the game.
-
-    Returns the list of files written. An existing ddraw.ini is left alone,
-    so re-running to update never discards someone's settings.
-    """
-    req = urllib.request.Request(DDRAW_URL, headers={
+def _download(url, limit, progress=None):
+    """The body at url, in memory, refused past limit bytes."""
+    req = urllib.request.Request(url, headers={
         'User-Agent': '%s/%s' % (NAME, VERSION)})
     blob = io.BytesIO()
     with _urlopen(req, timeout=30) as resp:
@@ -21043,12 +21041,21 @@ def install_ddraw(gamedir, progress=None):
             if not chunk:
                 break
             blob.write(chunk)
-            if blob.tell() > DDRAW_MAX:
+            if blob.tell() > limit:
                 raise ValueError('download is larger than %d MB'
-                                 % (DDRAW_MAX >> 20))
+                                 % (limit >> 20))
             if progress:
                 progress(blob.tell(), total)
+    return blob
 
+
+def install_ddraw(gamedir, progress=None):
+    """Download cnc-ddraw and unpack it beside the game.
+
+    Returns the list of files written. An existing ddraw.ini is left alone,
+    so re-running to update never discards someone's settings.
+    """
+    blob = _download(DDRAW_URL, DDRAW_MAX, progress)
     written = []
     with zipfile.ZipFile(blob) as zf:
         members = [m for m in zf.namelist() if _ddraw_wanted(m)]
@@ -21100,6 +21107,94 @@ def install_ddraw_in_background(gamedir, progress, done):
             done(exc, None)
         else:
             done(None, files)
+
+    thread = threading.Thread(target=work, daemon=True)
+    thread.start()
+    return thread
+
+
+# --- PowerVR renderer ----------------------------------------------------
+# The PowerVR build draws through sgl.dll, which came with the card's driver
+# and is not on the disc. pvr-sgl-wrapper is a replacement that emulates the
+# card on the CPU (MIT). Fetched at the user's request like cnc-ddraw, from
+# the latest release; its zip is named for the version, so the file comes
+# from the release's own asset list. Only sgl.dll is taken from it.
+
+SGL_REPO = 'z2k-retro/pvr-sgl-wrapper'
+SGL_URL = 'https://github.com/' + SGL_REPO
+SGL_API = 'https://api.github.com/repos/%s/releases/latest' % SGL_REPO
+SGL_MAX = 32 << 20              # sanity bound on the download
+SGL_DLL = 'sgl.dll'
+SGL_NOT_PVR = 'Only the PowerVR version uses sgl.dll; this folder has no %s.'
+
+
+def sgl_status(gamedir):
+    """Whether an sgl.dll is beside the game."""
+    return bool(gamedir) and os.path.exists(os.path.join(gamedir, SGL_DLL))
+
+
+def sgl_wanted(gamedir):
+    """Whether the folder holds the game that reads sgl.dll."""
+    return bool(gamedir) and os.path.exists(os.path.join(gamedir, PVR.exe))
+
+
+def _sgl_asset():
+    """(release tag, zip URL) of the wrapper's latest release."""
+    req = urllib.request.Request(SGL_API, headers={
+        'User-Agent': '%s/%s' % (NAME, VERSION),
+        'Accept': 'application/vnd.github+json'})
+    with _urlopen(req, timeout=30) as resp:
+        release = json.loads(resp.read(1 << 20).decode('utf-8'))
+    zips = [a for a in release.get('assets', ())
+            if str(a.get('name', '')).lower().endswith('.zip')]
+    if len(zips) != 1:
+        raise ValueError('the latest release has %d zip files, expected one'
+                         % len(zips))
+    return release.get('tag_name', '?'), zips[0]['browser_download_url']
+
+
+def install_sgl(gamedir, progress=None):
+    """Download the wrapper and put its sgl.dll beside the game. Returns
+    the release tag. Written beside and renamed over, so a failed write
+    leaves the one that was there."""
+    if not sgl_wanted(gamedir):
+        raise ValueError(SGL_NOT_PVR % PVR.exe)
+    tag, url = _sgl_asset()
+    blob = _download(url, SGL_MAX, progress)
+    with zipfile.ZipFile(blob) as zf:
+        # by name, wherever the zip keeps it; nothing else is written
+        found = [m for m in zf.namelist()
+                 if m.rsplit('/', 1)[-1].lower() == SGL_DLL
+                 and '..' not in m.split('/') and '\\' not in m]
+        if len(found) != 1:
+            raise ValueError('expected one %s in the release, found %d'
+                             % (SGL_DLL, len(found)))
+        dest = os.path.join(gamedir, SGL_DLL)
+        temp = dest + '.new'
+        with zf.open(found[0]) as src, open(temp, 'wb') as out:
+            shutil.copyfileobj(src, out)
+    os.replace(temp, dest)
+    return tag
+
+
+def remove_sgl(gamedir):
+    """Take sgl.dll out again. Its log, pvrsgl.log, is left."""
+    path = os.path.join(gamedir, SGL_DLL)
+    if os.path.exists(path):
+        os.remove(path)
+        return [SGL_DLL]
+    return []
+
+
+def install_sgl_in_background(gamedir, progress, done):
+    """As install_ddraw_in_background."""
+    def work():
+        try:
+            tag = install_sgl(gamedir, progress)
+        except Exception as exc:
+            done(exc, None)
+        else:
+            done(None, tag)
 
     thread = threading.Thread(target=work, daemon=True)
     thread.start()
@@ -22671,6 +22766,14 @@ DDRAW_WINE = ('Linux: also set ddraw to native in winecfg for this prefix, '
               'or run cnc-ddraw config.exe once. Without that step nothing '
               'changes.')
 
+SGL_LINK = ('PowerVR renderer', 'pvr-sgl-wrapper', SGL_URL,
+            'The PowerVR version draws through sgl.dll, which came with the '
+            'PowerVR card\'s driver. This one emulates the card on the CPU, '
+            'so the game runs without it. Install downloads it and puts it '
+            'beside vonpvr.exe.')
+SGL_ONLY = 'For the PowerVR version only: pick its vonpvr.exe above.'
+SGL_GONE = 'Removed.'
+
 DDRAW_BUSY = 'Downloading\u2026'
 DDRAW_GONE = 'Removed. ddraw.ini was left in place.'
 
@@ -24037,7 +24140,94 @@ def run_tk():
             grid.columnconfigure(0, weight=1, uniform='addon')
             grid.columnconfigure(1, weight=1, uniform='addon')
             self._link_row(grid, *DDRAW_LINK)
+            self._sgl_row(grid, *SGL_LINK)
             self._netplay_row(grid)
+
+        def _sgl_row(self, parent, label, name, url, note):
+            """pvr-sgl-wrapper: somebody else's, so linked like cnc-ddraw.
+            Only the PowerVR version reads it, so the button waits for one."""
+            self.sgl_btn, text = self._addon_head(
+                parent, label, name, url, self._sgl_click)
+            _hint(text, note, self.dim, self.small, pady=(4, 0))
+            self.sgl_note = _hint(text, '', self.dim, self.small,
+                                  pady=(4, 0))
+            self.sgl_installed = False
+            self._sgl_sync()
+
+        def _sgl_sync(self):
+            gamedir = self._ddraw_dir()
+            wanted = sgl_wanted(gamedir)
+            self.sgl_installed = wanted and sgl_status(gamedir)
+            self.sgl_btn.config(
+                text='Remove' if self.sgl_installed else 'Install')
+            self.sgl_btn.state(['!disabled'] if wanted else ['disabled'])
+            if not wanted:
+                self.sgl_note.config(text=SGL_ONLY, foreground=self.dim)
+
+        def _sgl_click(self):
+            gamedir = self._ddraw_dir()
+            if not sgl_wanted(gamedir):
+                return
+            if self.sgl_installed:
+                try:
+                    remove_sgl(gamedir)
+                except OSError as exc:
+                    self.sgl_note.config(text=DDRAW_LOCKED,
+                                         foreground=PALETTE['bad'])
+                    self._log('sgl: failed - %s' % exc)
+                else:
+                    self.sgl_note.config(text=SGL_GONE, foreground=self.dim)
+                    self._log('sgl: removed %s' % SGL_DLL)
+                self._sgl_sync()
+                return
+            self.sgl_btn.state(['disabled'])
+            self.sgl_note.config(text=DDRAW_BUSY, foreground=self.dim)
+            self._log('sgl: fetching the latest release of %s' % SGL_REPO)
+            self._sglq = queue.Queue()
+
+            def progress(got, total):
+                self._sglq.put(('progress', got, total))
+
+            def done(exc, tag):
+                self._sglq.put(('done', exc, tag))
+
+            install_sgl_in_background(gamedir, progress, done)
+            self._drain_sgl()
+
+        def _drain_sgl(self):
+            """Poll the worker's queue on the UI thread, as cnc-ddraw does."""
+            try:
+                while True:
+                    item = self._sglq.get_nowait()
+                    if item[0] == 'progress':
+                        _kind, got, total = item
+                        if total:
+                            self.sgl_note.config(
+                                text='%s %d%%' % (DDRAW_BUSY,
+                                                  100 * got // total))
+                        continue
+                    _kind, exc, tag = item
+                    if isinstance(exc, PermissionError):
+                        self.sgl_note.config(text=DDRAW_LOCKED,
+                                             foreground=PALETTE['bad'])
+                        self._log('sgl: failed - %s' % DDRAW_LOCKED)
+                    elif exc:
+                        self.sgl_note.config(text='Download failed.',
+                                             foreground=PALETTE['bad'])
+                        self._log('sgl: failed - %s' % exc)
+                        self._log('sgl: install it by hand from the link '
+                                  'in the add-on row')
+                    else:
+                        self.sgl_note.config(
+                            text='Installed %s, %s, beside vonpvr.exe.'
+                                 % (SGL_DLL, tag), foreground=PALETTE['ok'])
+                        self._log('sgl: installed %s from %s'
+                                  % (SGL_DLL, tag))
+                    self._sgl_sync()
+                    return
+            except queue.Empty:
+                pass
+            self.root.after(100, self._drain_sgl)
 
         def _netplay_row(self, parent):
             """Ours, so there is nowhere to link: the explanation lives in
@@ -24432,6 +24622,7 @@ def run_tk():
                 self.restore_btn.state(['disabled'])
                 self._sync_buttons()
                 self._ddraw_sync()
+                self._sgl_sync()
                 self._netplay_sync()
                 return
             level = (self.core.compare or {}).get('level', 'bad')
@@ -24471,6 +24662,7 @@ def run_tk():
             # that cannot be patched - already patched, most likely.
             self._sync_buttons()
             self._ddraw_sync()
+            self._sgl_sync()
             self._netplay_sync()
             if not ok:
                 self._log(note)
@@ -24591,6 +24783,8 @@ USAGE = """v-on-patcher.py %s - Virtual-On (PC, 1997) patcher
                                   or, on Linux, a CD drive. DIR holds v_on.exe
   v-on-patcher.py --rip               list the drives it can see (Linux)
   v-on-patcher.py --ddraw DIR         download cnc-ddraw into DIR (holds v_on.exe)
+  v-on-patcher.py --sgl DIR           download the sgl.dll replacement into DIR
+                                  (the PowerVR version's folder)
   v-on-patcher.py --netplay DIR       install the UDP netplay DLL (--remove undoes)
   v-on-patcher.py --selfcheck         validate the patch tables and exit
   v-on-patcher.py --version
@@ -24668,6 +24862,28 @@ def ddraw_cli(argv):
     sys.stderr.write('\r')
     print('Installed %d files into %s' % (len(files), gamedir))
     print('On Linux, set ddraw to native in winecfg for that prefix.')
+    return None
+
+
+def sgl_cli(argv):
+    """--sgl GAMEDIR, as --ddraw."""
+    if len(argv) != 1:
+        return 'Usage: v-on-patcher.py --sgl GAMEDIR'
+    gamedir = argv[0]
+    if not os.path.isdir(gamedir):
+        return 'Not a directory: %s' % gamedir
+
+    def progress(got, total):
+        if total:
+            sys.stderr.write('\r%5.1f%%  ' % (100.0 * got / total))
+
+    try:
+        tag = install_sgl(gamedir, progress)
+    except Exception as exc:
+        return '\npvr-sgl-wrapper failed: %s' % exc
+    sys.stderr.write('\r')
+    print('Installed %s from pvr-sgl-wrapper %s into %s'
+          % (SGL_DLL, tag, gamedir))
     return None
 
 
@@ -24774,6 +24990,8 @@ def main():
         return netplay_cli(sys.argv[sys.argv.index('--netplay') + 1:])
     if '--ddraw' in args:
         return ddraw_cli(sys.argv[sys.argv.index('--ddraw') + 1:])
+    if '--sgl' in args:
+        return sgl_cli(sys.argv[sys.argv.index('--sgl') + 1:])
     if '--rip' in args:
         return rip_cli(sys.argv[sys.argv.index('--rip') + 1:])
     if '--install' in args:

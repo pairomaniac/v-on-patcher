@@ -30,20 +30,20 @@ is stale, so the line numbers are current.
 <!-- REGIONS BEGIN: tools/map.py -->
 | Lines | Region | Starts with |
 | --- | --- | --- |
-| 1–38 | header, imports, PE helpers | `#!/usr/bin/env python3` |
-| 39–2640 | widescreen: the layouts, `UI_CODE`, the port tables, the site builder | `# The resolution patch: the` |
-| 2641–2783 | widescreen apply: `hires_install`, section append, F4 table | `def hires_install(buf, width` |
-| 2784–2895 | disc images table, `Build` class, annex order | `DISC_IMAGES = {` |
-| 2896–4710 | the five builds: symbols, caves, site maps, `unsupported()` | `RETAIL = Build('English reta` |
-| 4711–6291 | generated site maps for three builds (`tools/buildsites.py`), the PowerVR one by hand | `# SITES JPRE BEGIN` |
-| 6292–17903 | the blobs, `BLOBS`, and `link()` | `BLOBS = {` |
-| 17904–18712 | banner and credit bitmaps, tile expansion | `LEVERS_CODE = link('LEVERS',` |
-| 18713–19781 | the patch table: `FEATURES`, `BY_KEY`, labels, tips, apply order | `FEATURES = [` |
-| 19782–20776 | ripping (`RAW = 2352`) and installing (`LOGICAL = 2048`) | `# --- ripping --------------` |
-| 20777–21635 | netplay setup, `SYNC_SITES`, cnc-ddraw, CD audio | `# --- netplay --------------` |
-| 21636–22170 | `Patcher`: reading a file, applying, restoring | `class Patcher:` |
-| 22171–22738 | the logo and icon (`tools/assets.py`), then the window strings | `# ASSETS BLOB BEGIN - tools/` |
-| 22739–24796 | the window (`run_tk`), the CLI, `main` | `def run_tk():` |
+| 1–40 | header, imports, PE helpers | `#!/usr/bin/env python3` |
+| 41–2642 | widescreen: the layouts, `UI_CODE`, the port tables, the site builder | `# The resolution patch: the` |
+| 2643–2785 | widescreen apply: `hires_install`, section append, F4 table | `def hires_install(buf, width` |
+| 2786–2897 | disc images table, `Build` class, annex order | `DISC_IMAGES = {` |
+| 2898–4712 | the five builds: symbols, caves, site maps, `unsupported()` | `RETAIL = Build('English reta` |
+| 4713–6293 | generated site maps for three builds (`tools/buildsites.py`), the PowerVR one by hand | `# SITES JPRE BEGIN` |
+| 6294–17905 | the blobs, `BLOBS`, and `link()` | `BLOBS = {` |
+| 17906–18714 | banner and credit bitmaps, tile expansion | `LEVERS_CODE = link('LEVERS',` |
+| 18715–19783 | the patch table: `FEATURES`, `BY_KEY`, labels, tips, apply order | `FEATURES = [` |
+| 19784–20778 | ripping (`RAW = 2352`) and installing (`LOGICAL = 2048`) | `# --- ripping --------------` |
+| 20779–21730 | netplay setup, `SYNC_SITES`, cnc-ddraw, CD audio | `# --- netplay --------------` |
+| 21731–22265 | `Patcher`: reading a file, applying, restoring | `class Patcher:` |
+| 22266–22841 | the logo and icon (`tools/assets.py`), then the window strings | `# ASSETS BLOB BEGIN - tools/` |
+| 22842–25014 | the window (`run_tk`), the CLI, `main` | `def run_tk():` |
 <!-- REGIONS END -->
 
 ## 3. `v_on.exe`
