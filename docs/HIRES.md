@@ -330,6 +330,30 @@ enough. Two dead ends on the way, both reverted: dropping polygons with
 a vertex under z = 4 took a piece of the hangar floor; saturating
 overflowed 16-bit vertex words changed nothing.
 
+### Stage objects: the see-through switch
+
+Each stage object has a solid model and a meshed twin (tables 0x64bab0
+and 0x64bcc0, 12 bytes an entry; 0x64bed0/0x64bfc0 on the eight-way
+stages), and the object drawer (0x5be1d0 renderer A, 0x422f20 B;
+0x5bed0d/0x5bf07c and 0x423a5d/0x423dcc are uncalled copies) picks one
+per object per frame: the object's authored direction code for the
+player's grid cell (2 bits per object in the stage's cell table at
+0x623d04; 3 bits, 45-degree steps, on the eight-way stages at
+0x623d10) is compared with the camera yaw (0x1ae35fa), and the solid
+model is used while the yaw is within 0x4800 (101 degrees; 0x3800
+eight-way) of the code's direction, the meshed one beyond - the object
+stands between the camera and the machine. 0x1ae35e4 set forces the
+mesh.
+
+The codes are 90-degree quantised, so an object beside the machine
+meshes once the yaw is 11 degrees past square to it: at 4:3 that is at
+the picture's edge, at 16:9 while it is whole on screen. Both windows
+get 22.5 degrees more (0x1000 on the add, twice that on its compare,
+three pairs a renderer); an object behind the machine is 135 degrees or
+more off and still meshes. Record flag 0x1000 is the flush's edge
+expansion (0x5d2102), not the mesh; the mesh is attribute bit 0x2000
+of the twin's own polygons.
+
 ### The hangar draw
 
 The machine-select hangar draw (0x59e4ea) is wrapped to widen the
@@ -999,8 +1023,10 @@ one part of the other builds' patch left out: they did not work here, so the
 window is stock, and a mech may pop in at the edge of the wider view. The lock-on
 line patch is not ported either (see NOTES.md).
 
-Not tried: a real PowerVR card, Windows, the intro movie, the end of the roll and
-the SEGA card after it, the two-player photo screens, and internet play.
+Played: the intro movie, the end of the roll and the SEGA card after it, and the
+two-player photo screens.
+
+Not tried: a real PowerVR card, Windows, and internet play.
 
 ## Per-build facts worth keeping
 

@@ -32,19 +32,19 @@ is stale, so the line numbers are current.
 | Lines | Region | Starts with |
 | --- | --- | --- |
 | 1–40 | header, imports, PE helpers | `#!/usr/bin/env python3` |
-| 41–2603 | widescreen: the layouts, `UI_CODE`, the port tables, the site builder | `# The resolution patch: the` |
-| 2604–2918 | widescreen apply: `hires_install`, section append, F4 table | `def hires_install(buf, width` |
-| 2919–3030 | disc images table, `Build` class, annex order | `DISC_IMAGES = {` |
-| 3031–4877 | the five builds: symbols, caves, site maps, `unsupported()` | `RETAIL = Build('English reta` |
-| 4878–6458 | generated site maps for three builds (`tools/buildsites.py`), the PowerVR one by hand | `# SITES JPRE BEGIN` |
-| 6459–18155 | the blobs, `BLOBS`, and `link()` | `BLOBS = {` |
-| 18156–19149 | banner and credit bitmaps, tile expansion | `LEVERS_CODE = link('LEVERS',` |
-| 19150–20225 | the patch table: `FEATURES`, `BY_KEY`, labels, tips, apply order | `FEATURES = [` |
-| 20226–21242 | ripping (`RAW = 2352`) and installing (`LOGICAL = 2048`) | `# --- ripping --------------` |
-| 21243–22198 | netplay setup, `SYNC_SITES`, cnc-ddraw, CD audio | `# --- netplay --------------` |
-| 22199–22733 | `Patcher`: reading a file, applying, restoring | `class Patcher:` |
-| 22734–23309 | the logo and icon (`tools/assets.py`), then the window strings | `# ASSETS BLOB BEGIN - tools/` |
-| 23310–25482 | the window (`run_tk`), the CLI, `main` | `def run_tk():` |
+| 41–2659 | widescreen: the layouts, `UI_CODE`, the port tables, the site builder | `# The resolution patch: the` |
+| 2660–2974 | widescreen apply: `hires_install`, section append, F4 table | `def hires_install(buf, width` |
+| 2975–3086 | disc images table, `Build` class, annex order | `DISC_IMAGES = {` |
+| 3087–4933 | the five builds: symbols, caves, site maps, `unsupported()` | `RETAIL = Build('English reta` |
+| 4934–6514 | generated site maps for three builds (`tools/buildsites.py`), the PowerVR one by hand | `# SITES JPRE BEGIN` |
+| 6515–18211 | the blobs, `BLOBS`, and `link()` | `BLOBS = {` |
+| 18212–19212 | banner and credit bitmaps, tile expansion | `LEVERS_CODE = link('LEVERS',` |
+| 19213–20288 | the patch table: `FEATURES`, `BY_KEY`, labels, tips, apply order | `FEATURES = [` |
+| 20289–21305 | ripping (`RAW = 2352`) and installing (`LOGICAL = 2048`) | `# --- ripping --------------` |
+| 21306–22261 | netplay setup, `SYNC_SITES`, cnc-ddraw, CD audio | `# --- netplay --------------` |
+| 22262–22796 | `Patcher`: reading a file, applying, restoring | `class Patcher:` |
+| 22797–23372 | the logo and icon (`tools/assets.py`), then the window strings | `# ASSETS BLOB BEGIN - tools/` |
+| 23373–25545 | the window (`run_tk`), the CLI, `main` | `def run_tk():` |
 <!-- REGIONS END -->
 
 ## 3. `v_on.exe`
@@ -72,7 +72,7 @@ region around each site.
 
 | Range | What is there | Touched by |
 | --- | --- | --- |
-| `0x422f20–0x433200` | renderer B's viewport setup, the F5 dialog (`0x427fc1` the speed radios, `0x427ec4` its flags, `0x42823c` OK) | framerate, hires |
+| `0x422f20–0x433200` | renderer B's stage-object angle windows (`0x422f20`: solid or meshed model by camera yaw; the compares at `0x4230e9`–`0x423317`), viewport setup, the F5 dialog (`0x427fc1` the speed radios, `0x427ec4` its flags, `0x42823c` OK) | framerate, hires |
 | `0x442e50–0x443100` | keyboard profile stubs and the 1P keyboard handler | padxinput |
 | `0x4489d6` | the credit sequence a finished game reaches | credits |
 | `0x458d89` | sound: the sample rate | sound |
@@ -102,6 +102,7 @@ region around each site.
 | `0x5b1520` | the intro movie's exit path: stopped by deactivation | activate |
 | `0x5b1833`, `0x5b1871` | `v_on.ini` line helpers: write (key, value), find (key) | ini blobs |
 | `0x5bcce3–0x5bcf00` | the 2P keyboard stubs and handler | padxinput |
+| `0x5be1d0–0x5be600` | renderer A's stage-object angle windows (`0x5be1d0`; compares at `0x5be399`–`0x5be5c7`) | hires |
 | `0x5b5f2e`, `0x4c468e` | the in-game HUD passes, renderers A and B (`UI_PASS_FUNCS` 0, 1): bars, timer, reticle, weapon strips | hires |
 | `0x5c56a2–0x5c6900` | **the window and DirectDraw**: `0x5c56a2` recreate the surfaces, `0x5c597e` the window procedure pointer, `0x5c5eac` the message pump, `0x5c6326` set active, `0x5c63aa` the idle pass, `0x5c64e7` movie, `0x5c67c5`/`0x5c680b` the built-in dialogs' pause and resume | activate, debugbox, padxinput, movie, credits |
 | `0x5c7541–0x5c9800` | **the main loop**: the timer, `0x5c82d4` the CD check, `0x5c88ac` mode setup and the framebuffer globals, `0x5c8ca0` the font build, `0x5c9a98` the pause text | framerate, nodisc, hires |
@@ -181,7 +182,7 @@ within 16 KB of each other.
 | lockline | 27 | `0x5d2fcc–0x5d79a0`, `0x5ddeac–0x5e2a80`, the annex |
 | dinput | 1 | found by bytes: the `SetCooperativeLevel` flags push |
 | activate | 5 | `0x5b1520`, `0x5c56a2–0x5c6326`, the annex |
-| hires | 251 | runs from `0x422f20` to `0x6c85f0`; the table above marks them |
+| hires | 263 | 40 runs from `0x422f20` to `0x6c85f0`; the table above marks them |
 | padxinput | 90 | `0x442ea8`, `0x495aa0–0x49813a`, `0x5bcd3b`, `0x5c5eac–0x5c5f0e`, `.data 0x66ad60–0x66da8c`, `.rsrc`, the annex |
 | nodisc | 1 | `0x5c82d4`, plus its section |
 | debugbox | 6 | `0x5c5942–0x5c597e`, the annex, plus its section |

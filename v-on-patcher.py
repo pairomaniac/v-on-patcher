@@ -291,6 +291,12 @@ PORT = {
             0x0345bd58: 0x034569a8,
         },
         'off': {
+            0x0224e9: (0x022159, '00480000'),
+            0x0224fa: (0x02216a, '00900000'),
+            0x022600: (0x022270, '00380000'),
+            0x022611: (0x022281, '00700000'),
+            0x022706: (0x022376, '00380000'),
+            0x022717: (0x022387, '00700000'),
             0x0272c4: (0x026f24, 'a340efbd00'),
             0x02763c: (0x02729c, 'a3b0b26b00'),
             0x02c1a6: (0x02bec8, '558bec81eca8000000'),
@@ -382,6 +388,12 @@ PORT = {
             0x1b098b: (0x1ab647, 'e0010000'),
             0x1b0990: (0x1ab64c, '80020000'),
             0x1b532e: (0x1affb6, '558bec81ec8c000000'),
+            0x1bd799: (0x1b8159, '00480000'),
+            0x1bd7aa: (0x1b816a, '00900000'),
+            0x1bd8b0: (0x1b8270, '00380000'),
+            0x1bd8c1: (0x1b8281, '00700000'),
+            0x1bd9b6: (0x1b8376, '00380000'),
+            0x1bd9c7: (0x1b8387, '00700000'),
             0x1c4dd3: (0x1bf6b8, 'e0010000'),
             0x1c4dd8: (0x1bf6bd, '80020000'),
             0x1c4f73: (0x1bf842, 'e0326c00'),
@@ -681,6 +693,12 @@ PORT = {
             0x0345bd58: 0x0345bce8,
         },
         'off': {
+            0x0224e9: (0x022449, '00480000'),
+            0x0224fa: (0x02245a, '00900000'),
+            0x022600: (0x022560, '00380000'),
+            0x022611: (0x022571, '00700000'),
+            0x022706: (0x022666, '00380000'),
+            0x022717: (0x022677, '00700000'),
             0x0272c4: (0x027224, 'a3c042be00'),
             0x02763c: (0x02759c, 'a330f56b00'),
             0x02c1a6: (0x02c106, '558bec81eca8000000'),
@@ -772,6 +790,12 @@ PORT = {
             0x1b098b: (0x1b045b, 'e0010000'),
             0x1b0990: (0x1b0460, '80020000'),
             0x1b532e: (0x1b4dfe, '558bec81ec8c000000'),
+            0x1bd799: (0x1bd269, '00480000'),
+            0x1bd7aa: (0x1bd27a, '00900000'),
+            0x1bd8b0: (0x1bd380, '00380000'),
+            0x1bd8c1: (0x1bd391, '00700000'),
+            0x1bd9b6: (0x1bd486, '00380000'),
+            0x1bd9c7: (0x1bd497, '00700000'),
             0x1c4dd3: (0x1c48a3, 'e0010000'),
             0x1c4dd8: (0x1c48a8, '80020000'),
             0x1c4f73: (0x1c4a42, '60756c00'),
@@ -1067,6 +1091,12 @@ PORT = {
             0x0345bd58: 0x0345a878,
         },
         'off': {
+            0x0224e9: (0x022449, '00480000'),
+            0x0224fa: (0x02245a, '00900000'),
+            0x022600: (0x022560, '00380000'),
+            0x022611: (0x022571, '00700000'),
+            0x022706: (0x022666, '00380000'),
+            0x022717: (0x022677, '00700000'),
             0x0272c4: (0x027224, 'a3502ebe00'),
             0x02763c: (0x02759c, 'a390e26b00'),
             0x02c1a6: (0x02c106, '558bec81eca8000000'),
@@ -1158,6 +1188,12 @@ PORT = {
             0x1b098b: (0x1af82b, 'e0010000'),
             0x1b0990: (0x1af830, '80020000'),
             0x1b532e: (0x1b41ce, '558bec81ec8c000000'),
+            0x1bd799: (0x1bc639, '00480000'),
+            0x1bd7aa: (0x1bc64a, '00900000'),
+            0x1bd8b0: (0x1bc750, '00380000'),
+            0x1bd8c1: (0x1bc761, '00700000'),
+            0x1bd9b6: (0x1bc856, '00380000'),
+            0x1bd9c7: (0x1bc867, '00700000'),
             0x1c4dd3: (0x1c3c73, 'e0010000'),
             0x1c4dd8: (0x1c3c78, '80020000'),
             0x1c4f73: (0x1c3e12, 'c0626c00'),
@@ -2185,6 +2221,26 @@ def build_sites(w, h, sec_va, span_va, rowtab_va, pool, A=None):
               (0x1fb4a4, f32(256.0), f32(256.0 * wide))]
     sites += [(off, u32(0x1500), u32(win))
               for off in (0x147b60, 0x147cc8, 0x074ed0, 0x075038)]
+    # Stage objects. 0x5be1d0 (A) and 0x422f20 (B) pick each object's
+    # solid or meshed model by the camera yaw against the object's
+    # authored direction code (2 bits per object in the stage's cell
+    # table, 3 on the eight-way stages), meshed when the yaw is outside
+    # a window of 0x4800 (101 degrees; 0x3800 eight-way) - the object
+    # stands between the camera and the machine. With 90-degree codes
+    # an object beside the machine meshes once the yaw is 11 degrees
+    # past square to it, which at 16:9 is while it is still on screen.
+    # Both windows get 22.5 degrees more (0x1000: the add and its
+    # compare, twice the half window); an object behind the machine
+    # is still 135 degrees or more off and still meshes. Three windows
+    # per renderer; 0x5bed0d/0x5bf07c and 0x423a5d/0x423dcc are
+    # uncalled copies and stay.
+    for add, cmp_ in ((0x1bd799, 0x1bd7aa), (0x0224e9, 0x0224fa)):
+        sites += [(add, u32(0x4800), u32(0x5800)),
+                  (cmp_, u32(0x9000), u32(0xb000))]
+    for add, cmp_ in ((0x1bd8b0, 0x1bd8c1), (0x1bd9b6, 0x1bd9c7),
+                      (0x022600, 0x022611), (0x022706, 0x022717)):
+        sites += [(add, u32(0x3800), u32(0x4800)),
+                  (cmp_, u32(0x7000), u32(0x9000))]
     sites += [(off, u32(0xffffeb00), u32(-win))
               for off in (0x147b6f, 0x147cd7, 0x074edf, 0x075047)]
     # Renderer A's polygon record pool: 2500 records of 0x30 bytes at
@@ -19127,6 +19183,13 @@ def pvr_wide_sites():
              for va in (0x462c4a, 0x462db2, 0x5c201a, 0x5c2182)]
     rows += [word(va, 0xffffeb00, -win)
              for va in (0x462c59, 0x462dc1, 0x5c2029, 0x5c2191)]
+    # Stage objects mesh outside a yaw window, the add and its compare: as
+    # the others', 22.5 degrees more, in the three windows each renderer calls.
+    for add, cmp_ in ((0x55e252, 0x55e263), (0x593cd2, 0x593ce3)):
+        rows += [word(add, 0x4800, 0x5800), word(cmp_, 0x9000, 0xb000)]
+    for add, cmp_ in ((0x55e369, 0x55e37a), (0x55e46f, 0x55e480),
+                      (0x593de9, 0x593dfa), (0x593eef, 0x593f00)):
+        rows += [word(add, 0x3800, 0x4800), word(cmp_, 0x7000, 0x9000)]
     # The glue's hooks, and the glue. Every call to the viewport setup goes
     # through the frame hook: this build's 2D layer runs after a whole frame,
     # so any of them can come between the setup and the 2D layer that needs it.
