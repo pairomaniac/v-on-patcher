@@ -153,7 +153,7 @@ off the disc is in [NOTES.md](docs/NOTES.md#installing-from-a-disc-image).
 crashes when you lose a round, runs at a third of the frame rate, or loses
 the keyboard after ALT+TAB. **Extra** is down to taste; untick what you do
 not want. Every patch works with every other, on all four builds of
-`v_on.exe`, and with cnc-ddraw. The PowerVR version takes some of them;
+`v_on.exe`, and with cnc-ddraw. The PowerVR version takes most of them;
 see [Builds](#builds). How each works inside the game is in
 [NOTES.md](docs/NOTES.md).
 
@@ -660,9 +660,9 @@ Wine and Proton.
 ## Builds
 
 Five builds of the game exist. Every patch works on the four builds of
-`v_on.exe`; the PowerVR version takes some of them. The
-window names the build it is looking at; say which in a bug report, since
-the English retail build has had by far the most play.
+`v_on.exe`; the PowerVR version takes most of them. The window names the
+build it is looking at; say which in a bug report, since the English retail
+build has had by far the most play.
 
 | Build | Size | MD5 |
 | --- | --- | --- |
@@ -682,23 +682,17 @@ and MD5 shown beside a supported build's. Installing and ripping work
 whichever build the disc holds; only patching needs one from the table.
 
 **The PowerVR version** is a different program, `vonpvr.exe`, drawn by a
-PowerVR PCX1 or PCX2 card. It takes these patches:
+PowerVR PCX1 or PCX2 card. Its disc is not verified by Redump: the one this
+build was made from is the only dump known, from the Internet Archive.
 
-- Essential: the frame rate, the round-loss crash and both ALT+TAB fixes.
-  It has no processor check, and the lock-on line fix is not ported.
-- Extra: XInput gamepad support, the menu bar and F11, better defaults, the
-  sound fixes, no disc required, and the intro, loading and ending screens.
-  The credits skip, but HOLD TO SKIP is not drawn.
-
-The playable bosses and the version and credit are not ported, so their rows
-are greyed out. The ALT+TAB fixes are untested on it. Internet play installs
-into its folder; a match on it has not been tried.
+It takes every patch but **Native widescreen** and **Playable bosses**,
+whose rows are greyed out. The ending credits skip, but HOLD TO SKIP is not
+drawn. A match over internet play has not been tried on it.
 
 Without No disc required it checks for the disc: a drive Windows sees as a
 CD-ROM, with `V_ON\VONPVR.EXE` on it. It draws through `sgl.dll`, which came
-with the card's driver and is not on the disc. Without the card,
-[pvr-sgl-wrapper](https://github.com/z2k-retro/pvr-sgl-wrapper) 0.1 runs it
-under Wine and Proton.
+with the card's driver and is not on the disc; see
+[PowerVR renderer](#powervr-renderer-pvr-sgl-wrapper).
 
 Its F5 page has no Texture option, and with no Texture value in `v_on.ini`
 the robots are drawn untextured, as black shapes. So installing it writes a

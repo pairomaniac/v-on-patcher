@@ -240,8 +240,8 @@ the gamepad patch, the title and scoreboard banner reads Press A Button, F7
 lists the four profiles and its Next opens the bind page with the pad's
 inputs, and Keyboard (Simple) saved on F7 survives a restart. Played with
 a controller: the menus, a match, twin-stick, the soft reset, the deadzones
-and bindings kept across a restart. The two ALT+TAB fixes and an internet
-match have not been tried.
+and bindings kept across a restart. The two ALT+TAB fixes work, as played.
+An internet match has not been tried.
 
 ### Why no v_on.ini
 
