@@ -10,6 +10,7 @@ extern PLANEB                   ; byte holding the 2D plane's hide bit, 0x80
 extern PRE2D                    ; the first of the frame's 2D calls
 extern SCENE                    ; the SGL context
 extern SCENEFLAGS               ; its flags
+extern PIXFMT                   ; the surface's pixel format
 extern SURFBASE                 ; the locked surface
 extern SURFPITCH                ; and its pitch
 extern RENDERING                ; nonzero while a render is owed
@@ -27,6 +28,9 @@ extern ORGX2                    ; the second viewport's origin, which this
 extern ORGY2                    ; build adds before a record reaches the hook
 
 DISABLEDITHERING equ 0x800000
+FORMAT565   equ 0x235               ; PIXFMT with a 565 surface
+FRAMEW      equ 1024
+FRAMEH      equ 576
 
 ; In place of the frame's call to the viewport setup. This build has one
 ; picture size and no Screen=Normal, and its split radios choose the layout.
@@ -69,11 +73,42 @@ nodither:
     push    SCENE
     jmp     eax
 
-; In place of the frame's wait for the card: whether it rendered this frame.
+; In place of the frame's wait for the card: whether it rendered this frame. If it
+; did, the one step of green that 565 keeps of a near-black texel goes. The other
+; builds' rasterizers bring those to true black, and against it the step shows as
+; a seam, around the moon card on the star field in the ending.
 waitcard:
     mov     eax, [RENDERING]
     mov     [rendered], eax
-    jmp     WAITRENDER
+    call    WAITRENDER
+    cmp     dword [rendered], 0
+    je      .out
+    cmp     dword [PIXFMT], FORMAT565
+    jne     .out
+    mov     edx, [SURFBASE]
+    test    edx, edx
+    je      .out
+    push    edi
+    push    ebx
+    mov     ebx, FRAMEH
+.row:
+    mov     edi, edx
+    mov     ecx, FRAMEW
+.px:
+    cmp     word [edi], 0x0020
+    jne     .next
+    mov     word [edi], 0
+.next:
+    add     edi, 2
+    dec     ecx
+    jne     .px
+    add     edx, [SURFPITCH]
+    dec     ebx
+    jne     .row
+    pop     ebx
+    pop     edi
+.out:
+    ret
 
 ; A frame the card did not render, the 2D layer alone draws. Its composite leaves
 ; alone whatever matches what it sampled, and away from a scale of 1 it does not

@@ -716,6 +716,7 @@ card and draws the 2D layer before it sets the next frame's viewport and renders
 - `frame` replaces every call to the viewport setup. It takes the layout from the
   F5 split radios and refreshes `ui.asm`'s copies of the view centres and size.
 - `nodither` turns the card's dither off before each render.
+- `waitcard` turns the near-black step `(0,4,0)` to true black after a render.
 - `waitcard` and `clearsurface` clear the surface on a frame the card did not
   render.
 - `drawn3d` answers the blob's 3D-behind question from the plane's hide bit.

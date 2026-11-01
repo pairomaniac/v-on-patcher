@@ -4757,6 +4757,7 @@ PVR = Build('PowerVR', 'pvr', PVR_MD5, PVR_SIZE, 0x33b3b0ae, sections=(
     'SURF2': 0x006a34c0,            # and second
     'VIEWW': 0x006a34c8,            # the viewport width
     'VIEWH': 0x006a34cc,            # and height
+    'PIXFMT': 0x01df50fc,           # the surface's pixel format
     'SCENE': 0x0200a0a0,            # the SGL context
     'SCENEFLAGS': 0x0200a0b8,       # its flags
     'WIDENODITHER': ('PVRWIDE', 'nodither'),
@@ -17698,83 +17699,89 @@ BLOBS = {
         'fx2save': 0x440d8,
     }),
     'PVRWIDE': (bytes.fromhex(
-        '83250000000000833d00000000007407830d0000000002ff742404ff159b0100'
-        '0083c404a100000000a387010000a100000000a38b010000a100000000a38f01'
-        '0000a100000000a3930100008b0d9f010000a1000000008901a1000000008941'
-        '0431c0c3810d0000000000008000586800000000ffe0a100000000a397010000'
-        'e9fcffffff833d9701000000752b8b150000000085d2742157538b1d00000000'
-        '31c089d78b0d00000000d1e9f3ab0315000000004b75eb5b5fc3e8c6ffffff31'
-        'c0f60500000000800f95c0a3a7010000a18701000085c07423a300000000a18b'
-        '010000a300000000a18f010000a300000000a193010000a300000000e9fcffff'
-        'ff8b1d00000000eb068b1d00000000a1000000002d8002000029c3c3e8360000'
-        '00ff15a30100005051a1000000008b0d000000006601421066014a1266014214'
-        '66014a166601421866014a1a6601421c66014a1e5958c35051a1000000008b0d'
-        '000000006629421066294a126629421466294a166629421866294a1a6629421c'
-        '66294a1e5958c300000000000000000000000000000000000000000000000000'
-        '0000000000000000000000'
+        '83250000000000833d00000000007407830d0000000002ff742404ff15e50100'
+        '0083c404a100000000a3d1010000a100000000a3d5010000a100000000a3d901'
+        '0000a100000000a3dd0100008b0de9010000a1000000008901a1000000008941'
+        '0431c0c3810d0000000000008000586800000000ffe0a100000000a3e1010000'
+        'e8fcffffff833de1010000007440813d000000003502000075348b1500000000'
+        '85d2742a5753bb4002000089d7b90004000066833f20750566c707000083c702'
+        '4975ef0315000000004b75df5b5fc3833de101000000752b8b150000000085d2'
+        '742157538b1d0000000031c089d78b0d00000000d1e9f3ab0315000000004b75'
+        'eb5b5fc3e8c6ffffff31c0f60500000000800f95c0a3f1010000a1d101000085'
+        'c07423a300000000a1d5010000a300000000a1d9010000a300000000a1dd0100'
+        '00a300000000e9fcffffff8b1d00000000eb068b1d00000000a1000000002d80'
+        '02000029c3c3e836000000ff15ed0100005051a1000000008b0d000000006601'
+        '421066014a126601421466014a166601421866014a1a6601421c66014a1e5958'
+        'c35051a1000000008b0d000000006629421066294a126629421466294a166629'
+        '421866294a1a6629421c66294a1e5958c3000000000000000000000000000000'
+        '000000000000000000000000000000000000000000'
     ), (
         (0x2, 'abs', 'FSFLAGS', 0),
         (0x9, 'abs', 'SPLITTYPE', 0),
         (0x12, 'abs', 'FSFLAGS', 0),
-        (0x1d, 'abs', '.', 411),
+        (0x1d, 'abs', '.', 485),
         (0x25, 'abs', 'CENTREAX', 0),
-        (0x2a, 'abs', '.', 391),
+        (0x2a, 'abs', '.', 465),
         (0x2f, 'abs', 'CENTREAY', 0),
-        (0x34, 'abs', '.', 395),
+        (0x34, 'abs', '.', 469),
         (0x39, 'abs', 'CENTREBX', 0),
-        (0x3e, 'abs', '.', 399),
+        (0x3e, 'abs', '.', 473),
         (0x43, 'abs', 'CENTREBY', 0),
-        (0x48, 'abs', '.', 403),
-        (0x4e, 'abs', '.', 415),
+        (0x48, 'abs', '.', 477),
+        (0x4e, 'abs', '.', 489),
         (0x53, 'abs', 'VIEWW', 0),
         (0x5a, 'abs', 'VIEWH', 0),
         (0x66, 'abs', 'SCENEFLAGS', 0),
         (0x70, 'abs', 'SCENE', 0),
         (0x77, 'abs', 'RENDERING', 0),
-        (0x7c, 'abs', '.', 407),
+        (0x7c, 'abs', '.', 481),
         (0x81, 'rel', 'WAITRENDER', -4),
-        (0x87, 'abs', '.', 407),
-        (0x90, 'abs', 'SURFBASE', 0),
-        (0x9c, 'abs', 'VIEWH', 0),
-        (0xa6, 'abs', 'VIEWW', 0),
-        (0xb0, 'abs', 'SURFPITCH', 0),
-        (0xc3, 'abs', 'PLANEB', 0),
-        (0xcc, 'abs', '.', 423),
-        (0xd1, 'abs', '.', 391),
-        (0xda, 'abs', 'CENTREAX', 0),
-        (0xdf, 'abs', '.', 395),
-        (0xe4, 'abs', 'CENTREAY', 0),
-        (0xe9, 'abs', '.', 399),
-        (0xee, 'abs', 'CENTREBX', 0),
-        (0xf3, 'abs', '.', 403),
-        (0xf8, 'abs', 'CENTREBY', 0),
-        (0xfd, 'rel', 'PRE2D', -4),
-        (0x103, 'abs', 'SURF1', 0),
-        (0x10b, 'abs', 'SURF2', 0),
-        (0x110, 'abs', 'VIEWW', 0),
-        (0x123, 'abs', '.', 419),
-        (0x12a, 'abs', 'ORGX2', 0),
-        (0x130, 'abs', 'ORGY2', 0),
-        (0x15a, 'abs', 'ORGX2', 0),
-        (0x160, 'abs', 'ORGY2', 0),
+        (0x87, 'abs', '.', 481),
+        (0x90, 'abs', 'PIXFMT', 0),
+        (0x9c, 'abs', 'SURFBASE', 0),
+        (0xc5, 'abs', 'SURFPITCH', 0),
+        (0xd1, 'abs', '.', 481),
+        (0xda, 'abs', 'SURFBASE', 0),
+        (0xe6, 'abs', 'VIEWH', 0),
+        (0xf0, 'abs', 'VIEWW', 0),
+        (0xfa, 'abs', 'SURFPITCH', 0),
+        (0x10d, 'abs', 'PLANEB', 0),
+        (0x116, 'abs', '.', 497),
+        (0x11b, 'abs', '.', 465),
+        (0x124, 'abs', 'CENTREAX', 0),
+        (0x129, 'abs', '.', 469),
+        (0x12e, 'abs', 'CENTREAY', 0),
+        (0x133, 'abs', '.', 473),
+        (0x138, 'abs', 'CENTREBX', 0),
+        (0x13d, 'abs', '.', 477),
+        (0x142, 'abs', 'CENTREBY', 0),
+        (0x147, 'rel', 'PRE2D', -4),
+        (0x14d, 'abs', 'SURF1', 0),
+        (0x155, 'abs', 'SURF2', 0),
+        (0x15a, 'abs', 'VIEWW', 0),
+        (0x16d, 'abs', '.', 493),
+        (0x174, 'abs', 'ORGX2', 0),
+        (0x17a, 'abs', 'ORGY2', 0),
+        (0x1a4, 'abs', 'ORGX2', 0),
+        (0x1aa, 'abs', 'ORGY2', 0),
     ), {
         'frame': 0x0,
         'nodither': 0x64,
         'waitcard': 0x76,
-        'clearsurface': 0x85,
-        'drawn3d': 0xba,
-        'fill1': 0x101,
-        'fill2': 0x109,
-        'fillfrom': 0x10f,
-        'insert2': 0x11c,
-        'origin_on': 0x127,
-        'origin_off': 0x157,
-        'centres': 0x187,
-        'rendered': 0x197,
-        'framefn': 0x19b,
-        'uisize': 0x19f,
-        'insertfn': 0x1a3,
-        'drawn': 0x1a7,
+        'clearsurface': 0xcf,
+        'drawn3d': 0x104,
+        'fill1': 0x14b,
+        'fill2': 0x153,
+        'fillfrom': 0x159,
+        'insert2': 0x166,
+        'origin_on': 0x171,
+        'origin_off': 0x1a1,
+        'centres': 0x1d1,
+        'rendered': 0x1e1,
+        'framefn': 0x1e5,
+        'uisize': 0x1e9,
+        'insertfn': 0x1ed,
+        'drawn': 0x1f1,
     }),
     'PAD_COND': (bytes.fromhex(
         '0200000000100000020000000020000002000000004000000200000000800000'
