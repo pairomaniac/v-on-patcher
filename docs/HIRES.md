@@ -973,6 +973,13 @@ order accounts for most of what is different here:
   did not render, what the last screen left showed through in those: a ghost of
   the title on the SEGA card, and at 864x486 most of the 2D garbled, as far as can
   be told. The other builds' rasterizers redraw the frame every time.
+- **Near-black.** A dark texel of value 4 is true black on retail, whose rasterizers
+  do not dither. The card adds a dither offset first, which turned the star field
+  into a checkerboard of `(8,4,8)` and `(0,4,0)`, and the moon card's true black
+  showed against it as a seam. The scene's background is 0 there; the value comes
+  from the texture. `nodither` sets `SGLTT_DISABLEDITHERING` before each render.
+  That removes the checkerboard and leaves flat `(0,4,0)`, one step of 565's green,
+  so a one-step seam remains. Dither is also on in a build without the patch.
 - **The scale is rounded up.** Truncated to 16.16, 480 canvas rows at 1.2 come to
   one short of the frame, and the last row of a 2D screen was never drawn.
 - **Glyph rows.** The 2D engines draw each tile on every row only when the

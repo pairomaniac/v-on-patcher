@@ -11,6 +11,8 @@ extern PRE2D                    ; the first of the frame's 2D calls
 extern REGION1                  ; (layout, radio) cdecl: renderer A's region
 extern REGION2                  ; and B's, in a split game
 extern REGIONFULL               ; (Screen=Normal) cdecl: one view's region
+extern SCENE                    ; the SGL context
+extern SCENEFLAGS               ; its flags
 extern SURFBASE                 ; the locked surface
 extern SURFPITCH                ; and its pitch
 extern RENDERING                ; nonzero while a render is owed
@@ -27,6 +29,7 @@ extern VIEWH                    ; and height
 extern ORGX2                    ; the second viewport's origin, which this
 extern ORGY2                    ; build adds before a record reaches the hook
 
+DISABLEDITHERING equ 0x800000
 
 ; In place of the frame's call to the viewport setup. This build has one
 ; picture size and no Screen=Normal, and its split radios choose the layout.
@@ -77,6 +80,15 @@ whole:
     call    REGIONFULL
     add     esp, 4
     ret
+
+; In place of the pushes of the scene's context for its render. The
+; card's dither lifts near-black to a visible checkerboard, where the other builds'
+; rasterizers, which do not dither, truncate it to black.
+nodither:
+    or      dword [SCENEFLAGS], DISABLEDITHERING
+    pop     eax
+    push    SCENE
+    jmp     eax
 
 ; In place of the frame's wait for the card: whether it rendered this frame.
 waitcard:

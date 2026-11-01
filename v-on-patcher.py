@@ -4818,6 +4818,9 @@ PVR = Build('PowerVR', 'pvr', PVR_MD5, PVR_SIZE, 0x33b3b0ae, sections=(
     'SURF2': 0x006a34c0,            # and second
     'VIEWW': 0x006a34c8,            # the viewport width
     'VIEWH': 0x006a34cc,            # and height
+    'SCENE': 0x0200a0a0,            # the SGL context
+    'SCENEFLAGS': 0x0200a0b8,       # its flags
+    'WIDENODITHER': ('PVRWIDE', 'nodither'),
     'SURFBASE': 0x02009c8c,         # the locked surface
     'SURFPITCH': 0x02009c7c,        # and its pitch
     'RENDERING': 0x0066ca84,        # nonzero while a render is owed
@@ -17762,90 +17765,93 @@ BLOBS = {
         'fx2save': 0x440d8,
     }),
     'PVRWIDE': (bytes.fromhex(
-        '83250000000000833d00000000007407830d0000000002ff742404ff15b20100'
-        '0083c404a100000000a39e010000a100000000a3a2010000a100000000a3a601'
-        '0000a100000000a3aa0100008b0db6010000a1000000008901a1000000008941'
-        '0431c0c3a1ba0100008338007514e9fcffffffa1ba0100008338007505e9fcff'
-        'ffff6a00e8fcffffff83c404c3a100000000a3ae010000e9fcffffff833dae01'
-        '000000752b8b150000000085d2742157538b1d0000000031c089d78b0d000000'
-        '00d1e9f3ab0315000000004b75eb5b5fc3e8c6ffffff31c0f60500000000800f'
-        '95c0a3c2010000a19e01000085c07423a300000000a1a2010000a300000000a1'
-        'a6010000a300000000a1aa010000a300000000e9fcffffff8b1d00000000eb06'
-        '8b1d00000000a1000000002d8002000029c3c3e836000000ff15be0100005051'
-        'a1000000008b0d000000006601421066014a126601421466014a166601421866'
-        '014a1a6601421c66014a1e5958c35051a1000000008b0d000000006629421066'
-        '294a126629421466294a166629421866294a1a6629421c66294a1e5958c30000'
-        '0000000000000000000000000000000000000000000000000000000000000000'
-        '000000000000'
+        '83250000000000833d00000000007407830d0000000002ff742404ff15c40100'
+        '0083c404a100000000a3b0010000a100000000a3b4010000a100000000a3b801'
+        '0000a100000000a3bc0100008b0dc8010000a1000000008901a1000000008941'
+        '0431c0c3a1cc0100008338007514e9fcffffffa1cc0100008338007505e9fcff'
+        'ffff6a00e8fcffffff83c404c3810d0000000000008000586800000000ffe0a1'
+        '00000000a3c0010000e9fcffffff833dc001000000752b8b150000000085d274'
+        '2157538b1d0000000031c089d78b0d00000000d1e9f3ab0315000000004b75eb'
+        '5b5fc3e8c6ffffff31c0f60500000000800f95c0a3d4010000a1b001000085c0'
+        '7423a300000000a1b4010000a300000000a1b8010000a300000000a1bc010000'
+        'a300000000e9fcffffff8b1d00000000eb068b1d00000000a1000000002d8002'
+        '000029c3c3e836000000ff15d00100005051a1000000008b0d00000000660142'
+        '1066014a126601421466014a166601421866014a1a6601421c66014a1e5958c3'
+        '5051a1000000008b0d000000006629421066294a126629421466294a16662942'
+        '1866294a1a6629421c66294a1e5958c300000000000000000000000000000000'
+        '000000000000000000000000000000000000000000000000'
     ), (
         (0x2, 'abs', 'FSFLAGS', 0),
         (0x9, 'abs', 'SPLITTYPE', 0),
         (0x12, 'abs', 'FSFLAGS', 0),
-        (0x1d, 'abs', '.', 434),
+        (0x1d, 'abs', '.', 452),
         (0x25, 'abs', 'CENTREAX', 0),
-        (0x2a, 'abs', '.', 414),
+        (0x2a, 'abs', '.', 432),
         (0x2f, 'abs', 'CENTREAY', 0),
-        (0x34, 'abs', '.', 418),
+        (0x34, 'abs', '.', 436),
         (0x39, 'abs', 'CENTREBX', 0),
-        (0x3e, 'abs', '.', 422),
+        (0x3e, 'abs', '.', 440),
         (0x43, 'abs', 'CENTREBY', 0),
-        (0x48, 'abs', '.', 426),
-        (0x4e, 'abs', '.', 438),
+        (0x48, 'abs', '.', 444),
+        (0x4e, 'abs', '.', 456),
         (0x53, 'abs', 'VIEWW', 0),
         (0x5a, 'abs', 'VIEWH', 0),
-        (0x65, 'abs', '.', 442),
+        (0x65, 'abs', '.', 460),
         (0x6f, 'rel', 'REGION1', -4),
-        (0x74, 'abs', '.', 442),
+        (0x74, 'abs', '.', 460),
         (0x7e, 'rel', 'REGION2', -4),
         (0x85, 'rel', 'REGIONFULL', -4),
-        (0x8e, 'abs', 'RENDERING', 0),
-        (0x93, 'abs', '.', 430),
-        (0x98, 'rel', 'WAITRENDER', -4),
-        (0x9e, 'abs', '.', 430),
-        (0xa7, 'abs', 'SURFBASE', 0),
-        (0xb3, 'abs', 'VIEWH', 0),
-        (0xbd, 'abs', 'VIEWW', 0),
-        (0xc7, 'abs', 'SURFPITCH', 0),
-        (0xda, 'abs', 'PLANEB', 0),
-        (0xe3, 'abs', '.', 450),
-        (0xe8, 'abs', '.', 414),
-        (0xf1, 'abs', 'CENTREAX', 0),
-        (0xf6, 'abs', '.', 418),
-        (0xfb, 'abs', 'CENTREAY', 0),
-        (0x100, 'abs', '.', 422),
-        (0x105, 'abs', 'CENTREBX', 0),
-        (0x10a, 'abs', '.', 426),
-        (0x10f, 'abs', 'CENTREBY', 0),
-        (0x114, 'rel', 'PRE2D', -4),
-        (0x11a, 'abs', 'SURF1', 0),
-        (0x122, 'abs', 'SURF2', 0),
-        (0x127, 'abs', 'VIEWW', 0),
-        (0x13a, 'abs', '.', 446),
-        (0x141, 'abs', 'ORGX2', 0),
-        (0x147, 'abs', 'ORGY2', 0),
-        (0x171, 'abs', 'ORGX2', 0),
-        (0x177, 'abs', 'ORGY2', 0),
+        (0x8f, 'abs', 'SCENEFLAGS', 0),
+        (0x99, 'abs', 'SCENE', 0),
+        (0xa0, 'abs', 'RENDERING', 0),
+        (0xa5, 'abs', '.', 448),
+        (0xaa, 'rel', 'WAITRENDER', -4),
+        (0xb0, 'abs', '.', 448),
+        (0xb9, 'abs', 'SURFBASE', 0),
+        (0xc5, 'abs', 'VIEWH', 0),
+        (0xcf, 'abs', 'VIEWW', 0),
+        (0xd9, 'abs', 'SURFPITCH', 0),
+        (0xec, 'abs', 'PLANEB', 0),
+        (0xf5, 'abs', '.', 468),
+        (0xfa, 'abs', '.', 432),
+        (0x103, 'abs', 'CENTREAX', 0),
+        (0x108, 'abs', '.', 436),
+        (0x10d, 'abs', 'CENTREAY', 0),
+        (0x112, 'abs', '.', 440),
+        (0x117, 'abs', 'CENTREBX', 0),
+        (0x11c, 'abs', '.', 444),
+        (0x121, 'abs', 'CENTREBY', 0),
+        (0x126, 'rel', 'PRE2D', -4),
+        (0x12c, 'abs', 'SURF1', 0),
+        (0x134, 'abs', 'SURF2', 0),
+        (0x139, 'abs', 'VIEWW', 0),
+        (0x14c, 'abs', '.', 464),
+        (0x153, 'abs', 'ORGX2', 0),
+        (0x159, 'abs', 'ORGY2', 0),
+        (0x183, 'abs', 'ORGX2', 0),
+        (0x189, 'abs', 'ORGY2', 0),
     ), {
         'frame': 0x0,
         'region1': 0x64,
         'region2': 0x73,
         'whole': 0x82,
-        'waitcard': 0x8d,
-        'clearsurface': 0x9c,
-        'drawn3d': 0xd1,
-        'fill1': 0x118,
-        'fill2': 0x120,
-        'fillfrom': 0x126,
-        'insert2': 0x133,
-        'origin_on': 0x13e,
-        'origin_off': 0x16e,
-        'centres': 0x19e,
-        'rendered': 0x1ae,
-        'framefn': 0x1b2,
-        'uisize': 0x1b6,
-        'uishow': 0x1ba,
-        'insertfn': 0x1be,
-        'drawn': 0x1c2,
+        'nodither': 0x8d,
+        'waitcard': 0x9f,
+        'clearsurface': 0xae,
+        'drawn3d': 0xe3,
+        'fill1': 0x12a,
+        'fill2': 0x132,
+        'fillfrom': 0x138,
+        'insert2': 0x145,
+        'origin_on': 0x150,
+        'origin_off': 0x180,
+        'centres': 0x1b0,
+        'rendered': 0x1c0,
+        'framefn': 0x1c4,
+        'uisize': 0x1c8,
+        'uishow': 0x1cc,
+        'insertfn': 0x1d0,
+        'drawn': 0x1d4,
     }),
     'PAD_COND': (bytes.fromhex(
         '0200000000100000020000000020000002000000004000000200000000800000'
@@ -19216,6 +19222,10 @@ def pvr_wide_sites():
         (0x49a9c2, 'e812daffff'))]
     rows += [hook(0x4980c7, 'e8941bf8ff', 'WIDEDRAWN')]
     rows += [hook(0x4980aa, 'e87ba6fdff', 'WIDEWAIT')]
+    # Near-black: the card's dither off at both render calls, as the other
+    # builds' rasterizers have none.
+    rows += [hook(va, '68a0a00002', 'WIDENODITHER')
+             for va in (0x4732fa, 0x472b86)]
     rows += [hook(0x4961f9, 'e897d9fdff', 'WIDEREG1'),
              hook(0x496238, 'e884dcfdff', 'WIDEREG2')]
     rows += [hook_pad(0x419d51, '8b1db8346a00', 'WIDEFILL1'),
