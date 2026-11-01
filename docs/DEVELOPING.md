@@ -257,10 +257,13 @@ committed:
 A build that takes only some patches names them in `patches=`, with a
 reason in `reasons=` for any whose row needs a better word than "not
 ported"; `unsupported()` is what the window, the apply and the selftest
-ask. Its site map then needs only those patches' sites, and is written by
-hand when the map would place too few; the PowerVR build's is, after the
-generated ones. A blob it carries that no other build does, like its F5
-template, goes in its own `annex=` tuple.
+ask. Its site map then needs only those patches' sites: `buildsites.py`
+skips the rest, and what the map cannot place goes in `HAND` in
+`tools/votrans.py`, as for any build. Its annex is
+`ANNEX_BLOBS` plus any blob only it carries, like the PowerVR F5 template,
+so the layout matches; `build_blobs()` names the blobs it links, those its
+patches write. A blob a ported patch cannot use on it goes in `without=`,
+with its hook sites `None` in `HAND`.
 
 Two things to check by eye before anyone runs it. A site placed by its
 bytes may be in the wrong function: ten bytes of `cmp [ebp-8], 0x1a; jge`

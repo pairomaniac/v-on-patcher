@@ -152,9 +152,9 @@ off the disc is in [NOTES.md](docs/NOTES.md#installing-from-a-disc-image).
 crashes when you lose a round, runs at a third of the frame rate, or loses
 the keyboard after ALT+TAB. **Extra** is down to taste; untick what you do
 not want. Every patch works with every other, on all four builds of
-`v_on.exe`, and with cnc-ddraw. The PowerVR version takes four of the
-Essential patches; see [Builds](#builds). How each works inside the game is
-in [NOTES.md](docs/NOTES.md).
+`v_on.exe`, and with cnc-ddraw. The PowerVR version takes some of them;
+see [Builds](#builds). How each works inside the game is in
+[NOTES.md](docs/NOTES.md).
 
 ### Essential
 
@@ -631,7 +631,7 @@ gamescope -W 1920 -H 1080 -w 640 -h 480 -f -S integer -- %command%
 ## Builds
 
 Five builds of the game exist. Every patch works on the four builds of
-`v_on.exe`; the PowerVR version takes four of the Essential patches. The
+`v_on.exe`; the PowerVR version takes some of them. The
 window names the build it is looking at; say which in a bug report, since
 the English retail build has had by far the most play.
 

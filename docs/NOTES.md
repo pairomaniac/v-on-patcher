@@ -160,10 +160,14 @@ install does not work: it looks for `escrgame.bin`.
 
 **The PowerVR build** (June 1997, `0x33B3B0AE`) is `vonpvr.exe`, drawn by
 a PowerVR PCX1 or PCX2 through `sgl.dll`. It is the furthest from retail:
-3846 of 7934 functions match, 3054 identically. It takes four patches, the
-Essential ones that fit it, and its site map is written by hand rather than
-by `tools/buildsites.py`. `Build.patches` lists them; the window greys out
-the rest, and the apply skips them with the reason in `Build.reasons`.
+3846 of 7934 functions match, 3054 identically. It takes the patches below
+and no others. `Build.patches` lists them; the window greys out the rest,
+and the apply skips them with the reason in `Build.reasons`. Its site map
+comes from `tools/buildsites.py` like the others', with the sites the map
+cannot place in `HAND` in `tools/votrans.py`, each placed by aligning its
+function between the builds instruction by instruction. Its annex carries
+every blob, so the layout matches the other builds'; only the blobs its
+patches write are linked for it (`build_blobs`).
 
 - **Processor check**: none. The `ProcessorCheck` keys are not in the
   file.
@@ -188,11 +192,29 @@ the rest, and the apply skips them with the reason in `Build.reasons`.
   the stub's addresses are in the symbol table, its scratch past `.data`
   at `0x24a1a80`.
 - **Keyboard**: the signature matches once, in code identical to retail's.
+- **Sound**: the delay and the sample rate are retail's sites at other
+  offsets. Fei-Yen's hypermode test is in two functions the map does not
+  match; the two are told apart by their callee.
+- **Defaults**: the ini loader does not align, so its sites are by hand.
+  Field Graphic's fallback clears two flags where retail's clears one, so
+  its jump into the Rich block (`0x56dfd9`) is an `In()` site of its own.
+- **No disc**: the nag's branch is retail's; the 37 `mciSendCommandA`
+  calls the music hook takes over are all there.
+- **Menu bar and F11**: the window class setup is retail's code. Pressed
+  during the intro, F11 crashed: this build has no surfaces then, and the
+  pause locked a null back buffer. The hook now makes the two tests the
+  game's own F5 to F8 make first, on every build (`DLGOK`, `DLGBUSY`).
+- **Intro, loading and ending screens**: the movie placer reads
+  `[ebp-0x14]` and `[ebp-0x18]`. HOLD TO SKIP is not ported: the frame end
+  is a function of its own here (`0x498093`), and its call before the flip
+  (`0x498178`) runs only behind a toggle the window procedure flips on a
+  Shift key, so the build goes without the overlay (`Build.without`).
 
 It reads and writes `v_on.ini`, not the `VONPVR.INI` its `ssp.ini` names.
 Its disc check (`0x49828e`) takes the first drive Windows reports as a
-CD-ROM with `V_ON\VONPVR.EXE` in its root; it reads no label. The netplay
-DLL does not know its timestamp, so internet play refuses its folder.
+CD-ROM with `V_ON\VONPVR.EXE` in its root; it reads no label. It ships the
+same `dpctrl.dll` as the other builds, byte for byte, so the netplay DLL
+takes it with a row of its own in `fp_builds`.
 
 Tested under Wine 11 with pvr-sgl-wrapper 0.1: patched, a time-out loss
 reaches the continue screen instead of crashing, and F5 shows 30 FPS and

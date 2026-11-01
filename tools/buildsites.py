@@ -4,7 +4,7 @@
     python3 tools/buildsites.py NAME RETAIL.exe OTHER.exe [MAP.pkl]
 
 NAME is the Build's name in v-on-patcher.py (JPRE). For every site the table
-names by retail offset: where it is in the other build, through votrans.py,
+names by retail offset, in the patches that build takes: where it is in the other build, through votrans.py,
 and the bytes that build has there. A site whose retail original is not
 what the retail file holds is one an earlier site in the same patch wrote,
 so its original is kept as the table has it. The result goes between the
@@ -34,8 +34,11 @@ def main():
     retail = open(retail_path, 'rb').read()
     jp = open(jp_path, 'rb').read()
 
+    build = getattr(vp, name)
     rows, problems = [], []
     for key, _label, _tip, sites in vp.FEATURES:
+        if vp.unsupported(build, key):
+            continue                    # a patch not ported to this build
         for off, orig, new in sites:
             if isinstance(off, (vp.At, vp.In)):
                 continue

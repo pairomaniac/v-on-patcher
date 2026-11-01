@@ -206,6 +206,38 @@ HAND = {'d19320bdc3381a48228990907910a391': ({           # Japanese rerelease
 }, {
     0x004977c6: 0x00497764,                           # kbpage: the 2P-key accept label,
                                                       # its two loads the other way round
+}), '383d3bff66504954f84924a0b41dc3fa': ({            # PowerVR
+    0x000000a8: 0x000000a8,                           # PE header: the entry point field
+    0x006035ac: None, 0x0060c064: None,               # retail's F5 resource: the
+                                                      # PowerVR one has In() sites
+    0x0010afbe: 0x0016d234, 0x0010afeb: 0x0016d261,   # Motion= fallbacks: the ini
+    0x0010b002: 0x0016d278,                           # loader does not align
+    0x001c6941: None, 0x001c6950: None,               # no reset of Motion at start-up
+    0x001c8bc4: None, 0x001c8bd3: None,               # or after a mode change
+    # continuefix: the same ten blocks in the same order, [ebp-0x14] for
+    # retail's [ebp-4], in functions the map does not match
+    0x00077f5a: 0x00009e07, 0x00078b1c: 0x0000a9c9,
+    0x00079bb6: 0x0000ba63, 0x00079f3f: 0x0000bdec,
+    0x0007d04a: 0x0000eef7, 0x000bb9ea: 0x000651c7,
+    0x000bc5ac: 0x00065d89, 0x000bd646: 0x00066e23,
+    0x000bd9cf: 0x000671ac, 0x000c0ada: 0x0006a2b7,
+    # sound: Fei-Yen's hypermode test, twice, in functions the map does not
+    # match; told apart by the callee after each (retail 0x597311 is 0x574f41)
+    0x00058189: 0x000ba24d, 0x00170dc9: 0x001049cd,
+    # defaults: the ini loader does not align. Sky, ScrSize, the three
+    # Texture flags; Field Graphic is an In() site, its fallback being two
+    # stores where retail's is one
+    0x0010acd7: 0x0016cf4d, 0x0010b088: 0x0016d2fe,
+    0x0010b131: None,
+    0x0010b1b0: 0x0016d444, 0x0010b1ba: 0x0016d44e,
+    0x0010b1c4: 0x0016d458,
+    # movie: the PE header's .rsrc characteristics, the same field; the
+    # initials screen's trigger tests, the same code and jump distances
+    0x0000023f: 0x0000023f, 0x000d60c8: 0x0007a353,
+    # the call before the flip that HOLD TO SKIP hooks: not placed (the one
+    # at 0x498178 runs only behind a toggle), so the build goes without it
+    0x001c58e7: None,
+}, {
 })}
 
 import hashlib                                                  # noqa: E402

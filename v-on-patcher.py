@@ -2801,7 +2801,8 @@ DISC_IMAGES = {
 class Build(object):
     def __init__(self, name, short, md5, size, stamp, sections, caves,
                  symbols, art, sites=None, annex=None, own=None,
-                 patches=None, reasons=None, note=None, exe='v_on.exe'):
+                 patches=None, reasons=None, note=None, exe='v_on.exe',
+                 without=None):
         # the name on screen, and a word for a label or a log line
         self.name, self.short = name, short
         self.md5, self.size = md5, size
@@ -2834,6 +2835,9 @@ class Build(object):
         # of the others why not; unsupported() says it.
         self.patches = tuple(patches) if patches is not None else None
         self.reasons = dict(reasons or {})
+        # Blobs a patch it takes goes without here: their sites are skipped
+        # and they are not linked. The hooks that call them map to None.
+        self.without = tuple(without or ())
         # A line worth knowing about the build, said where it is identified
         self.note = note
         self.exe = exe                  # the game's file name in its folder
@@ -4473,17 +4477,121 @@ PVR = Build('PowerVR', 'pvr', PVR_MD5, PVR_SIZE, 0x33b3b0ae, sections=(
     'ISICONIC': 0x024a2698,         # IAT: IsIconic
     'HWND': 0x02009c94,             # the game's window
     'BACK': 0x02009c70,             # back buffer
-    # scratch in the page slack past .data, as retail's is
-    'PENDING': 0x024a1a80,          # a recreate owed
-    'RETADDR': 0x024a1a84,          # where one returns to
+    # places in our own blobs, the same in every build
+    'LEVERS': ('PADX', 'end'),
+    'DEVCUR': ('BINDLIST', 'devcur'),
+    'PADLIST': ('PAD_BINDS', 0),
+    'DZKEYS': ('PAD_NAMES', 'dzkeys'),
+    'COND': ('PAD_COND', 0),
+    'SIMPLEDEF': ('PAD_SIMPLEDEF', 0),
+    'INIKEYS': ('PAD_INIKEYS', 0),
+    'USER32': ('EXTRAS_DATA', 'user32'),
+    'DLGBOXPROC': ('EXTRAS_DATA', 'dlgboxproc'),
+    'CHECKS': ('EXTRAS_DATA', 'checks'),
+    'F11WRAP': ('F11PAUSE', 'f11wrap'),
+    'F11CHECKS': ('F11PAUSE', 'f11checks'),
+    'DLGPROC': ('DEBUGBOX', 'dlgproc'),
+    'LOADSIMPLE': ('INILOAD', 'loadsimple'),
+    'DZSEED': ('PAGESEL', 'dzseed'),
+    'PARSE12': ('INIPARSE', 'parse12'),
+    'DZSAVE': ('INIPARSE', 'dzsave'),
+    'HEXCHAR': ('BINDBLOCK', 'hexchar'),
+    'POLLPADS': ('PADX', 'pollpads'),
+    'TICK': ('PADX', 'tick'),
+    'CAMSKIP': ('CAMSKIP', 0),
+    'GPAUSE': 0x004967cd,           # the built-in dialogs' pause, arg 0
+    # Intro, loading and ending screens
+    'MOVIEX': 0x02009c74,           # the offsets the replaced code read
+    'MOVIEY': 0x02009c78,
+    'F_X': -0x14,                   # the movie placer's X and Y
+    'F_Y': -0x18,
+    'GETCLIENT': 0x024a25fc,        # IAT: GetClientRect
+    'MOVIEDEV': 0x01d2d390,         # the movie's device id
+    'MCISEND': 0x024a26b8,          # IAT: mciSendCommandA
+    'MOVIEHWND': 0x01d2d368,        # the mciavi window
+    'MOVEWINDOW': 0x024a2604,       # IAT: MoveWindow
+    'ACCEPT1': 0x00b7ce29,          # 1P's key buffer slot for A and Space
+    'CAMERA1': 0x00b7cdff,          # 1P key slot for Select
+    'ACCEPT2': 0x00d865a9,          # and 2P's
+    'CAMERA2': 0x00d8658c,
+    'PHASE': 0x00d69a24,            # where the credits sequence is up to
+    'FLAG': 0x0200b768,             # the displaced write
+    'EDGEA': 0x01df58f5,            # press edges, lever A byte: bit 0 is LT
+    'EDGEB': 0x01df58f6,            # lever B byte: 2P's RT
+    'ORIGWNDPROC': 0x0049685f,      # the handler the hook falls through to
+    'GAMEMODE': 0x0082fb5c,         # loop mode: 1 two players, 2 network
+    'DLGOK': 0x00495490,         # () -> 0 when no F-key dialog may open
+    'DLGBUSY': 0x0084c260,       # bit 0: nor then
+    'MODE': 0x0200b760,             # game state
+    'SUBMODE': 0x0200c5b0,          # game sub-state
+    'NOSHOT': 0x0082f900,           # F11 check boxes: the flags they toggle
+    'SEMUTE': 0x007813e4,
+    'CDMUTE': 0x0072c070,
+    'CDSTOP': 0x004fda4b,           # CD audio stop, cdecl, no arguments
+    'GETMODULE': 0x024a24f8,        # IAT: GetModuleHandleA
+    'CHECKDLGBTN': 0x024a261c,      # IAT: CheckDlgButton
+    'GETDLGITEM': 0x024a25d4,       # IAT: GetDlgItem
+    'SENDMSG': 0x024a2638,          # IAT: SendMessageA
+    'POSTMSG': 0x024a2658,          # IAT: PostMessageA
+    'ENDDIALOG': 0x024a25c0,        # IAT: EndDialog
+    # scratch in the page slack past .data: retail's, moved by the same
+    # distance its .data's end moved, so the layout and alignment hold
+    'XIFN': 0x024a1a20,             # XInputGetState; 0 not yet, 1 failed
+    'STATE': 0x024a1a24,            # the tick's XINPUT_STATE
+    'BTN': 0x024a1a28,              # wButtons in STATE
+    'SCR1': 0x024a1a40,             # scratch the tick keeps per player
+    'SCR2': 0x024a1a41,
+    'PADIDX': 0x024a1a44,           # XInput slot + 1 per side
+    'PADRETRY': 0x024a1a46,         # misses of a side without a pad
+    'PSTATE': 0x024a1a50,           # the pump's own XINPUT_STATE
+    'PBTN': 0x024a1a54,             # wButtons in PSTATE
+    'SLEEPFN': 0x024a1a60,          # resolved Sleep: 0 not yet, 1 failed
+    'PADPREV': 0x024a1a64,          # last polled buttons, one word per pad
+    'DZTHR1': 0x024a1a6c,           # stick thresholds of 32767, 1P then 2P
+    'DZSTR1': 0x024a1a74,           # deadzone digit pairs
+    'PENDING': 0x024a1a7c,          # a recreate owed
+    'RETADDR': 0x024a1a80,          # where one returns to
+    'PREV': 0x024a1a84,             # last frame's slot, credits+names
+    'HELD': 0x024a1a85,             # and how long this press has lasted
 }, art=('escrgame.bin', 4194304, 'f0c2b33c6d32e8e25cee840a0de65dc0'),
-    sites=None, annex=('TIMER', 'ACTIVATE', 'F5_PVR'),
-    patches=('framerate', 'continuefix', 'dinput', 'activate'),
+    sites=None, annex=ANNEX_BLOBS + ('F5_PVR',),
+    patches=('framerate', 'continuefix', 'dinput', 'activate', 'sound',
+             'defaults', 'nodisc', 'debugbox', 'movie'),
     reasons={'nocpucheck': 'the PowerVR build has no processor check'},
-    note=PVR_NOTE, exe='vonpvr.exe')
+    note=PVR_NOTE, exe='vonpvr.exe',
+    # HOLD TO SKIP over the credits: the pre-flip call retail hooks has no
+    # every-frame counterpart found here yet, so the skip goes without it
+    without=('OVERLAY',))
 
 BUILDS = {RETAIL.md5: RETAIL, JPRE.md5: JPRE, OEM.md5: OEM,
           JP.md5: JP, PVR.md5: PVR}
+
+
+def game_exe(folder):
+    """The game's executable in a folder, whichever build's name it has,
+    or None."""
+    for name in dict.fromkeys(b.exe for b in BUILDS.values()):
+        path = os.path.join(folder, name)
+        if os.path.exists(path):
+            return path
+    return None
+
+
+def build_blobs(build, blobs=None):
+    """The blobs a build's ported patches write, for a build that takes
+    only some patches; None for one that takes all. Those are linked for
+    it. The rest keep their place in the annex, zeroed, which is all a
+    written blob needs of one it names: a gamepad stub the F11 dialog calls
+    starts with a zero byte when that patch is out, and is skipped."""
+    if build.patches is None:
+        return None
+    out = {off.sym[0] for key, _l, _t, sites in FEATURES
+           if not unsupported(build, key)
+           for off, _o, _n in sites if isinstance(off, At)} \
+        - set(build.without)
+    if 'debugbox' in build.patches:
+        out.add('VOXT')             # linked when the template is appended
+    return out
 
 
 def unsupported(build, key):
@@ -5890,43 +5998,96 @@ JP.sites = {
 }
 # SITES JP END
 
-# By hand, for the patches the PowerVR build takes; see PVR above.
+# SITES PVR BEGIN
 PVR.sites = {
-    # framerate
-    0x000000a8: (0x000000a8, '20771e00'),  # the entry point field
-    0x000273c1: (0x001942f1, '833d3cccd20103'),  # F5: which radio starts selected
-    0x000275d3: (0x00194503, 'c7053cccd20103000000'),  # F5: the first radio's store
-    0x000275e2: (0x00194512, 'c7053cccd20102000000'),  # F5: the second's
-    0x006035ac: None,  # retail's F5 resource size: In() sites instead
-    0x0060c064: None,  # retail's F5 template: In() sites instead
-    0x0010afbe: (0x0016d234, 'c705e0c36a0003000000'),  # Motion= fallbacks
+    0x002bba60: (0x0037f3f8, '0f'),
+    0x00189546: (0x00123e36, '2256'),
+    0x00189552: (0x00123e42, '88580100'),
+    0x00058189: (0x000ba24d, '01'),
+    0x00170dc9: (0x001049cd, '01'),
+    0x0014dc42: (0x001c0f62,
+        'c745ec00000000c745e828000000a1749c00028945eca1789c00028945e8'
+    ),
+    0x002c7678: (0x002aa780, '4e'),
+    0x0000023f: (0x0000023f, '40'),
+    0x0018fc25: (0x0011cfdf, 'c70568b7000200000000'),
+    0x000d60c8: (0x0007a353,
+        'f605f558df01010f850d000000f605f658df01010f84f2010000'
+    ),
+    0x001c58e7: None,  # movie
+    0x0010acd7: (0x0016cf4d, '00000000'),
+    0x0010b088: (0x0016d2fe, '01000000'),
+    0x0010b131: None,  # defaults
+    0x0010b1b0: (0x0016d444, '00000000'),
+    0x0010b1ba: (0x0016d44e, '00000000'),
+    0x0010b1c4: (0x0016d458, '00000000'),
+    0x001c76d4: (0x00097774, '0f840a000000'),
+    0x001b0920: (0x00147f6c, '0f850f000000'),
+    0x001c4aa2: (0x00094a92, '558bec81ece0000000'),
+    0x001c5726: (0x000957af, '558bec5356'),
+    0x001c5412: (0x0009543d, 'e810040000'),
+    0x000000a8: (0x000000a8, '20771e00'),
+    0x000273c1: (0x001942f1, '833d3cccd20103'),
+    0x000275d3: (0x00194503, 'c7053cccd20103000000'),
+    0x000275e2: (0x00194512, 'c7053cccd20102000000'),
+    0x006035ac: None,  # framerate
+    0x0060c064: None,  # framerate
+    0x0010afbe: (0x0016d234, 'c705e0c36a0003000000'),
     0x0010afeb: (0x0016d261, 'c705e0c36a0003000000'),
     0x0010b002: (0x0016d278, 'c705e0c36a0003000000'),
-    0x001c6941: None,  # no start-up reset of Motion
-    0x001c6950: None,
-    0x001c6d8c: (0x00096df6, 'c705e0c36a0002000000'),  # the F4 handler's two resets
+    0x001c6941: None,  # framerate
+    0x001c6950: None,  # framerate
+    0x001c6d8c: (0x00096df6, 'c705e0c36a0002000000'),
     0x001c6d9b: (0x00096e05, 'c705e0c36a0003000000'),
     0x001c6dfc: (0x00096e66, 'c705e0c36a0002000000'),
     0x001c6e0b: (0x00096e75, 'c705e0c36a0003000000'),
-    0x001c8bc4: None,  # no reset after a mode change
-    0x001c8bd3: None,
-    # continuefix
-    0x00077f5a: (0x00009e07, '8b45ecd94008d9e083ec04d91c248b45ec8b4004508b45ecd900d9e083ec04d91c24e86288ffff83c40c'),
-    0x00078b1c: (0x0000a9c9, '8b45ecd94008d9e083ec04d91c248b45ec8b4004508b45ecd900d9e083ec04d91c24e8a07cffff83c40c'),
-    0x00079bb6: (0x0000ba63, '8b45ecd94008d9e083ec04d91c248b45ec8b4004508b45ecd900d9e083ec04d91c24e8066cffff83c40c'),
-    0x00079f3f: (0x0000bdec, '8b45ecd94008d9e083ec04d91c248b45ec8b4004508b45ecd900d9e083ec04d91c24e87d68ffff83c40c'),
-    0x0007d04a: (0x0000eef7, '8b45ecd94008d9e083ec04d91c248b45ec8b4004508b45ecd900d9e083ec04d91c24e87237ffff83c40c'),
-    0x000bb9ea: (0x000651c7, '8b45ecd94008d9e083ec04d91c248b45ec8b4004508b45ecd900d9e083ec04d91c24e80222fbff83c40c'),
-    0x000bc5ac: (0x00065d89, '8b45ecd94008d9e083ec04d91c248b45ec8b4004508b45ecd900d9e083ec04d91c24e84016fbff83c40c'),
-    0x000bd646: (0x00066e23, '8b45ecd94008d9e083ec04d91c248b45ec8b4004508b45ecd900d9e083ec04d91c24e8a605fbff83c40c'),
-    0x000bd9cf: (0x000671ac, '8b45ecd94008d9e083ec04d91c248b45ec8b4004508b45ecd900d9e083ec04d91c24e81d02fbff83c40c'),
-    0x000c0ada: (0x0006a2b7, '8b45ecd94008d9e083ec04d91c248b45ec8b4004508b45ecd900d9e083ec04d91c24e812d1faff83c40c'),
-    # activate
-    0x001b0920: (0x00147f6c, '0f850f000000'),  # the movie's exit
-    0x001c4aa2: (0x00094a92, '558bec81ece0000000'),  # the recreate
-    0x001c5726: (0x000957af, '558bec5356'),  # setactive
-    0x001c5412: (0x0009543d, 'e810040000'),  # the idle pass
+    0x001c8bc4: None,  # framerate
+    0x001c8bd3: None,  # framerate
+    0x001c4d42: (0x00094d99, '0f850c000000'),
+    0x001c4d4b: (0x00094da2, '65000000'),
+    0x001c4d7e: (0x00094dd5, '5f684900'),
+    0x00077f5a: (0x00009e07,
+        '8b45ecd94008d9e083ec04d91c248b45ec8b4004508b45ecd900d9e083ec04d9'
+        '1c24e86288ffff83c40c'
+    ),
+    0x00078b1c: (0x0000a9c9,
+        '8b45ecd94008d9e083ec04d91c248b45ec8b4004508b45ecd900d9e083ec04d9'
+        '1c24e8a07cffff83c40c'
+    ),
+    0x00079bb6: (0x0000ba63,
+        '8b45ecd94008d9e083ec04d91c248b45ec8b4004508b45ecd900d9e083ec04d9'
+        '1c24e8066cffff83c40c'
+    ),
+    0x00079f3f: (0x0000bdec,
+        '8b45ecd94008d9e083ec04d91c248b45ec8b4004508b45ecd900d9e083ec04d9'
+        '1c24e87d68ffff83c40c'
+    ),
+    0x0007d04a: (0x0000eef7,
+        '8b45ecd94008d9e083ec04d91c248b45ec8b4004508b45ecd900d9e083ec04d9'
+        '1c24e87237ffff83c40c'
+    ),
+    0x000bb9ea: (0x000651c7,
+        '8b45ecd94008d9e083ec04d91c248b45ec8b4004508b45ecd900d9e083ec04d9'
+        '1c24e80222fbff83c40c'
+    ),
+    0x000bc5ac: (0x00065d89,
+        '8b45ecd94008d9e083ec04d91c248b45ec8b4004508b45ecd900d9e083ec04d9'
+        '1c24e84016fbff83c40c'
+    ),
+    0x000bd646: (0x00066e23,
+        '8b45ecd94008d9e083ec04d91c248b45ec8b4004508b45ecd900d9e083ec04d9'
+        '1c24e8a605fbff83c40c'
+    ),
+    0x000bd9cf: (0x000671ac,
+        '8b45ecd94008d9e083ec04d91c248b45ec8b4004508b45ecd900d9e083ec04d9'
+        '1c24e81d02fbff83c40c'
+    ),
+    0x000c0ada: (0x0006a2b7,
+        '8b45ecd94008d9e083ec04d91c248b45ec8b4004508b45ecd900d9e083ec04d9'
+        '1c24e812d1faff83c40c'
+    ),
 }
+# SITES PVR END
 
 # GENERATED - do not edit the hex by hand.
 #
@@ -18484,7 +18645,13 @@ FEATURES = [
                       'e92300000090909090909090909090'),
          (0x0010b1b0, '00000000', '01000000'),
          (0x0010b1ba, '00000000', '01000000'),
-         (0x0010b1c4, '00000000', '01000000')]),
+         (0x0010b1c4, '00000000', '01000000'),
+         # The PowerVR build's Field Graphic fallback clears two flags where
+         # retail's clears one, so its jump into the Rich block (0x56dfd9)
+         # is longer and lands elsewhere.
+         (In(PVR_MD5, 0x0016d3a7),
+          'c7052c3f7f0000000000c7051449650000000000e964000000',
+          'e92d000000' + '90' * 20)]),
 
     ('nodisc', 'No disc required',
      'Removes the disc check. The soundtrack then has to come from\n'
@@ -19238,6 +19405,8 @@ def features(build):
             out.append((key, label, tip, rows))
             continue
         for off, orig, new in sites:
+            if isinstance(off, At) and off.sym[0] in build.without:
+                continue
             if isinstance(off, In):
                 if off.md5 != build.md5:
                     continue
@@ -20380,7 +20549,7 @@ def dest_problem(path, needed):
     short = room_for(probe, needed)
     if short:
         return short, 'bad'
-    if exists and os.path.exists(os.path.join(path, 'v_on.exe')):
+    if exists and game_exe(path):
         # Worth its own message: installing over a patched copy replaces
         # v_on.exe with the stock one and leaves the .bak beside it no
         # longer matching, which Restore original would then act on.
@@ -23503,12 +23672,10 @@ def run_tk():
                       % (len(written), dest))
             # Hand the result straight to the next step rather than making
             # someone browse to a folder this window just created.
-            for name in dict.fromkeys(b.exe for b in BUILDS.values()):
-                exe = os.path.join(dest, name)
-                if os.path.exists(exe):
-                    self.path_var.set(exe)
-                    self._check_file(exe)
-                    break
+            exe = game_exe(dest)
+            if exe:
+                self.path_var.set(exe)
+                self._check_file(exe)
             self._sync_buttons()
 
         # -- soundtrack
