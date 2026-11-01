@@ -11,7 +11,7 @@ working on the patcher.
 | [NOTES.md](NOTES.md) | how each patch works inside the game: the patch table with every site, the builds and how their offsets map, and a section per patch on what the game does and why the change is what it is |
 | [TEXT.md](TEXT.md) | the three ways the game draws text, where each string the patcher touches lives, and how the title banner and the credit line are made |
 | [BOSSES.md](BOSSES.md) | the playable bosses: what a player gets - unlocking, the select, the game - and how it works, the select's palette rows above all |
-| [HIRES.md](HIRES.md) | the resolution patch: what it rewrites, the blob, the game's scenes as read off it, the multi-build port and its record, what is queued |
+| [HIRES.md](HIRES.md) | the resolution patch: what it rewrites, the blob, the game's scenes as read off it, the multi-build port and its record, what is queued, the PowerVR build |
 | [../asm/README.md](../asm/README.md) | the assembly sources, how they become bytes in the patcher, and a section per file |
 | [../net/README.md](../net/README.md) | the netplay DLL and the rendezvous server |
 | [../maps/README.md](../maps/README.md) | the build maps and port tables `tools/maps.sh` generates |
@@ -27,7 +27,7 @@ Where something lives, by question:
   HIRES.md's *Rebuilding* for `asm/ui.asm`.
 - *How does the widescreen patch reach the OEM and Japanese builds?*
   HIRES.md, *Porting to other builds* and *What porting actually
-  taught*.
+  taught*. The PowerVR build: HIRES.md, *The PowerVR build*.
 - *How do I cut a release?* DEVELOPING.md, *Releasing*.
 - *How is the exe signed, and how is signing set up?* DEVELOPING.md,
   *Signing* and *Setting up signing*.

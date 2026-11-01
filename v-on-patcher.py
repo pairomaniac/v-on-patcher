@@ -291,12 +291,6 @@ PORT = {
             0x0345bd58: 0x034569a8,
         },
         'off': {
-            0x0224e9: (0x022159, '00480000'),
-            0x0224fa: (0x02216a, '00900000'),
-            0x022600: (0x022270, '00380000'),
-            0x022611: (0x022281, '00700000'),
-            0x022706: (0x022376, '00380000'),
-            0x022717: (0x022387, '00700000'),
             0x0272c4: (0x026f24, 'a340efbd00'),
             0x02763c: (0x02729c, 'a3b0b26b00'),
             0x02c1a6: (0x02bec8, '558bec81eca8000000'),
@@ -388,12 +382,6 @@ PORT = {
             0x1b098b: (0x1ab647, 'e0010000'),
             0x1b0990: (0x1ab64c, '80020000'),
             0x1b532e: (0x1affb6, '558bec81ec8c000000'),
-            0x1bd799: (0x1b8159, '00480000'),
-            0x1bd7aa: (0x1b816a, '00900000'),
-            0x1bd8b0: (0x1b8270, '00380000'),
-            0x1bd8c1: (0x1b8281, '00700000'),
-            0x1bd9b6: (0x1b8376, '00380000'),
-            0x1bd9c7: (0x1b8387, '00700000'),
             0x1c4dd3: (0x1bf6b8, 'e0010000'),
             0x1c4dd8: (0x1bf6bd, '80020000'),
             0x1c4f73: (0x1bf842, 'e0326c00'),
@@ -693,12 +681,6 @@ PORT = {
             0x0345bd58: 0x0345bce8,
         },
         'off': {
-            0x0224e9: (0x022449, '00480000'),
-            0x0224fa: (0x02245a, '00900000'),
-            0x022600: (0x022560, '00380000'),
-            0x022611: (0x022571, '00700000'),
-            0x022706: (0x022666, '00380000'),
-            0x022717: (0x022677, '00700000'),
             0x0272c4: (0x027224, 'a3c042be00'),
             0x02763c: (0x02759c, 'a330f56b00'),
             0x02c1a6: (0x02c106, '558bec81eca8000000'),
@@ -790,12 +772,6 @@ PORT = {
             0x1b098b: (0x1b045b, 'e0010000'),
             0x1b0990: (0x1b0460, '80020000'),
             0x1b532e: (0x1b4dfe, '558bec81ec8c000000'),
-            0x1bd799: (0x1bd269, '00480000'),
-            0x1bd7aa: (0x1bd27a, '00900000'),
-            0x1bd8b0: (0x1bd380, '00380000'),
-            0x1bd8c1: (0x1bd391, '00700000'),
-            0x1bd9b6: (0x1bd486, '00380000'),
-            0x1bd9c7: (0x1bd497, '00700000'),
             0x1c4dd3: (0x1c48a3, 'e0010000'),
             0x1c4dd8: (0x1c48a8, '80020000'),
             0x1c4f73: (0x1c4a42, '60756c00'),
@@ -1091,12 +1067,6 @@ PORT = {
             0x0345bd58: 0x0345a878,
         },
         'off': {
-            0x0224e9: (0x022449, '00480000'),
-            0x0224fa: (0x02245a, '00900000'),
-            0x022600: (0x022560, '00380000'),
-            0x022611: (0x022571, '00700000'),
-            0x022706: (0x022666, '00380000'),
-            0x022717: (0x022677, '00700000'),
             0x0272c4: (0x027224, 'a3502ebe00'),
             0x02763c: (0x02759c, 'a390e26b00'),
             0x02c1a6: (0x02c106, '558bec81eca8000000'),
@@ -1188,12 +1158,6 @@ PORT = {
             0x1b098b: (0x1af82b, 'e0010000'),
             0x1b0990: (0x1af830, '80020000'),
             0x1b532e: (0x1b41ce, '558bec81ec8c000000'),
-            0x1bd799: (0x1bc639, '00480000'),
-            0x1bd7aa: (0x1bc64a, '00900000'),
-            0x1bd8b0: (0x1bc750, '00380000'),
-            0x1bd8c1: (0x1bc761, '00700000'),
-            0x1bd9b6: (0x1bc856, '00380000'),
-            0x1bd9c7: (0x1bc867, '00700000'),
             0x1c4dd3: (0x1c3c73, 'e0010000'),
             0x1c4dd8: (0x1c3c78, '80020000'),
             0x1c4f73: (0x1c3e12, 'c0626c00'),
@@ -2221,26 +2185,6 @@ def build_sites(w, h, sec_va, span_va, rowtab_va, pool, A=None):
               (0x1fb4a4, f32(256.0), f32(256.0 * wide))]
     sites += [(off, u32(0x1500), u32(win))
               for off in (0x147b60, 0x147cc8, 0x074ed0, 0x075038)]
-    # Stage objects. 0x5be1d0 (A) and 0x422f20 (B) pick each object's
-    # solid or meshed model by the camera yaw against the object's
-    # authored direction code (2 bits per object in the stage's cell
-    # table, 3 on the eight-way stages), meshed when the yaw is outside
-    # a window of 0x4800 (101 degrees; 0x3800 eight-way) - the object
-    # stands between the camera and the machine. With 90-degree codes
-    # an object beside the machine meshes once the yaw is 11 degrees
-    # past square to it, which at 16:9 is while it is still on screen.
-    # Both windows get 22.5 degrees more (0x1000: the add and its
-    # compare, twice the half window); an object behind the machine
-    # is still 135 degrees or more off and still meshes. Three windows
-    # per renderer; 0x5bed0d/0x5bf07c and 0x423a5d/0x423dcc are
-    # uncalled copies and stay.
-    for add, cmp_ in ((0x1bd799, 0x1bd7aa), (0x0224e9, 0x0224fa)):
-        sites += [(add, u32(0x4800), u32(0x5800)),
-                  (cmp_, u32(0x9000), u32(0xb000))]
-    for add, cmp_ in ((0x1bd8b0, 0x1bd8c1), (0x1bd9b6, 0x1bd9c7),
-                      (0x022600, 0x022611), (0x022706, 0x022717)):
-        sites += [(add, u32(0x3800), u32(0x4800)),
-                  (cmp_, u32(0x7000), u32(0x9000))]
     sites += [(off, u32(0xffffeb00), u32(-win))
               for off in (0x147b6f, 0x147cd7, 0x074edf, 0x075047)]
     # Renderer A's polygon record pool: 2500 records of 0x30 bytes at
@@ -2773,7 +2717,7 @@ PVR_UI = {
     0x005c8ca0: 0x00498ec1, 0x005c991c: 0x00499c39, 0x005cc4cc: 0x004a097c,
     0x005d1db0: 0x005e4310, 0x005dcc80: 0x005e4530, 0x00427ec9: 0x00594df9,
     0x00428241: 0x00595171,
-    0x0066c17c: 0x00647044, 0x0066c180: 0x00647048, 0x0066c190: 0x0064704c,
+    0x0066c180: 0x00647048, 0x0066c190: 0x0064704c,
     0x006bc1e4: 0x0074b1d0, 0x006bc1e8: 0x0074b1d4, 0x006bc948: 0x0082fb58,
     0x006bc94c: 0x0082fb5c, 0x006bf598: 0x006a34a0, 0x006bf5a8: 0x006a34b8,
     0x006bf5ac: 0x006a34bc, 0x006bf5b0: 0x006a34c0, 0x006bf5b8: 0x006a34c8,
@@ -2788,7 +2732,7 @@ PVR_UI = {
     0x01ad0034: 0x00b7cde8, 0x01ae3594: 0x0200b760, 0x01ae3690: 0x0200c5b0,
     0x01ae5f40: 0x02009c90, 0x01ae5f5c: 0x02009c70, 0x01cc6700: 0x01fc3ba0,
     0x01ef1140: 0x01fdced0, 0x01ef8a90: 0x01ff1250, 0x01ef9eb0: 0x01ff2ae8,
-    0x01efb728: 0x01ff33f8, 0x01efb730: 0x01ff3400, 0x033cd5f4: 0x01df50fc,
+    0x01efb728: 0x01ff33f8, 0x01efb730: 0x01ff3400,
     0x034155c8: 0x024a0638, 0x034155d0: 0x024a0640, 0x0345b2c8: 0x01df5b08,
     0x0345bd58: 0x01df6728,
 }
@@ -2798,7 +2742,6 @@ PVR_MATSCALE = 0x00408790, 0x00418060
 
 PVR_ROWTAB = 0x006ab4d8         # the 2D row table: it stays where it is
 UI_VIEWSIZE = 0x1c08            # ui.asm's D_W and D_H
-UI_SHOW = 0x1e88                # and its D_SHOW
 
 
 def pvr_ui_install(buf):
@@ -2818,15 +2761,13 @@ def pvr_ui_install(buf):
     def rel(site, target):
         return u32(target - (site + 5))
     # The stubs' calls, and the sites the blob's stubs take over.
-    for (off, _t), target in zip(UI_CALLS, (0x419d10, 0x41a090, 0x439030,
-                                            0x4393c0)):
+    for off, retail in UI_CALLS:
         struct.pack_into('<i', buf, rawptr + off + 1,
-                         target - (sec_va + off + 5))
+                         va[retail] - (sec_va + off + 5))
     sites = []
-    for (_o, _s, stub), site, target in zip(
-            UI_STUBS, (0x4980d9, 0x498102, 0x4980fd, 0x498114),
-            (0x419d10, 0x41a090, 0x439030, 0x4393c0)):
-        sites.append((fileoff(site), b'\xe8' + rel(site, target),
+    for (_o, _s, stub), site, (_off, retail) in zip(
+            UI_STUBS, (0x4980d9, 0x498102, 0x4980fd, 0x498114), UI_CALLS):
+        sites.append((fileoff(site), b'\xe8' + rel(site, va[retail]),
                       b'\xe8' + rel(site, sec_va + stub)))
     # The HUD passes: the prologue jumps to a stub that counts the pass in
     # and out. A's and B's in-game HUD, the select, the attract, name entry.
@@ -2876,8 +2817,6 @@ def pvr_ui_install(buf):
                      sec_va + UI_FRAME)
     struct.pack_into('<I', buf, fileoff(symbol_va('WIDESIZE', PVR)),
                      sec_va + UI_VIEWSIZE)
-    struct.pack_into('<I', buf, fileoff(symbol_va('WIDESHOW', PVR)),
-                     sec_va + UI_SHOW)
     # The row loads the tile planes index past either end, in both engines.
     for site in (0x41a02d, 0x41a07d, 0x41a5f9, 0x41a65e, 0x41aac9,
                  0x439355, 0x4393ad, 0x439931, 0x43999e, 0x439e11):
@@ -4838,12 +4777,6 @@ PVR = Build('PowerVR', 'pvr', PVR_MD5, PVR_SIZE, 0x33b3b0ae, sections=(
     'WIDEINSFN': ('PVRWIDE', 'insertfn'),
     'WIDEFN': ('PVRWIDE', 'framefn'),
     'WIDESIZE': ('PVRWIDE', 'uisize'),
-    'WIDESHOW': ('PVRWIDE', 'uishow'),
-    'REGION1': 0x00473b95,          # (layout, radio): renderer A's region
-    'REGION2': 0x00473ec1,          # and B's, in a split game
-    'REGIONFULL': 0x00473977,       # (Screen=Normal): one view's region
-    'WIDEREG1': ('PVRWIDE', 'region1'),
-    'WIDEREG2': ('PVRWIDE', 'region2'),
     'WIDE3D': ('PVRWIDE', 'drawn'),
 }, art=('escrgame.bin', 4194304, 'f0c2b33c6d32e8e25cee840a0de65dc0'),
     sites=None, annex=ANNEX_BLOBS + ('F5_PVR', 'PVRWIDE'),
@@ -17765,93 +17698,83 @@ BLOBS = {
         'fx2save': 0x440d8,
     }),
     'PVRWIDE': (bytes.fromhex(
-        '83250000000000833d00000000007407830d0000000002ff742404ff15c40100'
-        '0083c404a100000000a3b0010000a100000000a3b4010000a100000000a3b801'
-        '0000a100000000a3bc0100008b0dc8010000a1000000008901a1000000008941'
-        '0431c0c3a1cc0100008338007514e9fcffffffa1cc0100008338007505e9fcff'
-        'ffff6a00e8fcffffff83c404c3810d0000000000008000586800000000ffe0a1'
-        '00000000a3c0010000e9fcffffff833dc001000000752b8b150000000085d274'
-        '2157538b1d0000000031c089d78b0d00000000d1e9f3ab0315000000004b75eb'
-        '5b5fc3e8c6ffffff31c0f60500000000800f95c0a3d4010000a1b001000085c0'
-        '7423a300000000a1b4010000a300000000a1b8010000a300000000a1bc010000'
-        'a300000000e9fcffffff8b1d00000000eb068b1d00000000a1000000002d8002'
-        '000029c3c3e836000000ff15d00100005051a1000000008b0d00000000660142'
-        '1066014a126601421466014a166601421866014a1a6601421c66014a1e5958c3'
-        '5051a1000000008b0d000000006629421066294a126629421466294a16662942'
-        '1866294a1a6629421c66294a1e5958c300000000000000000000000000000000'
-        '000000000000000000000000000000000000000000000000'
+        '83250000000000833d00000000007407830d0000000002ff742404ff159b0100'
+        '0083c404a100000000a387010000a100000000a38b010000a100000000a38f01'
+        '0000a100000000a3930100008b0d9f010000a1000000008901a1000000008941'
+        '0431c0c3810d0000000000008000586800000000ffe0a100000000a397010000'
+        'e9fcffffff833d9701000000752b8b150000000085d2742157538b1d00000000'
+        '31c089d78b0d00000000d1e9f3ab0315000000004b75eb5b5fc3e8c6ffffff31'
+        'c0f60500000000800f95c0a3a7010000a18701000085c07423a300000000a18b'
+        '010000a300000000a18f010000a300000000a193010000a300000000e9fcffff'
+        'ff8b1d00000000eb068b1d00000000a1000000002d8002000029c3c3e8360000'
+        '00ff15a30100005051a1000000008b0d000000006601421066014a1266014214'
+        '66014a166601421866014a1a6601421c66014a1e5958c35051a1000000008b0d'
+        '000000006629421066294a126629421466294a166629421866294a1a6629421c'
+        '66294a1e5958c300000000000000000000000000000000000000000000000000'
+        '0000000000000000000000'
     ), (
         (0x2, 'abs', 'FSFLAGS', 0),
         (0x9, 'abs', 'SPLITTYPE', 0),
         (0x12, 'abs', 'FSFLAGS', 0),
-        (0x1d, 'abs', '.', 452),
+        (0x1d, 'abs', '.', 411),
         (0x25, 'abs', 'CENTREAX', 0),
-        (0x2a, 'abs', '.', 432),
+        (0x2a, 'abs', '.', 391),
         (0x2f, 'abs', 'CENTREAY', 0),
-        (0x34, 'abs', '.', 436),
+        (0x34, 'abs', '.', 395),
         (0x39, 'abs', 'CENTREBX', 0),
-        (0x3e, 'abs', '.', 440),
+        (0x3e, 'abs', '.', 399),
         (0x43, 'abs', 'CENTREBY', 0),
-        (0x48, 'abs', '.', 444),
-        (0x4e, 'abs', '.', 456),
+        (0x48, 'abs', '.', 403),
+        (0x4e, 'abs', '.', 415),
         (0x53, 'abs', 'VIEWW', 0),
         (0x5a, 'abs', 'VIEWH', 0),
-        (0x65, 'abs', '.', 460),
-        (0x6f, 'rel', 'REGION1', -4),
-        (0x74, 'abs', '.', 460),
-        (0x7e, 'rel', 'REGION2', -4),
-        (0x85, 'rel', 'REGIONFULL', -4),
-        (0x8f, 'abs', 'SCENEFLAGS', 0),
-        (0x99, 'abs', 'SCENE', 0),
-        (0xa0, 'abs', 'RENDERING', 0),
-        (0xa5, 'abs', '.', 448),
-        (0xaa, 'rel', 'WAITRENDER', -4),
-        (0xb0, 'abs', '.', 448),
-        (0xb9, 'abs', 'SURFBASE', 0),
-        (0xc5, 'abs', 'VIEWH', 0),
-        (0xcf, 'abs', 'VIEWW', 0),
-        (0xd9, 'abs', 'SURFPITCH', 0),
-        (0xec, 'abs', 'PLANEB', 0),
-        (0xf5, 'abs', '.', 468),
-        (0xfa, 'abs', '.', 432),
-        (0x103, 'abs', 'CENTREAX', 0),
-        (0x108, 'abs', '.', 436),
-        (0x10d, 'abs', 'CENTREAY', 0),
-        (0x112, 'abs', '.', 440),
-        (0x117, 'abs', 'CENTREBX', 0),
-        (0x11c, 'abs', '.', 444),
-        (0x121, 'abs', 'CENTREBY', 0),
-        (0x126, 'rel', 'PRE2D', -4),
-        (0x12c, 'abs', 'SURF1', 0),
-        (0x134, 'abs', 'SURF2', 0),
-        (0x139, 'abs', 'VIEWW', 0),
-        (0x14c, 'abs', '.', 464),
-        (0x153, 'abs', 'ORGX2', 0),
-        (0x159, 'abs', 'ORGY2', 0),
-        (0x183, 'abs', 'ORGX2', 0),
-        (0x189, 'abs', 'ORGY2', 0),
+        (0x66, 'abs', 'SCENEFLAGS', 0),
+        (0x70, 'abs', 'SCENE', 0),
+        (0x77, 'abs', 'RENDERING', 0),
+        (0x7c, 'abs', '.', 407),
+        (0x81, 'rel', 'WAITRENDER', -4),
+        (0x87, 'abs', '.', 407),
+        (0x90, 'abs', 'SURFBASE', 0),
+        (0x9c, 'abs', 'VIEWH', 0),
+        (0xa6, 'abs', 'VIEWW', 0),
+        (0xb0, 'abs', 'SURFPITCH', 0),
+        (0xc3, 'abs', 'PLANEB', 0),
+        (0xcc, 'abs', '.', 423),
+        (0xd1, 'abs', '.', 391),
+        (0xda, 'abs', 'CENTREAX', 0),
+        (0xdf, 'abs', '.', 395),
+        (0xe4, 'abs', 'CENTREAY', 0),
+        (0xe9, 'abs', '.', 399),
+        (0xee, 'abs', 'CENTREBX', 0),
+        (0xf3, 'abs', '.', 403),
+        (0xf8, 'abs', 'CENTREBY', 0),
+        (0xfd, 'rel', 'PRE2D', -4),
+        (0x103, 'abs', 'SURF1', 0),
+        (0x10b, 'abs', 'SURF2', 0),
+        (0x110, 'abs', 'VIEWW', 0),
+        (0x123, 'abs', '.', 419),
+        (0x12a, 'abs', 'ORGX2', 0),
+        (0x130, 'abs', 'ORGY2', 0),
+        (0x15a, 'abs', 'ORGX2', 0),
+        (0x160, 'abs', 'ORGY2', 0),
     ), {
         'frame': 0x0,
-        'region1': 0x64,
-        'region2': 0x73,
-        'whole': 0x82,
-        'nodither': 0x8d,
-        'waitcard': 0x9f,
-        'clearsurface': 0xae,
-        'drawn3d': 0xe3,
-        'fill1': 0x12a,
-        'fill2': 0x132,
-        'fillfrom': 0x138,
-        'insert2': 0x145,
-        'origin_on': 0x150,
-        'origin_off': 0x180,
-        'centres': 0x1b0,
-        'rendered': 0x1c0,
-        'framefn': 0x1c4,
-        'uisize': 0x1c8,
-        'uishow': 0x1cc,
-        'insertfn': 0x1d0,
-        'drawn': 0x1d4,
+        'nodither': 0x64,
+        'waitcard': 0x76,
+        'clearsurface': 0x85,
+        'drawn3d': 0xba,
+        'fill1': 0x101,
+        'fill2': 0x109,
+        'fillfrom': 0x10f,
+        'insert2': 0x11c,
+        'origin_on': 0x127,
+        'origin_off': 0x157,
+        'centres': 0x187,
+        'rendered': 0x197,
+        'framefn': 0x19b,
+        'uisize': 0x19f,
+        'insertfn': 0x1a3,
+        'drawn': 0x1a7,
     }),
     'PAD_COND': (bytes.fromhex(
         '0200000000100000020000000020000002000000004000000200000000800000'
@@ -19073,8 +18996,8 @@ def pvr_wide_sites():
     # and the wider picture shows more at the sides.
     rows += [flt(0x49847f, 1.0, sy), flt(0x4984ce, 0.95, 0.95 * sy)]
     # The mode selector returns failure for a size it does not know. The
-    # enumeration callback (0x495c4a) still looks for 640x480: cnc-ddraw
-    # lists no 1024x576, and SetDisplayMode is the judge.
+    # enumeration callback (0x495c4a) still looks for 640x480, and
+    # SetDisplayMode is the judge.
     rows += [word(0x499725, 640, w), word(0x499732, 480, h)]
     # No low-resolution mode: 320x240 cannot hold this width. Its toggle and
     # menu command go to the handler's exit, and a saved ScrSize with the
@@ -19129,18 +19052,9 @@ def pvr_wide_sites():
     # for the third, which this template lacks, never passes.
     rows += [hexes(0x594f2f, '02', '00')]
     # The sprite blit: split or not, mode 8 takes the plain path, as at
-    # 0x47f0c0 on the other builds. A split view's height is full size too:
-    # pre hands the 2D code a 640x480 canvas whatever the viewport, and below
-    # this each tile would be drawn on every other row of it.
+    # 0x47f0c0 on the other builds.
     rows += [hexes(0x418c54, '8b0d58fb82003bc80f84bd010000',
                    '833d44706400080f84be01000090')]
-    rows += [word(0x419cda, 240, tb - 1), word(0x438ffb, 240, tb - 1)]
-    # Entering or leaving a split game halves or doubles the viewport width
-    # on the spot. The other builds' 2D layer runs after the next viewport
-    # setup; this one's runs first, and would take it for a 4:3 frame narrower
-    # than the 640-wide picture. The setup writes the width every frame.
-    rows += [hexes(0x5b5a3a, 'd125c8346a00', '90' * 6),
-             hexes(0x5b5a89, 'a3c8346a00', '90' * 5)]
     # The select's rectangles: when both planes hide the 3D the card does not
     # run, and a software list draws the portrait frames. Engine 1's halves
     # them under the split flag, which pre hides. Engine 2's halves them always,
@@ -19206,13 +19120,6 @@ def pvr_wide_sites():
              for va in (0x462c4a, 0x462db2, 0x5c201a, 0x5c2182)]
     rows += [word(va, 0xffffeb00, -win)
              for va in (0x462c59, 0x462dc1, 0x5c2029, 0x5c2191)]
-    # Stage objects mesh outside a yaw window, the add and its compare: as
-    # the others', 22.5 degrees more, in the three windows each renderer calls.
-    for add, cmp_ in ((0x55e252, 0x55e263), (0x593cd2, 0x593ce3)):
-        rows += [word(add, 0x4800, 0x5800), word(cmp_, 0x9000, 0xb000)]
-    for add, cmp_ in ((0x55e369, 0x55e37a), (0x55e46f, 0x55e480),
-                      (0x593de9, 0x593dfa), (0x593eef, 0x593f00)):
-        rows += [word(add, 0x3800, 0x4800), word(cmp_, 0x7000, 0x9000)]
     # The glue's hooks, and the glue. Every call to the viewport setup goes
     # through the frame hook: this build's 2D layer runs after a whole frame,
     # so any of them can come between the setup and the 2D layer that needs it.
@@ -19226,8 +19133,6 @@ def pvr_wide_sites():
     # builds' rasterizers have none.
     rows += [hook(va, '68a0a00002', 'WIDENODITHER')
              for va in (0x4732fa, 0x472b86)]
-    rows += [hook(0x4961f9, 'e897d9fdff', 'WIDEREG1'),
-             hook(0x496238, 'e884dcfdff', 'WIDEREG2')]
     rows += [hook_pad(0x419d51, '8b1db8346a00', 'WIDEFILL1'),
              hook_pad(0x439071, '8b1dc0346a00', 'WIDEFILL2')]
     code = link('PVRWIDE', PVR)

@@ -8,8 +8,8 @@
 
 ~/.vo-test (template: tools/vo-test.example) names the game folder per
 build: VO_GAME_RETAIL, VO_GAME_OEM, VO_GAME_JP, VO_GAME_JPRE and VO_GAME_PVR.
-The PowerVR build takes the Essential patches only, so only selftest.py runs
-on it. Folders
+The PowerVR build has no credit line or playable bosses, so their checks do
+not run on it. Folders
 on the command line come first, then VO_GAME from the environment, then
 the file.
 
@@ -37,8 +37,7 @@ ROOT = os.path.dirname(HERE)
 PY = sys.executable or 'python3'
 CONF = os.path.expanduser('~/.vo-test')
 BUILDS = ('RETAIL', 'OEM', 'JP', 'JPRE', 'PVR')
-# The builds that take every patch; the PowerVR build takes the Essential
-# ones, so the checks for the rest do not run on it.
+# The builds with the patches the credit and portrait checks test.
 WHOLE = ('retail', 'oem', 'jp', 'jpre')
 
 
@@ -104,7 +103,7 @@ CHECKS = [
     ('offsets', 'every patch against the real executable',
      [PY, 'tools/selftest.py', '{exe}'], True, False),
     ('banner', 'the title prompt reads back as written',
-     [PY, 'tools/bannertest.py', '{game}'], True, False, WHOLE),
+     [PY, 'tools/bannertest.py', '{game}'], True, False),
     ('credit', 'the credit line reads back out of the roll',
      [PY, 'tools/credittest.py', '{game}'], True, False, WHOLE),
     ('portrait', 'the boss portraits read back as written',

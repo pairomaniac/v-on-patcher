@@ -708,6 +708,24 @@ camera, and A is jump by default, so it is gated on `MODE` 4 with `SUBMODE`
 branch that has already established A is held, with `ebx` still holding the
 parameter block the camera slot comes out of.
 
+## pvrwide.asm
+
+Runs `ui.asm` on the PowerVR build, whose frame order differs: it waits for the
+card and draws the 2D layer before it sets the next frame's viewport and renders.
+
+- `frame` replaces every call to the viewport setup. It takes the layout from the
+  F5 split radios and refreshes `ui.asm`'s copies of the view centres and size.
+- `nodither` turns the card's dither off before each render.
+- `waitcard` and `clearsurface` clear the surface on a frame the card did not
+  render.
+- `drawn3d` answers the blob's 3D-behind question from the plane's hide bit.
+- `fill1` and `fill2` start the backdrop's fill at the canvas's left edge.
+- `insert2` takes the second viewport's origin off around the blob's record hook.
+
+`pvr_wide_sites` and `pvr_ui_install` in the script write the hooks and the
+pointers that need the blob's section. [HIRES.md](../docs/HIRES.md), *The PowerVR
+build*, has the reasons.
+
 ## overlay.asm
 
 Draws `HOLD TO SKIP` over the credits while the button is down.

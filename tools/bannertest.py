@@ -115,7 +115,7 @@ def main(gamedir):
     vp = load_patcher()
     if os.path.isfile(gamedir):
         gamedir = os.path.dirname(gamedir)
-    exe_src = os.path.join(gamedir, 'v_on.exe')
+    exe_src = vp.game_exe(gamedir) or os.path.join(gamedir, 'v_on.exe')
     build = build_of(vp, exe_src)
     if build is None:
         return 'not found, or not a build with tables: %s' % exe_src
@@ -137,7 +137,7 @@ def main(gamedir):
 
     work = tempfile.mkdtemp(prefix='vo-banner-')
     try:
-        exe = os.path.join(work, 'v_on.exe')
+        exe = os.path.join(work, os.path.basename(exe_src))
         art = os.path.join(work, art_name)
         with open(exe, 'wb') as fh:
             fh.write(exe_before)
@@ -181,7 +181,7 @@ def main(gamedir):
         with open(art, 'rb') as fh:
             art_back = fh.read()
         if exe_back != exe_before:
-            return 'FAILED - v_on.exe did not restore byte for byte'
+            return 'FAILED - %s did not restore byte for byte' % build.exe
         if art_back != art_before:
             return 'FAILED - %s did not restore byte for byte' % art_name
         print('restore: both files byte for byte')

@@ -8,9 +8,6 @@ extern FSFLAGS                  ; bit 0: Screen=Normal, bit 1: split layout,
 extern SPLITTYPE                ; the F5 Screen Split radio, Ver 0, Hor 1
 extern PLANEB                   ; byte holding the 2D plane's hide bit, 0x80
 extern PRE2D                    ; the first of the frame's 2D calls
-extern REGION1                  ; (layout, radio) cdecl: renderer A's region
-extern REGION2                  ; and B's, in a split game
-extern REGIONFULL               ; (Screen=Normal) cdecl: one view's region
 extern SCENE                    ; the SGL context
 extern SCENEFLAGS               ; its flags
 extern SURFBASE                 ; the locked surface
@@ -61,24 +58,6 @@ frame:
     mov     eax, [VIEWH]
     mov     [ecx+4], eax
     xor     eax, eax
-    ret
-
-; In place of each renderer's call to set its own region in a split game. A
-; frame ui.asm shows from one engine is one view, so it takes the whole frame.
-region1:
-    mov     eax, [uishow]
-    cmp     dword [eax], 0
-    jne     whole
-    jmp     REGION1
-region2:
-    mov     eax, [uishow]
-    cmp     dword [eax], 0
-    jne     whole
-    jmp     REGION2
-whole:
-    push    0
-    call    REGIONFULL
-    add     esp, 4
     ret
 
 ; In place of the pushes of the scene's context for its render. The
@@ -201,6 +180,5 @@ centres:    dd 0, 0, 0, 0
 rendered:   dd 0
 framefn:    dd 0
 uisize:     dd 0
-uishow:     dd 0
 insertfn:   dd 0
 drawn:      dd 0

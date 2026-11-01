@@ -685,27 +685,28 @@ whichever build the disc holds; only patching needs one from the table.
 
 ### The PowerVR version
 
-It is a different program, `vonpvr.exe`, drawn by a PowerVR PCX1 or PCX2
-card. Its disc is not verified by Redump: the one this build was made from
-is the only dump known, from the Internet Archive.
+This version is a separate program, `vonpvr.exe`, made for PowerVR PCX1 and
+PCX2 cards. It draws through `sgl.dll`, which came with the card's driver and
+is not on the disc; see [PowerVR renderer](#powervr-renderer-pvr-sgl-wrapper).
+Redump has not verified its disc. The only known dump is on the Internet
+Archive, and this build was made from it.
 
-It takes every patch but **Playable bosses**, whose row is greyed out. The
-ending credits skip, but HOLD TO SKIP is not drawn. A match over internet
-play has not been tried on it.
+It takes every patch except **Playable bosses**, whose row is greyed out. The
+ending credits can be skipped, but HOLD TO SKIP is not drawn. Internet play
+has not been tried on this version.
 
-**Native widescreen** works as it does on the other versions, at a smaller
-size. The card stops at 1024 pixels wide, so the game renders at 1024x576, not
-1920x1080. It runs on Proton without [cnc-ddraw](#windowing-and-scaling-cnc-ddraw);
-Windows has not been tried. If the game cannot set the mode, add cnc-ddraw. **Screen Split** on F5 offers **Ver** and **Hor**. There is only the one
-size, so F5 has no **Screen** row, and F4 stays the game's PVR Settings.
+**Native widescreen** renders at 1024x576 instead of 1920x1080, because the
+card stops at 1024 pixels wide. It runs on Proton without
+[cnc-ddraw](#windowing-and-scaling-cnc-ddraw). If the game cannot set the mode,
+add cnc-ddraw. Windows has not been tried.
 
-It draws through `sgl.dll`, which came with the card's driver and is not on
-the disc; see [PowerVR renderer](#powervr-renderer-pvr-sgl-wrapper).
+**Screen Split** on F5 offers **Ver** and **Hor**. F5 has no **Screen** row
+because there is only one size. F4 stays the game's PVR Settings.
 
-Its F5 page has no Texture option, and with no Texture value in `v_on.ini`
-the robots are drawn untextured, as black shapes. So installing it writes a
-`v_on.ini` with `Texture=7` and nothing else, and when the gamepad patch
-moves `v_on.ini` aside the new one gets the same value.
+The robots are drawn as black shapes unless `v_on.ini` has a Texture value, and
+this version's F5 page cannot set one. The installer therefore writes a
+`v_on.ini` that contains only `Texture=7`. The gamepad patch keeps the same
+value when it moves `v_on.ini` aside.
 
 ### What gets written
 

@@ -330,30 +330,6 @@ enough. Two dead ends on the way, both reverted: dropping polygons with
 a vertex under z = 4 took a piece of the hangar floor; saturating
 overflowed 16-bit vertex words changed nothing.
 
-### Stage objects: the see-through switch
-
-Each stage object has a solid model and a meshed twin (tables 0x64bab0
-and 0x64bcc0, 12 bytes an entry; 0x64bed0/0x64bfc0 on the eight-way
-stages), and the object drawer (0x5be1d0 renderer A, 0x422f20 B;
-0x5bed0d/0x5bf07c and 0x423a5d/0x423dcc are uncalled copies) picks one
-per object per frame: the object's authored direction code for the
-player's grid cell (2 bits per object in the stage's cell table at
-0x623d04; 3 bits, 45-degree steps, on the eight-way stages at
-0x623d10) is compared with the camera yaw (0x1ae35fa), and the solid
-model is used while the yaw is within 0x4800 (101 degrees; 0x3800
-eight-way) of the code's direction, the meshed one beyond - the object
-stands between the camera and the machine. 0x1ae35e4 set forces the
-mesh.
-
-The codes are 90-degree quantised, so an object beside the machine
-meshes once the yaw is 11 degrees past square to it: at 4:3 that is at
-the picture's edge, at 16:9 while it is whole on screen. Both windows
-get 22.5 degrees more (0x1000 on the add, twice that on its compare,
-six pairs a renderer); an object behind the machine is 135 degrees or
-more off and still meshes. Record flag 0x1000 is the flush's edge
-expansion (0x5d2102), not the mesh; the mesh is attribute bit 0x2000
-of the twin's own polygons.
-
 ### The hangar draw
 
 The machine-select hangar draw (0x59e4ea) is wrapped to widen the
@@ -888,17 +864,12 @@ The card cannot go wider than 1024. pvr-sgl-wrapper's frame is `PCXR_MAX_W`
 18 of the card's 32-pixel tiles, so the split views meet on tile lines. The 2D
 layer and HUD are at 1.2, nearest-neighbour; in split, 0.8 and 0.75.
 
-854x480 was tried and works: the 2D is pixel-exact at 1, but its width is not a
-whole number of tiles, so the card needed a buffer of its own copied to the surface
-each frame, and the split line fell inside a tile, which one view had to take.
-864x486 was tried too.
+854x480 would keep the 2D pixel-exact, but its width is not a whole number of
+tiles, and Proton's own DirectDraw refused it.
 
-The game asks for the mode with SetDisplayMode. cnc-ddraw accepts any size. On
-Proton's own DirectDraw 854x480 was refused, and the game stopped with its "Can not
-set display mode" message; 1024x576 runs there.
-The enumeration callback at `0x495c4a`
-still looks for 640x480, since cnc-ddraw may not list 1024x576, and
-SetDisplayMode is the judge.
+The game asks for the mode with SetDisplayMode. cnc-ddraw accepts any size, and
+1024x576 runs on Proton's own DirectDraw. The enumeration callback at `0x495c4a`
+still looks for 640x480, and SetDisplayMode is the judge.
 
 ### How this build's frame differs
 
@@ -923,9 +894,6 @@ order accounts for most of what is different here:
   each viewport drawn off centre and cropped, the HUD out of place and a wedge of
   the other view at the split line. `frame` saves the centres for `drawn3d` to
   put back before stub1, and writes `D_W` and `D_H` itself.
-- **The split switch no longer writes the width.** `0x5b5a1d` halves or doubles
-  the viewport width on the spot (`0x5b5a3a`, `0x5b5a89`). Retail's next viewport
-  setup overwrites that before the 2D layer sees it; here it would not.
 - **The backdrop's fill starts at the canvas's left edge** (`fill1`, `fill2`).
   It starts at the surface pointer, which is at the 640-wide picture. Retail
   draws the 3D over the rest. Here the left margin kept the last 3D frame, seen
@@ -937,8 +905,7 @@ order accounts for most of what is different here:
   P1's region and flushes (`0x496206`), then does the same for P2 (`0x496245`).
   The two calls at the frame's end (`0x498268`, `0x49827a`) only reset the shared
   list. The blob's flush wrappers, which keep the player not shown off the
-  screen, go on the first two. In a frame the blob shows from one engine, both
-  renderers take the whole frame's region (`region1`, `region2`).
+  screen, go on the first two.
 - **The select's frames are a software list.** When both 2D planes are showing,
   `0x41de60` skips the card's render altogether: the hangar there is a photo, and
   no polygon reaches the screen. The portrait frames are drawn by a rectangle list
@@ -971,8 +938,8 @@ order accounts for most of what is different here:
   `clearsurface`). The composite writes only pixels that differ from what it
   sampled, and away from a scale of 1 not every pixel is sampled. Where the card
   did not render, what the last screen left showed through in those: a ghost of
-  the title on the SEGA card, and at 864x486 most of the 2D garbled, as far as can
-  be told. The other builds' rasterizers redraw the frame every time.
+  the title on the SEGA card. The other builds' rasterizers redraw the frame
+  every time.
 - **Near-black.** A dark texel of value 4 is true black on retail, whose rasterizers
   do not dither. The card adds a dither offset first, which turned the star field
   into a checkerboard of `(8,4,8)` and `(0,4,0)`, and the moon card's true black
@@ -982,11 +949,6 @@ order accounts for most of what is different here:
   so a one-step seam remains. Dither is also on in a build without the patch.
 - **The scale is rounded up.** Truncated to 16.16, 480 canvas rows at 1.2 come to
   one short of the frame, and the last row of a 2D screen was never drawn.
-- **Glyph rows.** The 2D engines draw each tile on every row only when the
-  viewport is taller than a threshold (`0x419cda`, `0x438ffb`, stock 240), set
-  from the viewport even though the blob hands them a 640x480 canvas. It is one
-  below the top and bottom view's height. At or under it, the canvas gets every
-  other row, whatever the composite's scale: text and digits came out as bars.
 - **The second viewport's origin.** Stock adds `0x8a3950`/`0x8a3954` to a record
   before the insert, where retail has none because its second viewport is a
   surface pointer. `rescale` wants viewport-relative vertices, so `insert2` takes
