@@ -746,11 +746,12 @@ python3 v-on-patcher.py
 Everything the patcher does is also available without a window:
 
 ```bash
-python3 v-on-patcher.py --install CUE DIR  # the game, out of a disc image
-python3 v-on-patcher.py --rip SOURCE DIR   # soundtrack, from a cue sheet or drive
-python3 v-on-patcher.py --ddraw DIR        # fetch and install cnc-ddraw
-python3 v-on-patcher.py --netplay DIR      # install the UDP netplay DLL
-python3 v-on-patcher.py --selfcheck        # validate the patch tables
+python3 v-on-patcher.py --install IMAGE DIR  # the game, out of a .cue or .mds
+python3 v-on-patcher.py --rip SOURCE DIR     # soundtrack, from a .cue, .mds or drive
+python3 v-on-patcher.py --ddraw DIR          # fetch and install cnc-ddraw
+python3 v-on-patcher.py --sgl DIR            # fetch the PowerVR sgl.dll replacement
+python3 v-on-patcher.py --netplay DIR        # install the UDP netplay DLL
+python3 v-on-patcher.py --selfcheck          # validate the patch tables
 ```
 
 ## Known issues
