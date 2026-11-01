@@ -140,8 +140,9 @@ Then put the `.cue` in **Source**. On Linux a drive can also go straight in
 The install copies the game directory and the chosen manual, nothing else.
 No `v_on.ini` is written: the game makes its own on first run, and with
 **Better defaults** applied it is a good one. The PowerVR version is the
-exception; see [Builds](#builds). How the copy rules are read
-off the disc is in [NOTES.md](docs/NOTES.md#installing-from-a-disc-image).
+exception; see [The PowerVR version](#the-powervr-version). How the copy
+rules are read off the disc is in
+[NOTES.md](docs/NOTES.md#installing-from-a-disc-image).
 
 ## What the patches do
 
@@ -154,8 +155,8 @@ crashes when you lose a round, runs at a third of the frame rate, or loses
 the keyboard after ALT+TAB. **Extra** is down to taste; untick what you do
 not want. Every patch works with every other, on all four builds of
 `v_on.exe`, and with cnc-ddraw. The PowerVR version takes most of them;
-see [Builds](#builds). How each works inside the game is in
-[NOTES.md](docs/NOTES.md).
+see [The PowerVR version](#the-powervr-version). How each works inside the
+game is in [NOTES.md](docs/NOTES.md).
 
 ### Essential
 
@@ -681,18 +682,18 @@ A repack, a bad rip or a copy already modified is refused, with its size
 and MD5 shown beside a supported build's. Installing and ripping work
 whichever build the disc holds; only patching needs one from the table.
 
-**The PowerVR version** is a different program, `vonpvr.exe`, drawn by a
-PowerVR PCX1 or PCX2 card. Its disc is not verified by Redump: the one this
-build was made from is the only dump known, from the Internet Archive.
+### The PowerVR version
+
+It is a different program, `vonpvr.exe`, drawn by a PowerVR PCX1 or PCX2
+card. Its disc is not verified by Redump: the one this build was made from
+is the only dump known, from the Internet Archive.
 
 It takes every patch but **Native widescreen** and **Playable bosses**,
 whose rows are greyed out. The ending credits skip, but HOLD TO SKIP is not
 drawn. A match over internet play has not been tried on it.
 
-Without No disc required it checks for the disc: a drive Windows sees as a
-CD-ROM, with `V_ON\VONPVR.EXE` on it. It draws through `sgl.dll`, which came
-with the card's driver and is not on the disc; see
-[PowerVR renderer](#powervr-renderer-pvr-sgl-wrapper).
+It draws through `sgl.dll`, which came with the card's driver and is not on
+the disc; see [PowerVR renderer](#powervr-renderer-pvr-sgl-wrapper).
 
 Its F5 page has no Texture option, and with no Texture value in `v_on.ini`
 the robots are drawn untextured, as black shapes. So installing it writes a
