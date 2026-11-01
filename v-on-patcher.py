@@ -20942,6 +20942,11 @@ DDRAW_SETTINGS = (
                                     # button with ExitProcess, so the game
                                     # never gets WM_DESTROY and never writes
                                     # v_on.ini or BkUp.bin.
+    ('singlecpu', 'false'),         # cnc-ddraw pins the process to one core
+                                    # by default. The game starts no threads
+                                    # of its own, and the PowerVR build's
+                                    # sgl.dll replacement draws on every
+                                    # core: pinned, it runs in slow motion.
 )
 
 

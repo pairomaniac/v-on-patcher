@@ -602,9 +602,9 @@ its own DirectDraw and nothing changes.
 
 A fresh `ddraw.ini` is cnc-ddraw's own file with `fullscreen`, `windowed`,
 `maintas`, `noactivateapp`, `toggle_borderless`, `devmode` and
-`game_handles_close` set to `true`. That gives a borderless window at the
-right aspect ratio that does not trap the cursor. Change any of it with
-`cnc-ddraw config.exe`.
+`game_handles_close` set to `true`, and `singlecpu` set to `false`. That
+gives a borderless window at the right aspect ratio that does not trap the
+cursor. Change any of it with `cnc-ddraw config.exe`.
 
 `game_handles_close` is the one that is not about the picture: without it,
 closing the window loses your settings and records for that session. If you
@@ -614,6 +614,11 @@ already have a `ddraw.ini`, add the line by hand:
 [ddraw]
 game_handles_close=true
 ```
+
+`singlecpu=false` matters for the PowerVR version: with cnc-ddraw's default
+of `true` the game is held to one CPU core, and the `sgl.dll` replacement,
+which draws on all of them, runs it in slow motion. Set it in an existing
+`ddraw.ini` the same way.
 
 The intro movie does not go through DirectDraw, so upscaling leaves it small
 and in the corner. **Intro, loading and ending screens** under Extra fits it
