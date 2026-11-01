@@ -55,7 +55,8 @@ The window is split into numbered sections. Work through them in order:
 
 1. **INSTALL** - put your `.cue` sheet or `.mds` file in **Source**, choose a
    folder in **Install to**, and press **Install game**. Then press
-   **Rip soundtrack**, unless you plan to keep a disc in the drive. If the game is already
+   **Rip soundtrack**, unless you plan to keep a disc in the drive. If the game
+   is already
    installed, start at 2; the tracks are ripped beside whichever `v_on.exe`
    you pick there. See [Installing from a disc image](#installing-from-a-disc-image)
    and [Music](#music).
@@ -153,8 +154,8 @@ rules are read off the disc is in
 **Essential** is always applied: without it the game does not start,
 crashes when you lose a round, runs at a third of the frame rate, or loses
 the keyboard after ALT+TAB. **Extra** is down to taste; untick what you do
-not want. Every patch works with every other, on all four builds of
-`v_on.exe`, and with cnc-ddraw. The PowerVR version takes most of them;
+not want. Every patch works with every other, on all four
+[builds](#builds) of `v_on.exe`, and with cnc-ddraw. The PowerVR version takes most of them;
 see [The PowerVR version](#the-powervr-version). How each works inside the
 game is in [NOTES.md](docs/NOTES.md).
 
@@ -618,10 +619,9 @@ already have a `ddraw.ini`, add the line by hand:
 game_handles_close=true
 ```
 
-`singlecpu=false` matters for the PowerVR version: with cnc-ddraw's default
-of `true` the game is held to one CPU core, and the `sgl.dll` replacement,
-which draws on all of them, runs it in slow motion. Set it in an existing
-`ddraw.ini` the same way.
+The PowerVR version needs `singlecpu=false`. With cnc-ddraw's default of `true`,
+the `sgl.dll` replacement is held to one CPU core and the game runs in slow
+motion. Set it in an existing `ddraw.ini` the same way.
 
 The intro movie does not go through DirectDraw, so upscaling leaves it small
 and in the corner. **Intro, loading and ending screens** under Extra fits it
@@ -654,9 +654,8 @@ and puts its `sgl.dll` beside `vonpvr.exe`. The same button then reads
 python3 v-on-patcher.py --sgl path/to/game
 ```
 
-Wine has no `sgl.dll` of its own, so nothing needs setting in `winecfg`. It
-draws on every CPU core: with cnc-ddraw, keep `singlecpu=false` in
-`ddraw.ini`, or the game runs in slow motion. Tested with release 0.1 under
+Wine has no `sgl.dll` of its own, so nothing needs setting in `winecfg`. With
+cnc-ddraw, keep `singlecpu=false` in `ddraw.ini`. Tested with release 0.1 under
 Wine and Proton.
 
 ## Builds
@@ -689,24 +688,27 @@ This version is a separate program, `vonpvr.exe`, made for PowerVR PCX1 and
 PCX2 cards. It draws through `sgl.dll`, which came with the card's driver and
 is not on the disc; see [PowerVR renderer](#powervr-renderer-pvr-sgl-wrapper).
 Redump has not verified its disc. The only known dump is on the Internet
-Archive, and this build was made from it.
+Archive.
 
 It takes every patch except **Playable bosses**, whose row is greyed out. The
 ending credits can be skipped, but HOLD TO SKIP is not drawn. Internet play
-has not been tried on this version.
+has not been tried.
 
-**Native widescreen** renders at 1024x576 instead of 1920x1080, because the
-card stops at 1024 pixels wide. It runs on Proton without
-[cnc-ddraw](#windowing-and-scaling-cnc-ddraw). If the game cannot set the mode,
-add cnc-ddraw. Windows has not been tried.
+**Native widescreen** renders at 1024x576, because the card stops at 1024 pixels
+wide. Its row starts unticked, because 60 FPS at this size needs a fast CPU: a
+[PassMark single-thread rating](https://www.cpubenchmark.net/singleThread.html)
+of about 4,000 or higher, estimated from the few CPUs tried. Below that, set 30
+FPS on F5 or leave the patch off.
 
-**Screen Split** on F5 offers **Ver** and **Hor**. F5 has no **Screen** row
-because there is only one size. F4 stays the game's PVR Settings.
+It runs on Proton without [cnc-ddraw](#windowing-and-scaling-cnc-ddraw); if the
+game cannot set the mode, add cnc-ddraw. Windows has not been tried.
 
-The robots are drawn as black shapes unless `v_on.ini` has a Texture value, and
-this version's F5 page cannot set one. The installer therefore writes a
-`v_on.ini` that contains only `Texture=7`. The gamepad patch keeps the same
-value when it moves `v_on.ini` aside.
+**Screen Split** on F5 offers **Ver** and **Hor**. F5 has no **Screen** row, and
+F4 stays the game's PVR Settings.
+
+Without a Texture value in `v_on.ini` the robots are black, and this version's
+F5 page cannot set one. The installer writes a `v_on.ini` with only `Texture=7`,
+and the gamepad patch keeps that value when it moves the file aside.
 
 ### What gets written
 

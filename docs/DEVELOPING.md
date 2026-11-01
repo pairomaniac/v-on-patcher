@@ -255,17 +255,21 @@ committed:
    `credittest.py` on an install of it once its artwork MD5 is in `art`.
    Then someone has to play it.
 
-A build that takes only some patches names them in `patches=`, with a
-reason in `reasons=` for any whose row needs a better word than "not
-ported"; `unsupported()` is what the window, the apply and the selftest
-ask. Its site map then needs only those patches' sites: `buildsites.py`
-skips the rest, and what the map cannot place goes in `HAND` in
-`tools/votrans.py`, as for any build. Its annex is
-`ANNEX_BLOBS` plus any blob only it carries, like the PowerVR F5 template,
-so the layout matches; `build_blobs()` names the blobs it links, those its
-patches write. A blob a ported patch cannot use on it goes in `without=`,
-with its hook sites `None` in `HAND`. A `v_on.ini` value the build has no
-way to set in the game goes in `fixed_ini=`.
+A build that takes only some patches uses these `Build` arguments:
+
+- `patches=` names the patches it takes, and `reasons=` gives a better word than
+  "not ported" for a row. `unsupported()` is what the window, the apply and the
+  selftest ask.
+- `annex=` is `ANNEX_BLOBS` plus any blob only it carries, like the PowerVR F5
+  template, so the layout matches. `build_blobs()` names the blobs it links.
+- `without=` names a blob a ported patch cannot use on it, with its hook sites
+  `None` in `HAND`.
+- `fixed_ini=` holds a `v_on.ini` value the game gives no way to set.
+- `cautions=` holds a warning for a patch. The patch starts unticked, and ticking
+  it asks first.
+
+Its site map needs only those patches' sites. `buildsites.py` skips the rest, and
+what the map cannot place goes in `HAND` in `tools/votrans.py`, as for any build.
 
 Two things to check by eye before anyone runs it. A site placed by its
 bytes may be in the wrong function: ten bytes of `cmp [ebp-8], 0x1a; jge`

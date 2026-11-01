@@ -710,15 +710,15 @@ parameter block the camera slot comes out of.
 
 ## pvrwide.asm
 
-Runs `ui.asm` on the PowerVR build, whose frame order differs: it waits for the
-card and draws the 2D layer before it sets the next frame's viewport and renders.
+Runs `ui.asm` on the PowerVR build, which draws the 2D layer before it sets the
+next frame's viewport and renders.
 
 - `frame` replaces every call to the viewport setup. It takes the layout from the
   F5 split radios and refreshes `ui.asm`'s copies of the view centres and size.
 - `nodither` turns the card's dither off before each render.
-- `waitcard` turns the near-black step `(0,4,0)` to true black after a render.
-- `waitcard` and `clearsurface` clear the surface on a frame the card did not
-  render.
+- `waitcard` records whether the card rendered, and turns `(0,4,0)` to true black
+  if it did.
+- `clearsurface` clears the surface on a frame the card did not render.
 - `drawn3d` answers the blob's 3D-behind question from the plane's hide bit.
 - `fill1` and `fill2` start the backdrop's fill at the canvas's left edge.
 - `insert2` takes the second viewport's origin off around the blob's record hook.

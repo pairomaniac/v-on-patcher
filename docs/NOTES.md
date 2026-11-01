@@ -233,17 +233,21 @@ CD-ROM with `V_ON\VONPVR.EXE` in its root; it reads no label. It ships the
 same `dpctrl.dll` as the other builds, byte for byte, so the netplay DLL
 takes it with a row of its own in `fp_builds`.
 
-Tested under Wine 11 with pvr-sgl-wrapper 0.1, patched: a time-out loss
-reaches the continue screen instead of crashing; F5 shows 30 FPS and 60
-FPS, selected from `Motion`, and with no `v_on.ini` the new defaults; the
-game starts with no CD drive and opens the ripped tracks; F11 opens the
-Extras dialog, and does nothing during the intro; the credits skip. With
-the gamepad patch, the title and scoreboard banner reads Press A Button, F7
-lists the four profiles and its Next opens the bind page with the pad's
-inputs, and Keyboard (Simple) saved on F7 survives a restart. Played with
-a controller: the menus, a match, twin-stick, the soft reset, the deadzones
-and bindings kept across a restart. The two ALT+TAB fixes work, as played.
-An internet match has not been tried.
+Tested under Wine 11 with pvr-sgl-wrapper 0.1:
+
+- A time-out loss reaches the continue screen instead of crashing.
+- F5 shows 30 FPS and 60 FPS, selected from `Motion`, and with no `v_on.ini` the
+  new defaults.
+- The game starts with no CD drive and opens the ripped tracks.
+- F11 opens the Extras dialog, and does nothing during the intro.
+- The credits skip.
+- With the gamepad patch, the title and scoreboard banner reads Press A Button, F7
+  lists the four profiles and its Next opens the bind page with the pad's inputs,
+  and Keyboard (Simple) saved on F7 survives a restart.
+
+Played with a controller: the menus, a match, twin-stick, the soft reset, and the
+deadzones and bindings kept across a restart. The two ALT+TAB fixes work, as
+played. An internet match has not been tried.
 
 ### Why no v_on.ini
 
