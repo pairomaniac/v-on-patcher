@@ -8,8 +8,6 @@ extern FSFLAGS                  ; bit 0: Screen=Normal, bit 1: split layout,
 extern SPLITTYPE                ; the F5 Screen Split radio, Ver 0, Hor 1
 extern PLANEB                   ; byte holding the 2D plane's hide bit, 0x80
 extern PRE2D                    ; the first of the frame's 2D calls
-extern SCENE                    ; the SGL context
-extern SCENEFLAGS               ; its flags
 extern PIXFMT                   ; the surface's pixel format
 extern SURFBASE                 ; the locked surface
 extern SURFPITCH                ; and its pitch
@@ -27,7 +25,6 @@ extern VIEWH                    ; and height
 extern ORGX2                    ; the second viewport's origin, which this
 extern ORGY2                    ; build adds before a record reaches the hook
 
-DISABLEDITHERING equ 0x800000
 FORMAT565   equ 0x235               ; PIXFMT with a 565 surface
 FRAMEW      equ 1024
 FRAMEH      equ 576
@@ -63,15 +60,6 @@ frame:
     mov     [ecx+4], eax
     xor     eax, eax
     ret
-
-; In place of the pushes of the scene's context for its render. The
-; card's dither lifts near-black to a visible checkerboard, where the other builds'
-; rasterizers, which do not dither, truncate it to black.
-nodither:
-    or      dword [SCENEFLAGS], DISABLEDITHERING
-    pop     eax
-    push    SCENE
-    jmp     eax
 
 ; In place of the frame's wait for the card: whether it rendered this frame. If it
 ; did, the one step of green that 565 keeps of a near-black texel goes. The other

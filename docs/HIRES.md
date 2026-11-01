@@ -968,10 +968,10 @@ order accounts for most of what is different here:
   do not dither. The card adds a dither offset first, which turned the star field
   into a checkerboard of `(8,4,8)` and `(0,4,0)`, and the moon card's true black
   showed against it as a seam. The scene's background is 0 there; the value comes
-  from the texture. `nodither` sets `SGLTT_DISABLEDITHERING` before each render.
-  That leaves one step of 565's green, `0x0020`, and `waitcard` turns those pixels to
-  0 after each render, on a 565 surface. F12 under the wrapper saves the frame before
-  that pass. Dither is also on in a build without the patch.
+  from the texture. The patch leaves the dither on. `waitcard` turns `(0,4,0)`,
+  `0x0020` in 565, to 0 after each render, on a 565 surface. It does not touch the
+  `(8,4,8)` half. This combination has not been played. F12 under the wrapper saves
+  the frame before that pass.
 - **The scale is rounded up.** Truncated to 16.16, 480 canvas rows at 1.2 come to
   one short of the frame, and the last row of a 2D screen was never drawn.
 - **The second viewport's origin.** Stock adds `0x8a3950`/`0x8a3954` to a record
