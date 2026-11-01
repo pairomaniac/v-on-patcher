@@ -29,12 +29,24 @@ the keyboard. The extras:
   <img src="assets/readme/patcher-window.png" alt="The patcher window" height="700" />
 </p>
 
-| | |
-| --- | --- |
-| **Get started** | [Quick start](#quick-start) · [Virus warnings](#virus-warnings) · [Installing](#installing-from-a-disc-image) |
-| **Features** | [Patches](#what-the-patches-do) · [Widescreen](#native-widescreen) · [Bosses](#playable-bosses) · [Gamepad](#gamepad) · [Internet play](#internet-play) · [Music](#music) |
-| **If something is wrong** | [Known issues](#known-issues) · [Troubleshooting internet play](#troubleshooting-internet-play) |
-| **Reference** | [Builds](#builds) · [PowerVR version](#the-powervr-version) · [Windowing](#windowing-and-scaling-cnc-ddraw) · [What gets written](#what-gets-written) · [Python script](#running-the-python-script) |
+<table>
+  <tr>
+    <td><b>Get started</b></td>
+    <td><a href="#quick-start">Quick start</a> · <a href="#virus-warnings">Virus warnings</a> · <a href="#installing-from-a-disc-image">Installing</a></td>
+  </tr>
+  <tr>
+    <td><b>Features</b></td>
+    <td><a href="#what-the-patches-do">Patches</a> · <a href="#native-widescreen">Widescreen</a> · <a href="#playable-bosses">Bosses</a> · <a href="#gamepad">Gamepad</a> · <a href="#internet-play">Internet play</a> · <a href="#music">Music</a></td>
+  </tr>
+  <tr>
+    <td><b>If something is wrong</b></td>
+    <td><a href="#known-issues">Known issues</a> · <a href="#troubleshooting-internet-play">Troubleshooting internet play</a></td>
+  </tr>
+  <tr>
+    <td><b>Reference</b></td>
+    <td><a href="#builds">Builds</a> · <a href="#the-powervr-version">PowerVR version</a> · <a href="#windowing-and-scaling-cnc-ddraw">Windowing</a> · <a href="#what-gets-written">What gets written</a> · <a href="#running-the-python-script">Python script</a></td>
+  </tr>
+</table>
 
 # Get started
 
@@ -205,7 +217,7 @@ middle. Untick it for the original 640x480. The game still asks for exclusive
 fullscreen, so for a window add
 [cnc-ddraw](#windowing-and-scaling-cnc-ddraw).
 
-| | What changes |
+| Area | What changes |
 | --- | --- |
 | **Resolution** | **F4** switches between 1920x1080 and 1280x720, in place of the stock 640x480 / 320x240. The **Screen** row on F5 offers the same as **1080p** / **720p**. The choice is saved to `v_on.ini`. |
 | **HUD** | In a match the timer stays at the top left and the health bars are centred. The photo backdrops of the two-player machine select and waiting screens fill the screen. |
@@ -257,7 +269,7 @@ which survives restarts, re-patching and **Restore original**.
 
 ### What changes
 
-| | |
+| Where | What changes |
 | --- | --- |
 | **Machine select** | An unlocked boss stands in the row after Raiden with its own portrait, and the countdown gives 20 seconds more to reach it. The Quick VR Select and Machine Color Select work on them too. |
 | **In a match** | Each boss fights with its own weapons, and the HUD names Jaguarandi's as the Sega Ages release does. Z-Gradt fires its super laser with Dash and has a fourth gauge for it under the other three. It cannot jump, so the jump button turns it to face the opponent. The chase camera, the KO replay and the win shots stand further back to fit them. |
@@ -541,7 +553,7 @@ This version is a separate program, `vonpvr.exe`, made for PowerVR PCX1 and PCX2
 cards. Redump has not verified its disc. The only known dump is on the Internet
 Archive.
 
-| | `v_on.exe` versions | PowerVR version |
+| Feature | `v_on.exe` versions | PowerVR version |
 | --- | --- | --- |
 | **Renderer** | Built in | Needs the [add-on](#powervr-renderer-pvr-sgl-wrapper), unless you have the card |
 | **Native widescreen** | 1920x1080, on by default | 1024x576, off by default, needs a fast CPU |
