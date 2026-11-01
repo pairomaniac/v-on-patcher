@@ -698,7 +698,7 @@ Archive.
 
 It takes every patch except **Playable bosses**, whose row is greyed out. The
 ending credits can be skipped, but HOLD TO SKIP is not drawn. Internet play
-has not been tried.
+works, including against the other versions.
 
 **Native widescreen** renders at 1024x576, because the card stops at 1024 pixels
 wide. Its row starts unticked, because 60 FPS at this size needs a fast CPU: a

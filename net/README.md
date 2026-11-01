@@ -281,8 +281,7 @@ The two bytes it reads are at a different address in each build of the
 game, so the DLL finds the running one by its PE timestamp - `fp_builds` in
 `dpctrl.c`, one row per build. The bytes themselves read the same once
 patched, which is why builds can play each other at all. The PowerVR build
-has a row too; whether it stays in step with the others, or with itself
-over a connection, has not been tried.
+has a row too, and has played over a connection against the software builds.
 
 A DLL older than that table reads retail's addresses whatever it is running
 in, and refuses every peer but its own kind; if two installs will not

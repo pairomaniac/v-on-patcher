@@ -247,7 +247,7 @@ Tested under Wine 11 with pvr-sgl-wrapper 0.1:
 
 Played with a controller: the menus, a match, twin-stick, the soft reset, and the
 deadzones and bindings kept across a restart. The two ALT+TAB fixes work, as
-played. An internet match has not been tried.
+played. Internet play works, including against the software builds.
 
 ### Why no v_on.ini
 
