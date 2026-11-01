@@ -2494,6 +2494,23 @@ def _ui_words(w, hh):
     }
 
 
+def _ui_data(buf, rawptr, words, rowtab):
+    """The blob's data block: the size's words and the fixed ones."""
+    for off, val in words.items():
+        buf[rawptr + off:rawptr + off + len(val)] = val
+    struct.pack_into('<I', buf, rawptr + UI_ROWTAB, rowtab)
+    struct.pack_into('<I', buf, rawptr + UI_PINTH, HIRES_HUD_BAND)
+    splitc, botrow, botcol = HIRES_HUD_SPREAD or (0, 0, 0)
+    struct.pack_into('<I', buf, rawptr + UI_SPLITC, splitc)
+    struct.pack_into('<II', buf, rawptr + UI_BOTROW, botrow, botcol)
+    struct.pack_into('<i', buf, rawptr + UI_BARDX, 320 - HIRES_HUD_BARS)
+    struct.pack_into('<Q', buf, rawptr + UI_SPLITST,
+                     sum(1 << n for n in HIRES_SPLIT_STATES))
+    struct.pack_into('<I', buf, rawptr + UI_DEBUG, int(HIRES_DEBUG_STATES))
+    struct.pack_into('<ffff', buf, rawptr + UI_CONST, 65536.0, 640.0,
+                     480.0, 0.5)
+
+
 def _hires_check_size(width, height):
     if width % 32 or height % 8 or width > 2040:
         raise ValueError('width must be a multiple of 32 and at most 2040, '
@@ -2691,19 +2708,7 @@ def hires_install(buf, width, height, alt=HIRES_ALT):
         assert len(stub) <= 20 and o + 20 <= 0x1c00
         buf[rawptr + o:rawptr + o + len(stub)] = stub
     words, alt_words = _ui_words(w, hh), _ui_words(aw, ah)
-    for off, val in words.items():
-        buf[rawptr + off:rawptr + off + len(val)] = val
-    struct.pack_into('<I', buf, rawptr + UI_ROWTAB, sec_va + rowtab_off)
-    struct.pack_into('<I', buf, rawptr + UI_PINTH, HIRES_HUD_BAND)
-    splitc, botrow, botcol = HIRES_HUD_SPREAD or (0, 0, 0)
-    struct.pack_into('<I', buf, rawptr + UI_SPLITC, splitc)
-    struct.pack_into('<II', buf, rawptr + UI_BOTROW, botrow, botcol)
-    struct.pack_into('<i', buf, rawptr + UI_BARDX, 320 - HIRES_HUD_BARS)
-    struct.pack_into('<Q', buf, rawptr + UI_SPLITST,
-                     sum(1 << n for n in HIRES_SPLIT_STATES))
-    struct.pack_into('<I', buf, rawptr + UI_DEBUG, int(HIRES_DEBUG_STATES))
-    struct.pack_into('<ffff', buf, rawptr + UI_CONST, 65536.0, 640.0,
-                     480.0, 0.5)
+    _ui_data(buf, rawptr, words, sec_va + rowtab_off)
     sites = build_sites(w, hh, sec_va, sec_va + mask_off,
                         sec_va + rowtab_off,
                         pool=(sec_va + pool_off, HIRES_POLYS), A=A)
