@@ -5,9 +5,9 @@
 
 Scenes: sweep (1P select, rightward), bounce (1P select, Apharmd and
 Bal-Bas-Bow), round (1P match), split (2P round, a live layout switch, a loss),
-select2p (the 2P select with the 3D hangar). It captures at 60 FPS and reports
-frames that are nearly all black and frames with flat red or blue at the right
-edge. Screen changes show as black, and the flat-colour count only means something
+select2p (the 2P select with the 3D hangar), bbb and apharmd (1P, a lost round and
+the continue). It captures at 60 FPS and reports frames that are nearly all black
+and frames with flat red or blue at the right edge. Screen changes show as black, and the flat-colour count only means something
 on the machine select. One game runs at a time; the captures are in the rig's
 shots/ folder.
 
@@ -45,7 +45,7 @@ WRITES = ('vonpvr.exe', 'vonpvr.exe.bak', 'v_on.ini', 'ddraw.ini', 'bkup.bin',
 # Title's choice, read at 0x5aa6a3: forced to two players.
 FORCE_2P = 0x5aa6a3, bytes.fromhex('a1c0ccd201'), bytes.fromhex('b801000000')
 CURSOR, TURN, HOLD = 0x1df6738, 0x1df6700, 0x1df673c   # what a key press writes
-SPLIT_RADIO, KILL_2P = 0x6a34a4, 0x9c62
+SPLIT_RADIO, KILL_1P, KILL_2P = 0x6a34a4, 0x9c61, 0x9c62
 
 
 def moves(start, step, cursors):
@@ -57,6 +57,16 @@ BOOT = [(5, 'key', 'space'), (8, 'key', 'space')]
 ROUND = BOOT + [(10, 'key', 'space'), (13, 'key', 'space'), (16, 'key', 'space'),
                 (19, 'key', 'space')]
 ROUND2 = ROUND + [(14, 'key', 'KP_0')]
+
+
+def continue_scene(cursor):
+    """1P: pick the machine, lose the first round, sit out the continue."""
+    return ('0', False, 62, 10, 50, BOOT + moves(10.5, 1.5, [
+        (2, 1), (4, 1), (cursor, 1)]) + [
+            (16, 'key', 'space'), (19, 'key', 'space'), (22, 'key', 'space'),
+            (25, 'key', 'space'), (36, 'post', 0x111, KILL_1P)])
+
+
 SCENES = {
     # selmode, two players, seconds, capture start and length, events
     'sweep': ('0', False, 25, 9.5, 13.5, BOOT + moves(10.5, 1.5, [
@@ -68,6 +78,8 @@ SCENES = {
         (35, 'poke', SPLIT_RADIO, 0), (44, 'post', 0x111, KILL_2P)]),
     'select2p': ('0', True, 25, 9.5, 13.5, BOOT + moves(10.5, 1.3, [
         (i, 1) for i in range(1, 6)])),
+    'bbb': continue_scene(5),
+    'apharmd': continue_scene(6),
 }
 
 
@@ -240,7 +252,7 @@ def main():
                        capture_output=True)
         subprocess.run(['wineserver', '-w'], env=env, capture_output=True)
     subprocess.run(['timeout', str(seconds + 120), 'xvfb-run', '-n', str(DISPLAY),
-                    '-s', '-screen 0 1280x800x24', sys.executable,
+                    '-s', '-screen 0 1024x576x24', sys.executable,
                     os.path.abspath(__file__), '_play', folder, helper, out,
                     args.scene], env=env, check=False)
     with open(os.path.join(folder, 'pvrsgl.log'), errors='replace') as fh:

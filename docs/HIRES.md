@@ -870,9 +870,14 @@ the differences follow from that order.
   sampled, and away from a scale of 1 it does not sample every pixel. When the card
   did not render, the last screen showed through, a ghost of the title on the SEGA
   card. `waitcard` and `clearsurface` clear the surface first, on screens with no 3D
-  behind the 2D. The card also misses a frame each time the machine select's cursor
-  moves. Clearing there showed a black frame, and flipping showed an older picture, so
-  `clearsurface` sets the game's skip flag (`0x6ac400`) and the newest picture stays.
+  behind the 2D. With 3D behind, a clear would show black and a flip an older picture,
+  so `clearsurface` sets the game's skip flag (`0x6ac400`) and the newest picture stays.
+  Whether a frame rendered comes from `nodither`, which runs at each render's start.
+  `RENDERING` (`0x66ca84`) cannot say: other callers of the wait (`0x47272a`) clear
+  it first. On the continue screen with Apharmd or Bal-Bas-Bow, every frame then
+  read as not rendered and was held, which left the screen black. In the rig the skip
+  flag now fires only in a few frames around a screen change, and not on the machine
+  select's cursor moves.
 - **Near-black.** A dark texel of value 4 is true black on retail, whose rasterizers
   do not dither. The card's dither turned the star field into a checkerboard of
   `(8,4,8)` and `(0,4,0)`, and the moon card's true black showed against it as a

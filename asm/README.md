@@ -704,9 +704,9 @@ next frame's viewport and renders.
   F5 split radios and refreshes `ui.asm`'s copies of the view centres and size.
 - `region1` and `region2` give a renderer the whole frame when `ui.asm` shows one
   engine.
-- `nodither` turns the card's dither off before each render.
-- `waitcard` records whether the card rendered, and turns `(0,4,0)` to true black
-  if it did.
+- `nodither` turns the card's dither off before each render, and notes the render.
+- `waitcard` records whether a render started since the last wait, which `nodither`
+  notes, and turns `(0,4,0)` to true black if one did.
 - `clearsurface`, on a frame the card did not render, clears the surface on a 2D
   screen, and with 3D behind sets the game's skip flag so the newest picture stays.
 - `drawn3d` answers the blob's 3D-behind question from the hide bit of the plane of

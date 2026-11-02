@@ -18,7 +18,6 @@ extern REGION2                  ; and B's, in a split game
 extern REGIONFULL               ; (Screen=Normal) cdecl: one view's region
 extern SURFBASE                 ; the locked surface
 extern SURFPITCH                ; and its pitch
-extern RENDERING                ; nonzero while a render is owed
 extern WAITRENDER               ; waits for it
 extern CENTREAX                 ; each renderer's view centre
 extern CENTREAY
@@ -92,17 +91,20 @@ whole:
 ; rasterizers, which do not dither, truncate it to black.
 nodither:
     or      dword [SCENEFLAGS], DISABLEDITHERING
+    mov     dword [kicked], 1
     pop     eax
     push    SCENE
     jmp     eax
 
-; In place of the frame's wait for the card: whether it rendered this frame. If it
-; did, the one step of green that 565 keeps of a near-black texel goes. The other
+; In place of the frame's wait for the card: whether it rendered this frame. The
+; render's own flag cannot say, since other callers of the wait clear it first. If
+; it did, the one step of green that 565 keeps of a near-black texel goes. The other
 ; builds' rasterizers bring those to true black, and against it the step shows as
 ; a seam, around the moon card on the star field in the ending.
 waitcard:
-    mov     eax, [RENDERING]
+    mov     eax, [kicked]
     mov     [rendered], eax
+    mov     dword [kicked], 0
     call    WAITRENDER
     cmp     dword [rendered], 0
     je      .out
@@ -137,7 +139,7 @@ waitcard:
 ; alone whatever matches what it sampled, and away from a scale of 1 it does not
 ; sample every pixel, so what the last screen left on the surface would show
 ; through in those. The other builds' rasterizers redraw the frame every time.
-; With 3D behind, as when the machine select's cursor moves, a clear would show
+; With 3D behind, as around a screen change, a clear would show
 ; black and a flip an older picture, so the flip is skipped.
 clearsurface:
     cmp     dword [rendered], 0
@@ -254,6 +256,7 @@ origin_off:
 
 centres:    dd 0, 0, 0, 0
 rendered:   dd 0
+kicked:     dd 0
 framefn:    dd 0
 uisize:     dd 0
 uishow:     dd 0
