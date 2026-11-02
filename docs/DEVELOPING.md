@@ -113,8 +113,8 @@ on the command line come first, then `VO_GAME` from the environment, then
 the file. A folder or any file inside one will do. The checks that need the game run once per folder
 given and are named by build - `offsets/jpre` - because a table can only be
 wrong on the build it is for; before tagging, give all five. On the
-PowerVR build `credit` and `portrait` do not run, since it does not take
-those patches, and `uiemu` runs on the retail exe only.
+PowerVR build `credit` does not run, since it does not take that patch, and `portrait`
+does not, since it reads `v_on.exe`. `uiemu` runs on the retail exe only.
 
 | Name | What it proves |
 | --- | --- |

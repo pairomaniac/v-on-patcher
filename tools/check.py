@@ -37,7 +37,8 @@ ROOT = os.path.dirname(HERE)
 PY = sys.executable or 'python3'
 CONF = os.path.expanduser('~/.vo-test')
 BUILDS = ('RETAIL', 'OEM', 'JP', 'JPRE', 'PVR')
-# The builds with the patches the credit and portrait checks test.
+# The builds the credit and portrait checks run on: PowerVR has no credit patch, and
+# the portrait check reads v_on.exe.
 WHOLE = ('retail', 'oem', 'jp', 'jpre')
 
 

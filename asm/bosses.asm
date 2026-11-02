@@ -130,7 +130,9 @@ extern BS_SELFLAME              ; a machine's booster flames, per frame
 extern BS_SELSKY                ; the hangar's outside shown,
 extern BS_SELIN                 ; and its inside
 extern BS_SELTICKS
-extern BS_SLOTS                 ; files loaded: where, how much
+extern BS_SLOTJ                 ; a boss's file as loaded, and Raiden's
+extern BS_SLOTZ
+extern BS_SLOTR
 extern BS_LOADFILE              ; load a machine's (id, -1, 0, 1), as the select
 extern BS_MALLOC                ; the C library's, and its free
 extern BS_FREE
@@ -709,7 +711,7 @@ SEL_NECKX   equ -3775 + 3778        ; the head's turn from the chest's
 selpart_a:
         cmp     byte [seljagdraw], 0
         je      BS_MESHA
-        cmp     dword [ebp - 0x18], SEL_CHEST
+        cmp     dword [ebp + SEL_BONE], SEL_CHEST
         jne     BS_MESHA
 %rep 4
         push    dword [esp + 16]
@@ -870,7 +872,7 @@ selzdraw:
         jne     .done
         cmp     eax, SEL_LAUNCH
         jle     .done
-        cmp     dword [BS_SLOTS + SEL_RAIFILE * 4], 0 ; the flames are
+        cmp     dword [BS_SLOTR], 0 ; the flames are
         jne     .lit                ; meshes of Raiden's fight model, which
         push    1                   ; the select loads as it draws Raiden:
         push    0                   ; not yet on a continue, the cursor
@@ -1939,20 +1941,23 @@ sel_slotsin:
 %rep 2
   %if k
     %define SLOT SEL_ZFILE
+    %define SLOTP BS_SLOTZ
   %else
     %define SLOT SEL_JAGFILE
+    %define SLOTP BS_SLOTJ
   %endif
         cmp     byte [sel_rbin + k], 0
         jne     .k%[k]
         mov     eax, [sel_rbbuf + SLOT * 4]
         test    eax, eax
         jz      .k%[k]
-        push    dword [BS_SLOTS + SLOT * 4]
+        push    dword [SLOTP]
         pop     dword [sel_rbsave + k * 4]
-        mov     [BS_SLOTS + SLOT * 4], eax
+        mov     [SLOTP], eax
         mov     byte [sel_rbin + k], 1
 .k%[k]:
   %undef SLOT
+  %undef SLOTP
 %assign k k + 1
 %endrep
         popad
@@ -1963,12 +1968,12 @@ sel_slotsout:
         je      .z
         mov     byte [sel_rbin], 0
         push    dword [sel_rbsave]
-        pop     dword [BS_SLOTS + SEL_JAGFILE * 4]
+        pop     dword [BS_SLOTJ]
 .z:     cmp     byte [sel_rbin + 1], 0
         je      .out
         mov     byte [sel_rbin + 1], 0
         push    dword [sel_rbsave + 4]
-        pop     dword [BS_SLOTS + SEL_ZFILE * 4]
+        pop     dword [BS_SLOTZ]
 .out:   ret
 
 ; In place of the calls to the select's text for the cursor (cdecl, the
@@ -4647,7 +4652,7 @@ zring_a:
 ; one bucket. Sorted to the far end, the segments vanish behind the
 ; body, and nothing else changes (seen). The eight use the group too, so
 ; only Jaguarandi's are moved: a polygon within its file, in the slot
-; the loader gives it (BS_SLOTS, its size in BS_RBNAMES), where the
+; the loader gives it (BS_SLOTJ, its size in BS_RBNAMES), where the
 ; select puts its own copy as it draws (sel_slotsin). In place of the
 ; key's store in the mesh draw's four-sided path, wherever a mesh is
 ; drawn: a luminous polygon of Jaguarandi's has its key one bucket
@@ -4658,7 +4663,7 @@ KEY_BUCKET  equ 0x8000
 jlum_a:
         push    edx
         mov     edx, [ebp + 0x10]
-        sub     edx, [BS_SLOTS + SEL_JAGFILE * 4] ; its place in the file,
+        sub     edx, [BS_SLOTJ] ; its place in the file,
         cmp     edx, [BS_RBNAMES + SEL_JAGFILE * 8 + 4] ; if in it (no file:
         jae     .store              ; nothing is)
         mov     edx, [ebp + 0x10]

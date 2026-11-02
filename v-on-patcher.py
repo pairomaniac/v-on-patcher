@@ -3200,6 +3200,7 @@ RETAIL = Build('English retail', 'retail', ORIGINAL_MD5, EXE_SIZE,
     'F_X': -0xc,                    # the movie placer's X and Y
     'F_Y': -0x10,
     'DR_FLAG': -0xc,                # playable bosses: the round's anim deref
+    'SEL_BONE': -0x18,
     'CAM_PTR': -0x4,                # the live chase camera
     'SCAN_SLOT': -0x1c,             # the ending camera's slot found
     'PAL_CPU': -0xc,                # palette events: the CPU's on 5/7
@@ -3444,7 +3445,9 @@ RETAIL = Build('English retail', 'retail', ORIGINAL_MD5, EXE_SIZE,
     'BS_MTSELMEM': 0x0122ac70,      # MT_sel.bin read in, and its segment
     'BS_SEGA': 0x006a4f60,
     'BS_TXTX': 0x00bf7758,          # the text cursor's column
-    'BS_SLOTS': 0x006a0680,        # loaded files: where, and how much
+    'BS_SLOTJ': 0x006a0694,        # loaded files: where, and how much
+    'BS_SLOTZ': 0x006a06a4,
+    'BS_SLOTR': 0x006a069c,
     'BS_LOADFILE': 0x005114e9,     # load one into the pool, by slot
     'BS_RBNAMES': 0x006a05a0,      # the fight models' files
     'BS_RBDIR': 0x02b05d50,
@@ -3719,6 +3722,7 @@ JPRE = Build('Japanese rerelease', 'jpre', JPRE_MD5, JPRE_SIZE, 0x345107fa,
     'MCISEND': 0x0365864c,         # mciSendCommandA
     # Playable bosses: retail's captions apply.
     'DR_FLAG': -0x4,
+    'SEL_BONE': -0x18,
     'CAM_PTR': -0x8,
     'SCAN_SLOT': -0x18,
     'PAL_CPU': -0x4,
@@ -3838,7 +3842,9 @@ JPRE = Build('Japanese rerelease', 'jpre', JPRE_MD5, JPRE_SIZE, 0x345107fa,
     'BS_MTSELMEM': 0x00b53ed0,
     'BS_SEGA': 0x006a0cc0,
     'BS_TXTX': 0x00bf23ac,
-    'BS_SLOTS': 0x0069c3e0,
+    'BS_SLOTJ': 0x0069c3f4,
+    'BS_SLOTZ': 0x0069c404,
+    'BS_SLOTR': 0x0069c3fc,
     'BS_LOADFILE': 0x0050dbbb,
     'BS_RBNAMES': 0x0069c300,
     'BS_RBDIR': 0x02772b80,
@@ -3981,6 +3987,7 @@ OEM = Build('USA OEM', 'oem', OEM_MD5, OEM_SIZE, 0x3317246a, sections=(
     'F_X': -0xc,
     'F_Y': -0x10,
     'DR_FLAG': -0xc,
+    'SEL_BONE': -0x18,
     'CAM_PTR': -0x4,
     'SCAN_SLOT': -0x1c,
     'PAL_CPU': -0xc,
@@ -4223,7 +4230,9 @@ OEM = Build('USA OEM', 'oem', OEM_MD5, OEM_SIZE, 0x3317246a, sections=(
     'BS_MTSELMEM': 0x0122ac08,
     'BS_SEGA': 0x006a4ef8,
     'BS_TXTX': 0x00bf7718,
-    'BS_SLOTS': 0x006a0618,
+    'BS_SLOTJ': 0x006a062c,
+    'BS_SLOTZ': 0x006a063c,
+    'BS_SLOTR': 0x006a0634,
     'BS_LOADFILE': 0x00511059,
     'BS_RBNAMES': 0x006a0538,
     'BS_RBDIR': 0x02b05ce0,
@@ -4490,6 +4499,7 @@ JP = Build('Japanese original', 'jp', JP_MD5, JP_SIZE,
     'MCISEND': 0x0365c67c,   # iat mciSendCommandA
     # Playable bosses: retail's captions apply.
     'DR_FLAG': -0xc,
+    'SEL_BONE': -0x18,
     'CAM_PTR': -0x4,
     'SCAN_SLOT': -0x1c,
     'PAL_CPU': -0xc,
@@ -4609,7 +4619,9 @@ JP = Build('Japanese original', 'jp', JP_MD5, JP_SIZE,
     'BS_MTSELMEM': 0x01229798,
     'BS_SEGA': 0x006a3c58,
     'BS_TXTX': 0x00bf62a8,
-    'BS_SLOTS': 0x0069f378,
+    'BS_SLOTJ': 0x0069f38c,
+    'BS_SLOTZ': 0x0069f39c,
+    'BS_SLOTR': 0x0069f394,
     'BS_LOADFILE': 0x00510a49,
     'BS_RBNAMES': 0x0069f298,
     'BS_RBDIR': 0x02b04870,
@@ -4933,7 +4945,6 @@ PVR = Build('PowerVR', 'pvr', PVR_MD5, PVR_SIZE, 0x33b3b0ae, sections=(
     'WIDENODITHER': ('PVRWIDE', 'nodither'),
     'SURFBASE': 0x02009c8c,         # the locked surface
     'SURFPITCH': 0x02009c7c,        # and its pitch
-    'RENDERING': 0x0066ca84,        # nonzero while a render is owed
     'WAITRENDER': 0x0047272a,       # waits for it
     'WIDEWAIT': ('PVRWIDE', 'waitcard'),
     'CENTREAX': 0x0084cf20,         # each renderer's view centre
@@ -4952,6 +4963,7 @@ PVR = Build('PowerVR', 'pvr', PVR_MD5, PVR_SIZE, 0x33b3b0ae, sections=(
     # Playable bosses (asm/bosses.asm). Placed through tools' maps of retail and
     # the rerelease; the frames and the AI state are laid out as the rerelease's.
     'DR_FLAG': -0x4,
+    'SEL_BONE': -0x10,
     'CAM_PTR': -0x8,
     'SCAN_SLOT': -0x18,
     'PAL_CPU': -0x4,
@@ -5008,7 +5020,7 @@ PVR = Build('PowerVR', 'pvr', PVR_MD5, PVR_SIZE, 0x33b3b0ae, sections=(
     'BS_SELCUR': 0x01df6738,
     'BS_SELINVA': 0x006422b8,
     'BS_COLSEL': 0x0084c5ec,
-    'BS_SELMDLA': 0x005c9ba3,
+    'BS_SELMDLA': ('PVRBOSS', 'selmdl'),
     'BS_SELINFOA': 0x005c99c0,
     'BS_FRAMEA': 0x0200a248,
     'BS_SELMODE': 0x006ac3e0,
@@ -5028,11 +5040,11 @@ PVR = Build('PowerVR', 'pvr', PVR_MD5, PVR_SIZE, 0x33b3b0ae, sections=(
     'BS_SELROWS': 0x00642098,
     'BS_SELSWAP': 0x00642788,
     'BS_SELSPEC': 0x006427c8,
-    'BS_SELLCAM': 0x01df6734,
+    'BS_SELLCAM': 0x006428a8,
     'BS_SELAHEAD': 0x00642a38,
     'BS_MFRAMEA': 0x01df5106,
     'BS_SELPADS': 0x01df58f5,
-    'BS_SELFLAME': 0x00642848,
+    'BS_SELFLAME': ('PVRBOSS', 'flames'),
     'BS_SELSKY': 0x0084c604,
     'BS_SELIN': 0x0084c5fc,
     'BS_SELTICKS': 0x01d2cf88,
@@ -5070,16 +5082,33 @@ PVR = Build('PowerVR', 'pvr', PVR_MD5, PVR_SIZE, 0x33b3b0ae, sections=(
     'BS_MTSELMEM': 0x02480000,
     'BS_SEGA': 0x00829e48,
     'BS_TXTX': 0x00b7c8d0,
-    'BS_SLOTS': 0x00825548,
-    'BS_LOADFILE': 0x00580865,
-    'BS_RBNAMES': 0x00829ed0,
+    'BS_SLOTJ': 0x00825538,
+    'BS_SLOTZ': 0x0082553c,
+    'BS_SLOTR': 0x00825524,
+    'BS_LOADFILE': 0x00472bd7,     # nothing: Raiden's file is kept loaded (asm/pvrboss.asm)
+    'BS_RBNAMES': ('PVRBOSS', 'rbnames'),
+    'PVR_SELDRAW': 0x005c9ba9,
+    'PVR_TEXLOAD': 0x0057d7c0,
+    'PVR_TEXFREE': 0x0057e02e,
+    'PVR_LOADER': 0x0057f048,
+    'PVR_FREEALL': 0x0057e2a3,
+    'BOSSID': ('BOSSES', 'boss'),
+    'PVRFREEALL': ('PVRBOSS', 'freeall'),
+    'PVROWNSIDE': ('PVRBOSS', 'ownside'),
+    'RBTRY': ('BOSSES', 'sel_rbtry'),
+    'RBBUF': ('BOSSES', 'sel_rbbuf'),
+    'PVRLOADER': ('PVRBOSS', 'loader'),
+    'CURSOR': 0x01df6738,
     'BS_RBDIR': 0x01df4e80,
     'BS_PATHFMT': 0x006548c0,
     'BS_RBMODE': 0x0077e710,
     'BS_SPRINTF': 0x005e6350,
     'BS_FOPEN': 0x005e5e50,
     'BS_FREAD': 0x005e6490,
-    'BS_FCLOSE': 0x005e5ba0,
+    'BS_FCLOSE': ('PVRBOSS', 'fclose'),
+    'PVR_FCLOSE': 0x005e5ba0,
+    'RBLOAD': ('BOSSES', 'sel_loadrb'),
+    'RBLOADEND': ('BOSSES', 'sel_slotsin'),
     'BS_PALLOADA': 0x0057549b,
     'BS_PALRAMA': 0x01e159a0,
     'BS_SELOBJ': 0x01df5ad0,
@@ -5164,8 +5193,6 @@ PVR = Build('PowerVR', 'pvr', PVR_MD5, PVR_SIZE, 0x33b3b0ae, sections=(
     'BS_AITAB3': 0x00000020,
     'BS_AITAB4': 0x00000018,
     'BS_HDOFF': 0x0000176d,
-    'PVR_SELDRAWEND': 0x005cab5d,  # the select's draw of a machine: its exit
-    'SELSKIP': ('PVRBOSS', 'selskip'),
 }, art=RETAIL.art,
     sites=None, annex=ANNEX_BLOBS + ('F5_PVR', 'PVRWIDE', 'PVRBOSS'),
     own=('BOSSES',),
@@ -6853,20 +6880,20 @@ PVR.sites = {
     0x001a09c5: (0x001cdabb, 'ff0c853867df01'),
     0x001a17ec: (0x001ce91c, '8b0485b8226400'),
     0x0019f4cc: (0x001cc5c2, '833decc5840000'),
-    0x0019bf93: None,  # bosses: the select's draw, not this build's yet
-    0x0019bff7: None,  # bosses: the select's draw, not this build's yet
-    0x0019cd94: None,  # bosses: the select's draw, not this build's yet
-    0x0019c2e7: None,  # bosses: the select's draw, not this build's yet
-    0x0019c850: None,  # bosses: the select's draw, not this build's yet
-    0x0019c973: None,  # bosses: the select's draw, not this build's yet
-    0x0019caaa: None,  # bosses: the select's draw, not this build's yet
-    0x0019cbf3: None,  # bosses: the select's draw, not this build's yet
-    0x0019c6ab: None,  # bosses: the select's draw, not this build's yet
+    0x0019bf93: (0x001c8fa3, '558bec83ec64'),
+    0x0019bff7: (0x001c8fc2, '98206400'),
+    0x0019cd94: (0x001c9f09, 'e82894f3ff'),
+    0x0019c2e7: (0x001c931d, '88276400'),
+    0x0019c850: (0x001c98d0, '88276400'),
+    0x0019c973: (0x001c9a2f, '88276400'),
+    0x0019caaa: (0x001c9ba2, '88276400'),
+    0x0019cbf3: (0x001c9d24, '88276400'),
+    0x0019c6ab: (0x001c971e, 'c8276400'),
     0x0019fc26: (0x001ccd1c, '83e007'),
     0x0019fc3d: (0x001ccd33, 'b0286400'),
-    0x0019fc64: (0x001ccd5a, '2467df01'),
-    0x0019fc97: (0x001ccd8d, '1a67df01'),
-    0x0019fccb: (0x001ccdc1, '3467df01'),
+    0x0019fc64: (0x001ccd48, 'ac286400'),
+    0x0019fc97: (0x001ccd7a, 'b0286400'),
+    0x0019fccb: (0x001ccdaf, 'a8286400'),
     0x0019cfeb: (0x001ca160, 'a190b60002'),
     0x001a18a5: (0x001ce9d5, '8b04853867df01'),
     0x0019d80b: (0x001ca969, 'dc05382a6400'),
@@ -6999,7 +7026,7 @@ PVR.sites = {
     0x00106c39: (0x00050e51, 'b980010000'),
     0x001072a8: (0x00051488, 'b980010000'),
     0x001029ed: (0x0004d11d, 'b980010000'),
-    0x001d4ebb: None,  # bosses: the select's draw, not this build's yet
+    0x001d4ebb: (0x001d9005, 'a3e0358a00'),
     0x0015c93e: (0x00077a22, '6824aea000'),
     0x0015cb77: (0x00077c3f, '6824aea000'),
     0x0015cdb0: (0x00077e5c, '6824aea000'),
@@ -7790,7 +7817,7 @@ BLOBS = {
         'ffff760cff7608ff7604e8fcffffff83c40cff7610e8fcffffff83c404e8fcff'
         'ffff8b066a00ff7008ff7004ff30e8fcffffff83c410e8fcffffff83c614eba5'
         'e8fcffffff833d7c3b0000090f85f8000000a19c030000833da8030000020f85'
-        'e60000003db00000000f8edb000000833d1c0000000075106a016a006aff6a03'
+        'e60000003db00000000f8edb000000833d000000000075106a016a006aff6a03'
         'e8fcffffff83c41031dbe8fcffffff6a00ff35703c00006a00e8fcffffff83c4'
         '0c53e8fcffffff83c404a19c0300002db000000083f8147605b814000000ff35'
         '943b000050db0424da357c3c0000d91c24ff35943b0000e8fcffffff83c40cff'
@@ -7881,10 +7908,10 @@ BLOBS = {
         '000000006824340200e8fcffffff83c40885c0742e89c3536a01ff34ed040000'
         '0056e8fcffffff83c4105053e8fcffffff83c4045883f80175098934ad283502'
         '00eb0956e8fcffffff83c40461c360803d90410000007521a13c35020085c074'
-        '18ff35140000008f0592410000a314000000c6059041000001803d9141000000'
-        '7521a14c35020085c07418ff35240000008f0596410000a324000000c6059141'
-        '00000161c3803d90410000007413c6059041000000ff35924100008f05140000'
-        '00803d91410000007413c6059141000000ff35964100008f0524000000c38b44'
+        '18ff35000000008f0592410000a300000000c6059041000001803d9141000000'
+        '7521a14c35020085c07418ff35000000008f0596410000a300000000c6059141'
+        '00000161c3803d90410000007413c6059041000000ff35924100008f05000000'
+        '00803d91410000007413c6059141000000ff35964100008f0500000000c38b44'
         '240483f8087d1e85c00f8cfcffffff56e85d010000ba9a410000e8750100005e'
         'e9fcffffffe8380f0000720dc7442404ffffffffe9fcffffff53568d58f86bdb'
         '6881c3b0400000e82601000089dae8410100006a106a07e8fcffffff83c4086a'
@@ -8157,7 +8184,7 @@ BLOBS = {
         'b97a000000f3a58b82d0030000a3b64100008b82d4030000a3143b00008b82d8'
         '030000a3103b000061c389d7be00000000b900000000f3a58dbae8010000be44'
         '420200b97a000000f3a5a1b64100008982d0030000a1143b00008982d4030000'
-        'a1103b00008982d803000061c3528b55102b15140000003b152c00000073168b'
+        'a1103b00008982d803000061c3528b55102b15000000003b152c00000073168b'
         '55108b52fcc1ea1283e21f83fa0075052d008000005aa300000000c3837dfc00'
         '0f8406010000833d7c3b0000090f85f9000000817d08000000000f85ec000000'
         'e8ec000000d80d75370000d91d5cba0200e89e010000e8fcffffffe8fcffffff'
@@ -16597,6 +16624,7 @@ BLOBS = {
         (0x4c1, 'abs', '.', 15332),
         (0x4cd, 'abs', '.', 16480),
         (0x4d4, 'rel', 'BS_MESHA', -4),
+        (0x4da, 'abs8', 'SEL_BONE', 0),
         (0x4de, 'rel', 'BS_MESHA', -4),
         (0x4f3, 'rel', 'BS_MESHA', -4),
         (0x4fb, 'rel', 'BS_MPUSHA', -4),
@@ -16652,7 +16680,7 @@ BLOBS = {
         (0x6e7, 'abs', '.', 15228),
         (0x6f3, 'abs', 'BS_SELOBJ', 924),
         (0x6f9, 'abs', 'BS_SELOBJ', 936),
-        (0x711, 'abs', 'BS_SLOTS', 28),
+        (0x711, 'abs', 'BS_SLOTR', 0),
         (0x721, 'rel', 'BS_LOADFILE', -4),
         (0x72b, 'rel', 'BS_MPUSHA', -4),
         (0x733, 'abs', '.', 15472),
@@ -16886,24 +16914,24 @@ BLOBS = {
         (0x1245, 'rel', 'BS_FREE', -4),
         (0x1251, 'abs', '.', 16784),
         (0x1259, 'abs', '.', 144700),
-        (0x1263, 'abs', 'BS_SLOTS', 20),
+        (0x1263, 'abs', 'BS_SLOTJ', 0),
         (0x1269, 'abs', '.', 16786),
-        (0x126e, 'abs', 'BS_SLOTS', 20),
+        (0x126e, 'abs', 'BS_SLOTJ', 0),
         (0x1274, 'abs', '.', 16784),
         (0x127b, 'abs', '.', 16785),
         (0x1283, 'abs', '.', 144716),
-        (0x128d, 'abs', 'BS_SLOTS', 36),
+        (0x128d, 'abs', 'BS_SLOTZ', 0),
         (0x1293, 'abs', '.', 16790),
-        (0x1298, 'abs', 'BS_SLOTS', 36),
+        (0x1298, 'abs', 'BS_SLOTZ', 0),
         (0x129e, 'abs', '.', 16785),
         (0x12a7, 'abs', '.', 16784),
         (0x12b0, 'abs', '.', 16784),
         (0x12b7, 'abs', '.', 16786),
-        (0x12bd, 'abs', 'BS_SLOTS', 20),
+        (0x12bd, 'abs', 'BS_SLOTJ', 0),
         (0x12c3, 'abs', '.', 16785),
         (0x12cc, 'abs', '.', 16785),
         (0x12d3, 'abs', '.', 16790),
-        (0x12d9, 'abs', 'BS_SLOTS', 36),
+        (0x12d9, 'abs', 'BS_SLOTZ', 0),
         (0x12eb, 'rel', 'BS_SELINFOA', -4),
         (0x12f6, 'abs', '.', 16794),
         (0x1301, 'rel', 'BS_SELINFOA', -4),
@@ -17760,7 +17788,7 @@ BLOBS = {
         (0x34cb, 'abs', '.', 16822),
         (0x34d6, 'abs', '.', 15124),
         (0x34e1, 'abs', '.', 15120),
-        (0x34f3, 'abs', 'BS_SLOTS', 20),
+        (0x34f3, 'abs', 'BS_SLOTJ', 0),
         (0x34f9, 'abs', 'BS_RBNAMES', 44),
         (0x3517, 'abs', 'BS_KEYA', 0),
         (0x3528, 'abs', '.', 15228),
@@ -18385,12 +18413,62 @@ BLOBS = {
         'drawn': 0x25f,
     }),
     'PVRBOSS': (bytes.fromhex(
-        '837d08087308833d0000000000c383c404e9fcffffff'
+        '90909090909083ec34e9fcffffff813c24000000000f82fcffffff813c240000'
+        '00000f83fcffffff837c2408010f85fcffffff608b0d6c4d8200e8460000008b'
+        '0d704d8200e83b000000b808000000bf0000000083fd05740ab809000000bf00'
+        '000000c6807f01000001ff3789376a006a08506a01e8fcffffff83c4108f0761'
+        'e9fcffffff83f908730b516a01e8fcffffff83c408c3837c240c017553608b74'
+        '24248b4c242889f731d283cbffa10000000085c07505a10000000083f8097505'
+        'bb0300000085c9741749ad83f80874f583f80974f039d8750383cbffab42ebe5'
+        '83fbff740489d8ab428954242861eb0760e836000000615589e581ec24010000'
+        'e9fcffffff60e821000000615589e583ec04e9fcffffff8b85e0feffff833d00'
+        '000000087505b808000000c3b808000000bb05000000e80a000000b809000000'
+        'bb0900000080b87f010000007438c6807f01000000506a01e8fcffffff83c408'
+        'c68300000000008b0c9d00000000c7049d000000000000000085c9740951e8fc'
+        'ffffff83c404c300000000000000000000000000000000000000000000000000'
+        '00000000000000000000000000000000006053820038d8000000000000000000'
+        '000000000000000000000000000000000054538200a45f060000000000000000'
+        '0000000000e901000058130040e815004094fd0040b810004048130040c0f600'
+        '40180e0040a8100040ecef0040780b0040080e004018e90040'
     ), (
-        (0x8, 'abs', 'BS_MODEA', 0),
-        (0x12, 'rel', 'PVR_SELDRAWEND', -4),
+        (0xa, 'rel', 'PVR_SELDRAW', -4),
+        (0x11, 'abs', 'RBLOAD', 0),
+        (0x17, 'rel', 'PVR_FCLOSE', -4),
+        (0x1e, 'abs', 'RBLOADEND', 0),
+        (0x24, 'rel', 'PVR_FCLOSE', -4),
+        (0x2f, 'rel', 'PVR_FCLOSE', -4),
+        (0x50, 'abs', 'BS_SLOTJ', 0),
+        (0x5f, 'abs', 'BS_SLOTZ', 0),
+        (0x65, 'abs', '.', 383),
+        (0x76, 'rel', 'PVR_TEXLOAD', -4),
+        (0x81, 'rel', 'PVR_FCLOSE', -4),
+        (0x8e, 'rel', 'PVR_TEXFREE', -4),
+        (0xae, 'abs', 'BOSSID', 0),
+        (0xb7, 'abs', 'CURSOR', 0),
+        (0x101, 'rel', 'PVR_LOADER', -4),
+        (0x113, 'rel', 'PVR_FREEALL', -4),
+        (0x11f, 'abs', 'BOSSID', 0),
+        (0x147, 'abs', '.', 383),
+        (0x150, 'abs', '.', 383),
+        (0x159, 'rel', 'PVR_TEXFREE', -4),
+        (0x162, 'abs', 'RBTRY', 0),
+        (0x16a, 'abs', 'RBBUF', 0),
+        (0x171, 'abs', 'RBBUF', 0),
+        (0x17f, 'rel', 'BS_FREE', -4),
+        (0x1e5, 'abs', '.', 489),
     ), {
-        'selskip': 0x0,
+        'selmdl': 0x0,
+        'fclose': 0xe,
+        'vacate': 0x85,
+        'loader': 0x96,
+        'freeall': 0x105,
+        'ownside': 0x117,
+        'dropall': 0x12c,
+        'drop': 0x145,
+        'ready': 0x187,
+        'rbnames': 0x189,
+        'flames': 0x1d9,
+        'flames3': 0x1e9,
     }),
     'PAD_COND': (bytes.fromhex(
         '0200000000100000020000000020000002000000004000000200000000800000'
@@ -19772,10 +19850,14 @@ def pvr_wide_sites():
 def pvr_boss_sites():
     """Playable bosses on the PowerVR build, on top of the table's sites."""
     code = link('PVRBOSS', PVR)
-    site = 0x5c9bac
-    rel = symbol_va('SELSKIP', PVR) - (site + 5)
-    return [(In(PVR_MD5, PVR.off(site)), '833d94a2000200',
-             'e8' + struct.pack('<i', rel).hex() + '9090'),
+    def rel(site, sym):
+        return struct.pack('<i', symbol_va(sym, PVR) - (site + 5)).hex()
+    return [(In(PVR_MD5, PVR.off(0x57f03f)), '558bec81ec24010000',
+             'e9' + rel(0x57f03f, 'PVRLOADER') + '90' * 4),
+            (In(PVR_MD5, PVR.off(0x57e29d)), '558bec83ec04',
+             'e9' + rel(0x57e29d, 'PVRFREEALL') + '90'),
+            (In(PVR_MD5, PVR.off(0x57f7d0)), '8b85e0feffff',
+             'e8' + rel(0x57f7d0, 'PVROWNSIDE') + '90'),
             (In(PVR_MD5, PVR.off(cave_va('PVRBOSS', PVR))),
              '00' * len(code), code.hex())]
 

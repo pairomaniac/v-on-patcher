@@ -372,40 +372,74 @@ texture bank the fights had loaded is reloaded.
 
 ## The PowerVR build
 
-The port is in two stages, and the first is done. A boss can be picked from the row
-and fights, and the select does not draw its model yet.
+The bosses work on this build as on the others, with the differences below. Its
+machines' colours and textures go through the card, so its select does more of the work
+itself.
 
 The fight code, the palette RAM (`0x1e159a0`) and its expansion (`0x5753a1`) work as
 on the other builds. Addresses come from retail, checked against the rerelease, whose
 stack frames and AI state (at `0xd68910`) this build shares. Its clone's frame is
 retail's, 0x44.
 
-Not done, for the second stage:
+How its select differs:
 
-- **The select's model.** The draw `0x5c9ba3` lists a machine for the card's texture
-  loader (`0x57f03f`) where the other builds' loads the file, so `selskip` skips it for
-  a boss. The row, cursor, name, weapons, portrait frame and countdown are in. With no
-  model, the launch shows no machine.
-- **Its hooks,** left out with it: `selmdl_a`, `selpart_a`, `selrows`, `seld68` and
-  `selda8`. `BS_SLOTS` and `BS_MTSELMEM` hold stand-ins, since this build's loader
-  keeps its files elsewhere. `BS_LOADTEX` is a stock routine that does nothing, since
-  this build has no texture bank files to load.
-- **Jaguarandi on the report.** It has no turning model there, which is drawn in its
-  select pose. Z-Gradt's shows.
-- **`jlum_a`** is not wired. Its fix is for the software renderer's sort, and the card
-  shows no flicker without it.
+- **The slots.** A mesh pointer's top nibble goes through `0x825514`, the same scheme
+  as retail's, but by machine id: Jaguarandi's slot is `0x825538`, Z-Gradt's
+  `0x82553c`. Retail's go by the file's name.
+- **The loader.** The select's loader (`0x57f03f`, mode 1) reads each machine's
+  `BSel_*.bin`, which the bosses do not have, so `loader` takes them off its list.
+- **The textures.** A model's polygons differ from its file once loaded, in paired
+  fields, which look like texture references being rewritten. So `fclose`, when
+  `sel_loadrb` closes a boss's file, runs the game's routine (`0x57d7c0`) on the block.
+  `drop` lets the textures and block go at the next load that is not the select's, and
+  when the game frees every model's textures (`0x57e29d`, `freeall`). The routine has two
+  places for these models (`0x824d6c`, `0x824d70`), and the attract demo leaves its two
+  machines in them, so `vacate` frees any of the eight first. Without that the bosses
+  drew flat after a reset, which runs the demo.
+- **Jaguarandi's colours.** This build keeps them in texture files, not palettes:
+  `RJAG.VRB` and one per opponent, `RJAGTEM.VRB` and so on, picked in `0x56d4f0` by the
+  other machine's id. The player's and the select's use `RJAG.VRB` (`ownside`). The
+  CPU's keeps the stock choice.
+- **The launch camera.** Its table is at `0x6428a8`, and this build reads it before the
+  player's field where the others read the field first, so its sites are not the others'
+  order.
+- **Z-Gradt's launch flames.** They are in Raiden's select file, so `loader` keeps that
+  listed with the cursor on Z-Gradt or Z-Gradt taken, and `BS_LOADFILE` does nothing
+  here. `0x580865`, which a map gave for it, loads a scene: given Raiden's 3, it loaded
+  Green Hills' (`FC_Fore.bin`, `FFOR.VRB`) and broke the hangar's textures. A flame record
+  here has a fourth field, for the other mode, so `flames` gives Raiden's in the other
+  builds' shape.
+- **The draw.** `0x5c9ba3` has a bigger frame than the other builds', which `selmdl`
+  makes up, and its bone is at `SEL_BONE`, -0x10.
 
-Played: the portraits, and both bosses in fights. Jaguarandi's red segments do not
-flicker with `jlum_a` not wired.
+Not done:
+
+- **The hangar's picture.** Played, it shows polygon pop-in or fighting and looks
+  unstable. In the rig, parked on Temjin, Jaguarandi and Z-Gradt, nothing flips but the
+  ceiling lights, weapon edges, text and cursor frame, and the bosses add nothing on
+  Temjin. Not looked at while the camera moves, and not compared with retail. The cause
+  is not known.
+- **Stand-ins.** `BS_MTSELMEM` and `BS_LOADTEX` hold stand-ins, for Z-Gradt's unlock
+  screen, which has not been run.
+- **`jlum_a`** is wired since the red segments flickered in the hangar, though not in a
+  fight, without it. Whether it cures that has not been played.
+
+Played: the portraits, both bosses in fights, their models, launches and cameras, their
+textures after a reset, and Z-Gradt's flames. Jaguarandi has no launch flames, by design.
+Neither boss shows on the continue screen, as on retail.
 
 Seen in the rig, with a hidden display and the debug kill:
 
-- Both bosses through the row, a round, a KO, its replay, a loss, the continue screen
-  and `GAME OVER`.
-- A whole game as Jaguarandi to its ending, name entry and the scoreboard, then a
-  normal game with Temjin to the credits.
-- Z-Gradt through nine stages and the report, and on the last stage against the CPU's
-  Z-Gradt to its charge, laser and ending, reached by writing the stage.
+- Both bosses through the row with their models, the launch, a round, a KO, its
+  replay, a loss, the continue screen and `GAME OVER`.
+- Both bosses back on the select after a continue, textured, and Z-Gradt after a game
+  over and a new game, and after the reset (writing -1 to the mode word) and the attract
+  demo. Jaguarandi in `RJAG.VRB`'s colours, on the select and in a round.
+- Before the models were in: a whole game as Jaguarandi to its ending, name entry and
+  the scoreboard, then a normal game with Temjin to the credits.
+- Before the models were in: Z-Gradt through the stages and the report, and on the last
+  stage against the CPU's Z-Gradt to its charge, laser and ending, reached by writing
+  the stage.
 
 Seen and not explained:
 
@@ -416,7 +450,7 @@ Seen and not explained:
   builds have not been compared.
 
 Not tried: the unlock screens, Z-Gradt's laser on Dash, its gauge and turn, arena edges,
-and Machine Color Select on a boss.
+and Jaguarandi on the report with the models in.
 
 ## Testing it
 

@@ -7,7 +7,9 @@ Scenes: sweep (1P select, rightward), bounce (1P select, Apharmd and
 Bal-Bas-Bow), round (1P match), split (2P round, a live layout switch, a loss),
 select2p (the 2P select with the 3D hangar), bbb and apharmd (1P, a lost round and
 the continue), jag and zgradt (1P as a boss, a lost round), fullj and fullz (a whole
-game as one, by the debug kill), lastz (the last stage as Z-Gradt). It captures at 60 FPS and reports frames that are nearly all black
+game as one, by the debug kill), lastz (the last stage as Z-Gradt), again (Z-Gradt,
+game over, Z-Gradt again), igr and igrj (Z-Gradt or Jaguarandi, the reset and the attract demo, again),
+hold0, hold and holdz (parked on Temjin, Jaguarandi or Z-Gradt). It captures at 60 FPS and reports frames that are nearly all black
 and frames with flat red or blue at the right edge. Screen changes show as black, and the flat-colour count only means something
 on the machine select. One game runs at a time; the captures are in the rig's
 shots/ folder.
@@ -72,7 +74,8 @@ def boss_scene(cursor):
     """1P with the bosses unlocked: walk the row to a boss, fight, lose. The
     camera slides a machine a move, so the walk goes one at a time."""
     walk = 17 + cursor * 1.4
-    return ('0', False, walk + 75, 14, walk + 55, [(t, 'key', 'space') for t in (5, 8, 14)]
+    return ('0', False, walk + 85, 14, walk + 70, [(t, 'key', 'space') for t in (5, 8, 14)]
+            + [(walk + 49, 'key', 'space')]
             + moves(17, 1.4, [(i, 1) for i in range(1, cursor + 1)]) + [
                 (walk + 4 + i * 3, 'key', 'space') for i in range(4)] + [
                 (walk + 32, 'post', 0x111, KILL_1P)])
@@ -105,6 +108,26 @@ SCENES = {
               + [(t, 'key', 'space') for t in range(37, 74, 3)]),
     'fullj': win_scene(8),
     'fullz': win_scene(9),
+    'igr': ('0', False, 125, 14, 108, [(t, 'key', 'space') for t in (5, 8, 14)]
+            + moves(17, 1.4, [(i, 1) for i in range(1, 10)]) + [
+                (31, 'key', 'space'), (58, 'poke', 0x200b760, -1)]
+            + [(t, 'key', 'space') for t in (65, 68, 79, 82)]
+            + [(89, 'key', 'space')]),
+    'hold': ('0', False, 62, 14, 45, [(t, 'key', 'space') for t in (5, 8, 14)]
+             + moves(17, 1.4, [(i, 1) for i in range(1, 9)])),
+    'holdz': ('0', False, 62, 14, 45, [(t, 'key', 'space') for t in (5, 8, 14)]
+              + moves(17, 1.4, [(i, 1) for i in range(1, 10)])),
+    'hold0': ('0', False, 45, 14, 28, [(t, 'key', 'space') for t in (5, 8, 14)]),
+    'igrj': ('0', False, 125, 14, 108, [(t, 'key', 'space') for t in (5, 8, 14)]
+             + moves(17, 1.4, [(i, 1) for i in range(1, 9)]) + [
+                 (31, 'key', 'space'), (58, 'poke', 0x200b760, -1)]
+             + [(t, 'key', 'space') for t in (65, 68, 79, 82, 88)]),
+    'again': ('0', False, 145, 14, 128, [(t, 'key', 'space') for t in (5, 8, 14)]
+              + moves(17, 1.4, [(i, 1) for i in range(1, 10)]) + [
+                  (34, 'key', 'space'), (37, 'key', 'space'), (40, 'key', 'space'),
+                  (43, 'key', 'space'), (60, 'post', 0x111, KILL_1P)]
+              + [(t, 'key', 'space') for t in (92, 97)]
+              + moves(101, 1.4, [(i, 1) for i in range(1, 10)])),
     'jag': boss_scene(8),
     'zgradt': boss_scene(9),
     'bbb': continue_scene(5),
@@ -135,6 +158,10 @@ def rig_folder(game):
     with open(os.path.join(game, 'ddraw.ini'), newline='') as fh:
         text = fh.read()
     text = re.sub(r'(?m)^renderer=\w+', 'renderer=gdi', text, count=1)
+    # And the hidden display's size, whatever a played game saved there.
+    for key, value in (('width', '0'), ('height', '0'), ('fullscreen', 'true'),
+                       ('windowed', 'false'), ('posX', '0'), ('posY', '0')):
+        text = re.sub(r'(?m)^%s=.*?(\r?)$' % key, r'%s=%s\1' % (key, value), text, count=1)
     with open(os.path.join(folder, 'ddraw.ini'), 'w', newline='') as fh:
         fh.write(text)
     helper = os.path.join(rig, 'pvrrig.exe')

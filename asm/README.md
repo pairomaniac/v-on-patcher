@@ -721,10 +721,21 @@ build*, has the reasons.
 
 ## pvrboss.asm
 
-Runs `bosses.asm` on the PowerVR build. Its select lists a machine for the card's
-texture loader, where the other builds' draw loads the file, so `selskip` keeps that
-draw from running for a boss. `pvr_boss_sites` in the script writes the hook.
-[BOSSES.md](../docs/BOSSES.md), *The PowerVR build*, says what works.
+Runs `bosses.asm` on the PowerVR build, whose select lists a machine for the card's
+loader where the other builds' draw loads the file.
+
+- `selmdl` gives the select's draw this build's frame.
+- `fclose`, when `sel_loadrb` closes a boss's file, runs the game's texture routine on
+  the block, after `vacate` frees any of the eight from the routine's two places.
+- `loader` takes the bosses off the select's list, and `drop` lets their textures and
+  blocks go when the select is over, or `freeall` when the game frees every model's.
+- `ownside` gives the player's Jaguarandi its own textures, not its opponent's set.
+- `rbnames` is the table `sel_loadrb` reads, by the slots its names have elsewhere.
+- `flames` is Raiden's booster flames in the record shape `bosses.asm` reads, for
+  Z-Gradt's launch.
+
+`pvr_boss_sites` in the script writes the hook. [BOSSES.md](../docs/BOSSES.md), *The
+PowerVR build*, has the reasons.
 
 ## overlay.asm
 
