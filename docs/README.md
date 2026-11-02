@@ -26,8 +26,7 @@ Where something lives, by question:
 - *How do I rebuild after editing assembly?* asm/README.md for `asm/`,
   HIRES.md's *Rebuilding* for `asm/ui.asm`.
 - *How does the widescreen patch reach the OEM and Japanese builds?*
-  HIRES.md, *Porting to other builds* and *What porting actually
-  taught*. The PowerVR build: HIRES.md, *The PowerVR build*.
+  HIRES.md, *Porting to other builds* and *Porting rules*. The PowerVR build: HIRES.md, *The PowerVR build*.
 - *How do I cut a release?* DEVELOPING.md, *Releasing*.
 - *How is the exe signed, and how is signing set up?* DEVELOPING.md,
   *Signing* and *Setting up signing*.

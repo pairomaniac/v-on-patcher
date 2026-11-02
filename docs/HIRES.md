@@ -48,13 +48,16 @@ replaced with a per-layout factor from section data.
 
 ### Render lists and pool
 
-Each renderer's polygon record pool, side array and flush list move to
-the section and grow to HIRES_POLYS records: renderer A's (2500 at
-0x6db7e0/0x6f8ca0/0x6fdabc, cap in two insert paths and the flush) and
-renderer B's (2000 at 0x708a90/0x720190/0x72400c, the same three caps,
-the flush's at 2500). The bucket heads (LIST_A 0x7001d0, LIST_B
-0x725f50) stay where they are; the list-insert loads are hooked for
-HUD-pass vertex scaling.
+Each renderer's polygon record pool, side array and flush list move to the
+section and grow to HIRES_POLYS records.
+
+- Renderer A has 2500 records at 0x6db7e0/0x6f8ca0/0x6fdabc, with a cap in two
+  insert paths and the flush.
+- Renderer B has 2000 at 0x708a90/0x720190/0x72400c, with the same three caps.
+  The flush's cap is 2500.
+
+The bucket heads (LIST_A 0x7001d0, LIST_B 0x725f50) stay where they are. The
+list-insert loads are hooked for HUD-pass vertex scaling.
 
 ### The 2D layer
 
@@ -63,12 +66,12 @@ times a frame: 0x4800d0/0x4804f0 for viewport 1 before and after the 3D
 flush, 0x5670c0/0x5674f0 for viewport 2. Each call is redirected to a
 stub that runs pre, then the original, then post.
 
-pre redirects the 2D draw to a canvas in the section (480 guard rows
-either side, since split draws outside the viewport) and post composites
-every pixel that differs from a copy back onto the viewport,
-nearest-neighbour, centred, so translucency blends against the real
-background. A canvas row that is all copy - most rows of the HUD phase -
-is found with one compare and every viewport row sampling it is skipped.
+pre redirects the 2D draw to a canvas in the section. The canvas has 480 guard
+rows either side, since split draws outside the viewport. post composites every
+pixel that differs from a copy back onto the viewport, nearest-neighbour and
+centred, so translucency blends against the real background. A canvas row that
+is all copy, as most rows of the HUD phase are, is found with one compare, and
+every viewport row sampling it is skipped.
 
 In the pre-3D call of a 1P or single-viewport frame the canvas has the
 viewport's aspect (rounded to an even width). The game's surface pointer
@@ -83,24 +86,24 @@ column c shows what the picture shows at c mod 80, with the scroll and
 the ring's wrap applied as the walker applies them, so the seams are the
 walker's own.
 
-A ring row is continued only when none of its 80 tiles is empty. The
-encounter grid (a 2-by-4-tile pattern) and the static (a 40-by-8-tile
-block, jittered by random whole-tile scrolls) are fields and continue in
-step, holes included. Any other row - art on a backdrop, the plane hidden
-- takes the picture's top-row colour when that row is all one colour,
-else black, and only on 2D-only screens (the last 3D flush drew nothing,
-DRAWN 0x6d0dc4). With 3D behind, the margins are the 3D.
+A ring row is continued only when none of its 80 tiles is empty. The encounter
+grid (a 2-by-4-tile pattern) and the static (a 40-by-8-tile block, jittered by
+random whole-tile scrolls) are fields, so they continue in step, holes included.
+
+Any other row is art on a backdrop or a hidden plane. It takes the picture's
+top-row colour when that row is all one colour, and otherwise black. This applies
+only on 2D-only screens, where the last 3D flush drew nothing (DRAWN 0x6d0dc4).
+With 3D behind, the margins are the 3D.
 
 Each engine has its own ring, scroll words, watermarks and helpers
 (RING1.. / RING2.. in ui.asm). The port tool reads them off the build's
 own walker rather than the map, which pairs the twin engines.
 
-The destination helper halves its coordinates whenever the split flag
-0x6bc948 is set (the `test al, 2` before its two `sar`s is dead code,
-so any two-player game halves), which is why pre hides the flag from
-the game's walker; margins hides it the same way, since post has
-restored it by then. Seen on video first: every margin tile at half
-scale, the right-hand ones over the picture.
+The destination helper halves its coordinates whenever the split flag 0x6bc948
+is set. The `test al, 2` before its two `sar`s is dead code, so any two-player
+game halves. That is why pre hides the flag from the game's walker. margins hides
+it the same way, since post has restored it by then. Without this, every margin
+tile comes out at half scale, with the right-hand ones over the picture.
 
 Limits of the canvas: OFF_PITCH is 2048 bytes, so the pre-3D canvas is
 capped at 1024 px wide (2.13:1; a wider viewport gets a centred canvas
@@ -108,131 +111,123 @@ and its outer columns untouched), and the patcher refuses widths over
 2040 because the coverage-mask stride is an 8-bit immediate. Neither
 has been exercised past 16:9; see *Wider than 16:9*.
 
-Rules tried at pixel level before the map was read, on record:
+These rules do not work, so the margins do not use them:
 
-- per-row edge pixels streaked the SEGA wipe, the static and the grid;
-- the first canvas column past 4:3 assumed the game clears the wide
-  canvas, which the title and splash do not, and gave black;
-- a margin-wide mirrored corner block reached the title logo and the
-  splash panel, and mirroring broke the grid's spacing at the seams;
-- fixed tiles and a per-frame period search drifted against a 48.33-px
-  period measured on video.
+- Per-row edge pixels streak the SEGA wipe, the static and the grid.
+- The first canvas column past 4:3 assumes the game clears the wide canvas. The
+  title and splash do not, so it gives black.
+- A margin-wide mirrored corner block reaches the title logo and the splash panel,
+  and mirroring breaks the grid's spacing at the seams.
 
-That period was real, and it was the compositor's. fit computed 1/s as
-(2^24 / s) << 8, which drops the low byte of the 16.16 reciprocal: 0.68%
-short at s = 2.25. The 2D layer was stretched by that much, its last four
-columns and three rows never shown, and every 2D element drifted right
-and down with its position (1.7 px at the health labels, 2 at the weapon
-names). The reciprocal is now 2^32 / s rounded up, and the composite is
-verified against an exact nearest-neighbour model at 1080p and 720p,
-every canvas pixel shown once.
+The compositor computes the reciprocal as 2^32 / s, rounded up. Computing it as
+(2^24 / s) << 8 drops the low byte of the 16.16 reciprocal, which is 0.68% short at
+s = 2.25, or a 48.33-px period on video. That stretches the 2D layer, loses its last
+four columns and three rows, and drifts every 2D element right and down with its
+position (1.7 px at the health labels, 2 at the weapon names). The composite is
+verified against an exact nearest-neighbour model at 1080p and 720p, with every
+canvas pixel shown once.
 
 The photo backdrops of the two-player screens - the machine select and
 the network waiting cards - are 64x48-tile blocks placed at ring (9, 6),
 the low-resolution window: 496x384 of picture in the 640x480 (the
 blocks' last two tile columns are blank), framed in black even at 4:3.
 
-margins recognises one by the differences between three of its cells,
-(32, 24) and (0, 47) against (0, 0), the same in every build. Differences
-rather than values, because the game rebases a block's tile indices to
-wherever its tiles were loaded (0x2380 reads back as 0x154e on the
-select). With the plane shown and unscrolled it stages the 496x384 into
-the guard rows after the canvas and fills the whole canvas from it,
-nearest-neighbour, keeping the aspect: the width is filled and the rows
-outside the height are cropped equally top and bottom (53 of 384 each
-side at 16:9, 6 at 4:3). The margin row loop is skipped. Side by side gets
-the same, each engine over its own 4:3 canvas, so a waiting card fills
-its half's width. Top/bottom is left alone: the frame rows its viewport
-shows (HIRES_HUD_TB_ROWS, 48..432) are exactly the photo's.
-Plane A is the post-3D call's, so the text on those screens is not
-scaled. See *The photo backdrops* below.
+margins recognises a backdrop by the differences between three of its cells,
+(32, 24) and (0, 47) against (0, 0), which are the same in every build. It uses
+differences because the game rebases a block's tile indices to wherever its tiles
+were loaded (0x2380 reads back as 0x154e on the select).
 
-The ending roll is the 2D layer's too: its bands, window, edge clipping
-and cut are under *Credits letterboxing, found and removed* below.
+With the plane shown and unscrolled, margins stages the 496x384 into the guard rows
+after the canvas and fills the whole canvas from it, nearest-neighbour, keeping the
+aspect. The width is filled, and the rows outside the height are cropped equally top
+and bottom (53 of 384 each side at 16:9, 6 at 4:3). The margin row loop is skipped.
+
+- **Side by side** gets the same, each engine over its own 4:3 canvas, so a waiting
+  card fills its half's width.
+- **Top/bottom** is left alone: the frame rows its viewport shows (HIRES_HUD_TB_ROWS,
+  48..432) are exactly the photo's.
+
+Plane A is the post-3D call's, so the text on those screens is not scaled. See *The
+photo backdrops* below.
+
+The ending roll is the 2D layer's too: its bands, window, edge clipping and cut are
+under *Credits letterboxing* below.
 
 ### HUD passes
 
-Six pass prologues (UI_PASS_FUNCS: the in-game HUD and the machine
-select for each renderer, the attract overlay, name entry) are wrapped
-by 20-byte stubs that count pass depth in and out; submissions inside a
-pass get the HUD projection, and the insert hooks rescale their vertices
-to the HUD frame. Twenty functions have the shape; how the list came
-down to six is under *The pass functions*.
+Six pass prologues (UI_PASS_FUNCS: the in-game HUD and the machine select for each
+renderer, the attract overlay, name entry) are wrapped by 20-byte stubs that count
+pass depth in and out. Submissions inside a pass get the HUD projection, and the
+insert hooks rescale their vertices to the HUD frame. Twenty functions have the shape;
+*The pass functions* lists why only these six are wrapped.
 
-In side-by-side split the 4:3 frame is centred in a taller viewport.
-While a round's HUD is on screen (MODE 4, SUBMODE 9..0x0c, 0x14, 0x15,
-0x1b; the second viewport reads 2P's own machine), the frame's top rows
-- everything above HIRES_HUD_BAND, row 110: the timer and health bars -
-are pinned to the top of the viewport instead of riding with the centred
-frame. A polygon belongs to the top region when its lowest vertex is
-above the band, and gets the top-aligned y offset. The 2D canvas is
-composited in two slices to match, the pre-fill sampling each slice from
-where it will land; the gap the top slice leaves in the centred frame is
-simply not composited.
+In side-by-side split the 4:3 frame is centred in a taller viewport. While a round's
+HUD is on screen (MODE 4, SUBMODE 9..0x0c, 0x14, 0x15, 0x1b; the second viewport reads
+2P's own machine), the frame's top rows are pinned to the top of the viewport. Those
+rows are everything above HIRES_HUD_BAND, row 110: the timer and health bars.
+
+A polygon belongs to the top region when its lowest vertex is above the band, and it
+gets the top-aligned y offset. The 2D canvas is composited in two slices to match, and
+the pre-fill samples each slice from where it will land. The gap the top slice leaves
+in the centred frame is not composited.
 
 The state gate keeps the machine-select hangar, a 3D scene inside a HUD
 pass, in one piece; top/bottom split and 1P have no centred frame and are
 unaffected.
 
-The HUD spread, in a round (D_ROUND less sub-states 0xd/0xe). At 4:3
-the timer box sits 82 px from the left edge; a centred frame carries
-it towards the middle. In the post-3D 2D layer's band rows (above
-HIRES_HUD_BAND), the columns left of HIRES_HUD_SPREAD's split column
-(230: the timer and its digits) are composited moved left by the frame's
-inset, so the timer keeps its 4:3 distance from the left edge. The
-columns right of it - PLAYER/ENEMY and the bars, 233..523 in stock -
-move by 320 - HIRES_HUD_BARS units (-58), which centres them as a group.
-The pre-fill samples each column from where it lands (spread_row). The
-TOTAL time (2D rows from 380, columns from 420) moves right by the inset.
+The HUD spread applies in a round (D_ROUND less sub-states 0xd/0xe). At 4:3 the timer
+box sits 82 px from the left edge, and a centred frame carries it towards the middle.
+So in the post-3D 2D layer's band rows (above HIRES_HUD_BAND):
 
-Polygons get the same offsets in rescale when the outermost HUD pass is
-the in-game HUD (PASS0/PASS1: the bars, their frames and the timer box;
-hud_enter records the calling stub in D_PASSFN) and the polygon lies
-wholly in the band and on one side of the split column. The reticle and
-the weapon strips are other passes and stay; in a round the enemy marker
-is drawn outside the passes. The inset is the smaller of the frame's two
-margins inside the viewport (D_SPREAD), computed per call. At 4:3 and in
-side-by-side split it is 0 and nothing moves.
+- The columns left of HIRES_HUD_SPREAD's split column (230: the timer and its digits)
+  move left by the frame's inset, keeping the timer's 4:3 distance from the left edge.
+- The columns right of it (PLAYER/ENEMY and the bars, 233..523 in stock) move by
+  320 - HIRES_HUD_BARS units (-58), which centres them as a group.
+- The TOTAL time (2D rows from 380, columns from 420) moves right by the inset.
 
-Top/bottom split draws the HUD at the side-by-side scale rather than
-the 4:3 that fits its half-height viewport (1.406 instead of 1.125 at
-1080p: HIRES_HUD_TB_ROWS caps it so frame rows 48..432 stay on
-screen), so both layouts show the HUD at one size. The frame's empty
-top and bottom rows fall outside the viewport: fit clips the
-composite, the pre-fill zero-fills the canvas rows it cannot sample,
-and the HUD projection's centre (D_CXH/D_CYH) is the viewport's, so
-the game culls what falls outside.
+The pre-fill samples each column from where it lands (spread_row).
 
-The damage flash is the unit quad drawn as a grid of tiles (4 by 3 at
-16:9) through attribute block 0x791ad0, sized a fifth over the 4:3 frame,
-so the outer tiles stopped 80 px short of each edge at 1080p. It is an
-ordinary list-A polygon set; it hid from the insert log because no single
-tile is wide, and from the pixel watch until tools/vo-dbg.sh recovered the
-record from the flush frame. ui.asm fill, run by both insert hooks after
-the pass rescale, pushes the edge vertices of a polygon of that attribute
-block to x = 0 and x = W-1 in a round (D_ROUND: MODE 4 and a sub-state
-in HIRES_SPLIT_STATES, per viewport). 0x791ad0 is the game's flat red,
-used from forty-odd sites, among them the enemy marker's arrow and
-triangle (56 units, below), whose slide ends with the arrow's tip on the
-inset; a polygon narrower than 120 HUD units (a tile is about 195) is
-left alone. Nothing else is touched.
+Polygons get the same offsets in rescale under two conditions. The outermost HUD pass
+must be the in-game HUD (PASS0/PASS1: the bars, their frames and the timer box;
+hud_enter records the calling stub in D_PASSFN). The polygon must also lie wholly in
+the band and on one side of the split column. The reticle and the weapon strips are
+other passes and stay, and in a round the enemy marker is drawn outside the passes.
+The inset is the smaller of the frame's two margins inside the viewport (D_SPREAD),
+computed per call. At 4:3 and in side-by-side split it is 0 and nothing moves.
 
-The rescale and the 2D composite agree to the pixel: a HUD vertex at
-frame x lands at round(x * s + offset), and a canvas column at
-floor(X / s). They did not until the compositor's reciprocal was fixed
-(*The 2D layer* above); the 3 px polygon shift that used to compensate
-is gone.
+Top/bottom split draws the HUD at the side-by-side scale, not the 4:3 that fits its
+half-height viewport (1.406 instead of 1.125 at 1080p). HIRES_HUD_TB_ROWS caps it so
+frame rows 48..432 stay on screen, and both layouts show the HUD at one size. The
+frame's empty top and bottom rows fall outside the viewport. fit clips the composite,
+the pre-fill zero-fills the canvas rows it cannot sample, and the HUD projection's
+centre (D_CXH/D_CYH) is the viewport's, so the game culls what falls outside.
+
+The damage flash is the unit quad drawn as a grid of tiles (4 by 3 at 16:9) through
+attribute block 0x791ad0. It is sized a fifth over the 4:3 frame, so the outer tiles
+stop 80 px short of each edge at 1080p. It is an ordinary list-A polygon set. No single
+tile is wide, so an insert log does not show it; tools/vo-dbg.sh can recover the record
+from the flush frame.
+
+ui.asm fill, run by both insert hooks after the pass rescale, pushes the edge vertices
+of a polygon of that attribute block to x = 0 and x = W-1 in a round (D_ROUND: MODE 4
+and a sub-state in HIRES_SPLIT_STATES, per viewport). 0x791ad0 is the game's flat red,
+used from forty-odd sites. Those include the enemy marker's arrow and triangle (56
+units, below), whose slide ends with the arrow's tip on the inset. So a polygon
+narrower than 120 HUD units (a tile is about 195) is left alone.
+
+The rescale and the 2D composite agree to the pixel: a HUD vertex at frame x lands at
+round(x * s + offset), and a canvas column at floor(X / s). This depends on the
+reciprocal in *The 2D layer* above, and no polygon shift is needed.
 
 ### Single viewport in a split game
 
-The call to the viewport setup (0x5c811b) and the two flush calls
-(0x5c8166, 0x5c8178) go through the section. The split is drawn only
-while either player's machine is in a sub-state that draws a round
-(HIRES_SPLIT_STATES: 9..0x0c, 0x14, 0x15, 0x1b); every other frame - the
-machine select, the waiting card, the wipe, the encounter and continue
-screens, and everything outside a match (MODE not 4) - is one full-screen
-viewport from the engine of the player whose sub-state is lower, P1 on a
-tie.
+The call to the viewport setup (0x5c811b) and the two flush calls (0x5c8166, 0x5c8178)
+go through the section. The split is drawn only while either player's machine is in a
+sub-state that draws a round (HIRES_SPLIT_STATES: 9..0x0c, 0x14, 0x15, 0x1b).
+
+Every other frame is one full-screen viewport, from the engine of the player whose
+sub-state is lower, P1 on a tie. That covers the machine select, the waiting card, the
+wipe, the encounter and continue screens, and everything outside a match (MODE not 4).
 
 The setup runs with the split flag cleared, so both renderers get the 1P
 geometry; then viewport 2's base (0x6bf5b0) and mask offset (0x7087a0)
@@ -240,22 +235,20 @@ are pointed at the whole surface. The other renderer's flush runs with
 its draw-skip flag (0x6c84c8 / 0x6c84cc) set, which sorts and empties the
 list without drawing, and its 2D layer is not composited.
 
-The blob keys its layouts on D_LAYOUT (1P or single, Ver, Hor) rather
-than the split flag. When the layout changes, polygons already submitted
-that frame keep the old placement for that one frame.
-HIRES_DEBUG_STATES prints both machines' states on the frame through the
-game's GDI text: MODE SUBMODE, MODE2 SUBMODE2, D_SHOW, then margins'
-tile scroll x, y and fine y and the two photo cells it read, in hex. A
-second line below it is a 24-bit mask of the UI_PASS_FUNCS entries that
-have run since launch, bit n for entry n, never cleared: a new bit names
-the screen that first showed it.
+The blob keys its layouts on D_LAYOUT (1P or single, Ver, Hor), not the split flag. When
+the layout changes, polygons already submitted that frame keep the old placement for
+that one frame.
 
-Bit numbers follow the current UI_PASS_FUNCS: 0/1 the in-game HUD,
-2/3 the machine select, 4 the attract overlay, 5 name entry. *The
-pass functions* below has what the readout established.
-On video the line came out as `04 04 01 000000 154E 1CB9` - the second
-machine's pair missing, the rest intact - which is not understood; the
-tail is what the readout is for.
+HIRES_DEBUG_STATES prints both machines' states on the frame through the game's GDI text:
+MODE SUBMODE, MODE2 SUBMODE2, D_SHOW, then margins' tile scroll x, y and fine y and the
+two photo cells it read, in hex. A second line is a 24-bit mask of the UI_PASS_FUNCS
+entries that have run since launch, bit n for entry n, never cleared. A new bit names the
+screen that first showed it.
+
+Bit numbers follow the current UI_PASS_FUNCS: 0/1 the in-game HUD, 2/3 the machine
+select, 4 the attract overlay, 5 name entry. *The pass functions* below has what the
+readout established. On video the line came out as `04 04 01 000000 154E 1CB9`, with the
+second machine's pair missing and the rest intact. That is not understood.
 
 ### GDI text
 
@@ -317,33 +310,30 @@ viewport the arrow comes a few degrees late.
 
 ### The lock-on line
 
-The flat grey band that flashes across the picture as the enemy comes
-on from the side is not the resolution patch's: it is stock's, and it
-has its own Essential patch now (**Fix the lock-on line**, asm/
-lockline.asm). Found while chasing it here, with tools/vo-dbg.sh wedge,
-submit and clip in turn: the 2D quad submits (0x5d79a0 renderer A,
-0x5e2a80 B) project their z = 1.0 vertices with the aspect slot of the
-projection, and the clipper re-projects what it clips or subdivides
-with the 3D slot, focal length included, 600 times the size. The
-marker's leader line to the distance readout is the quad that gets long
-enough. Two dead ends on the way, both reverted: dropping polygons with
-a vertex under z = 4 took a piece of the hangar floor; saturating
-overflowed 16-bit vertex words changed nothing.
+The flat grey band that flashes across the picture as the enemy comes on from the side
+is stock's, and has its own Essential patch (**Fix the lock-on line**, asm/
+lockline.asm). The 2D quad submits (0x5d79a0 renderer A, 0x5e2a80 B) project their
+z = 1.0 vertices with the aspect slot of the projection. The clipper re-projects what it
+clips or subdivides with the 3D slot, focal length included, 600 times the size. The
+marker's leader line to the distance readout is the quad that gets long enough.
+tools/vo-dbg.sh wedge, submit and clip show this in turn.
+
+Two other fixes do not work. Dropping polygons with a vertex under z = 4 takes a piece of
+the hangar floor. Saturating overflowed 16-bit vertex words changes nothing.
 
 ### Stage objects: the see-through switch
 
-Each stage object has a solid model and a meshed twin (tables 0x64bab0
-and 0x64bcc0, 12 bytes an entry; 0x64bed0/0x64bfc0 on the eight-way
-stages), and the object drawer (0x5be1d0 renderer A, 0x422f20 B;
-0x5bed0d/0x5bf07c and 0x423a5d/0x423dcc are uncalled copies) picks one
-per object per frame: the object's authored direction code for the
-player's grid cell (2 bits per object in the stage's cell table at
-0x623d04; 3 bits, 45-degree steps, on the eight-way stages at
-0x623d10) is compared with the camera yaw (0x1ae35fa), and the solid
-model is used while the yaw is within 0x4800 (101 degrees; 0x3800
-eight-way) of the code's direction, the meshed one beyond - the object
-stands between the camera and the machine. 0x1ae35e4 set forces the
-mesh.
+Each stage object has a solid model and a meshed twin (tables 0x64bab0 and 0x64bcc0, 12
+bytes an entry; 0x64bed0/0x64bfc0 on the eight-way stages). The object drawer (0x5be1d0
+renderer A, 0x422f20 B; 0x5bed0d/0x5bf07c and 0x423a5d/0x423dcc are uncalled copies) picks
+one per object per frame.
+
+It compares the camera yaw (0x1ae35fa) with the object's authored direction code for the
+player's grid cell. The code is 2 bits per object in the stage's cell table at 0x623d04,
+or 3 bits, in 45-degree steps, on the eight-way stages at 0x623d10. The solid model is used
+while the yaw is within 0x4800 (101 degrees; 0x3800 eight-way) of the code's direction.
+Beyond that the object stands between the camera and the machine, and the meshed one is
+used. 0x1ae35e4 set forces the mesh.
 
 The codes are 90-degree quantised, so an object beside the machine
 meshes once the yaw is 11 degrees past square to it: at 4:3 that is at
@@ -362,11 +352,10 @@ to a silhouette where the game stops guaranteeing palettes.
 
 ## The blob
 
-asm/ui.asm, assembled to UI_CODE by tools/uibuild.py: nasm, the same
-assembler as the rest of asm/, but run here rather than by asm/build.py
-because the blob is position independent (no org; every routine finds its
-data by call/pop) and carries its own address list. Label offsets come
-out of a dd table appended in a temporary copy of the source - appending
+asm/ui.asm is assembled to UI_CODE by tools/uibuild.py. It uses nasm, like the rest of
+asm/, but is built here and not by asm/build.py, because the blob is position independent
+(no org; every routine finds its data by call/pop) and carries its own address list.
+Label offsets come out of a dd table appended in a temporary copy of the source, which
 shifts nothing.
 
 uibuild splices the blob and every derived offset constant into
@@ -391,19 +380,21 @@ a null pointer.
 
 ## Porting to other builds
 
-The machinery: tools/vomap.py maps retail onto another build at function
-level; tools/votrans.py translates addresses through it;
-tools/hiresport.py generates a per-build PORT table - every site offset,
-the build's own original bytes, every named address (ADDR) and every blob
-reference (UI_REFS), plus per-build pass prologue lengths - keyed by PE
-timestamp. hires_install translates sites through port_sites. That
-retargets jumps into the section from the moved sites; redoes the
-rewrites that depend on the build's own bytes (the mask spans'
-interleaved instructions, the imul register, the roll's lea register,
-the credits jne-to-jmp displacements, and the FOV block, which goes out
-of line to UI_FOV when the build's is shorter); swaps the blob's
-addresses by position; builds the F4 table from the translated sites;
-and checks everything against the build's own bytes.
+tools/vomap.py maps retail onto another build at function level, and tools/votrans.py
+translates addresses through it. tools/hiresport.py generates a per-build PORT table keyed
+by PE timestamp. It holds every site offset, the build's own original bytes, every named
+address (ADDR) and every blob reference (UI_REFS), plus per-build pass prologue lengths.
+
+hires_install translates sites through port_sites, which:
+
+- retargets jumps into the section from the moved sites;
+- redoes the rewrites that depend on the build's own bytes (the mask spans' interleaved
+  instructions, the imul register, the roll's lea register, the credits jne-to-jmp
+  displacements, and the FOV block, which goes out of line to UI_FOV when the build's is
+  shorter);
+- swaps the blob's addresses by position;
+- builds the F4 table from the translated sites;
+- checks everything against the build's own bytes.
 
 Resolution tiers, strictest first:
 
@@ -426,73 +417,49 @@ Two invariants make generation fail rather than guess:
   engine A's);
 - no two sites may map to one build offset.
 
-## What porting actually taught (the crash log record)
+## Porting rules
 
-Every one of these shipped past byte verification and surfaced only at
-runtime, which is the lesson in itself.
+Each rule covers a fault that passes byte verification and shows only at runtime.
 
-1. A name-based blob address swap is not enough. ui.asm assembles
-   derived addresses - FB_PITCH-4 (the surface pointer), PROJ_A+8,
-   hook returns like SUBMIT_A+6, the hangar callee, three IAT slots -
-   that no equate names. Hence UI_REFS: positions from the blob's own
-   disassembly, nothing dependent on naming discipline.
-2. Identical code deduplicates. The two 2D engines are byte-twins, so
-   the map collapsed them and mispaired pre/post across engines on both
-   builds. Anything with a duplicate must be resolved from a
-   disambiguating anchor - here, the call instructions at the stub
-   sites.
-3. Boot order differs between builds. JPRE shows a warning screen through
-   the 2D layer before any viewport init; the null-surface guard exists
-   because of it.
-4. A fuzzy resolver that can start a pattern mid-instruction matches
-   junk with junk. A whole-build 48-byte window placed the flush-bucket
-   site 16 bytes off, inside two `and` instructions of JPRE's flush -
-   corrupted list-type masks, blank screens, then a null bucket walk.
-   That tier is deleted; windows align to instruction boundaries; and
-   the boundary audit is the gate.
-5. Identical code copies fool the map twice over. JPRE's mask sites all
-   collided onto renderer B. The first explanation - that JPRE's renderer
-   A was an MMX variant with no scalar mask code - was wrong: every build
-   is MMX throughout (a start-up requirement), and the scalar
-   mask-advance idiom is in every build, sixteen times each. The map had
-   translated the mask pointer to a neighbouring
-   global, so the span search found nothing and the fallbacks found
-   renderer B, twice. The generator now derives the mask pointer from
-   the build's own spans, and any site whose surroundings occur more
-   than once in retail is paired by order of occurrence rather than by
-   the map. JPRE generated clean with that; OEM's table did not change,
-   so its rasterizer fault had another cause.
-6. Bytes the patch writes can carry retail addresses of their own. The
-   rasterizer fault on both builds was four of the MMX mask spans: their
-   interleaved instruction is `mov ecx, [FB_PITCH]` (or the row
-   pointer), and build_sites wrote retail's `between` bytes verbatim, so
-   the ported span loaded ecx - the next span's row pointer - from a
-   retail address. apply() only checked that the build's load, add and
-   store were in the span, so it passed. port_sites now rebuilds every
-   mask span from the build's own bytes, and the port record above is
-   a reminder that a site's new bytes need reading for addresses as
-   well as its old ones.
-7. A shorter block is not a matching block. JPRE dropped the 0.95
-   projection case, so its FOV block is 54 bytes to retail's 82; the
-   82-byte replacement ran 28 bytes into the viewport function's
-   pointer stores, which is why JPRE's surface pointer was always null
-   and the blob stood down every frame. The old-bytes check passed
-   because the table's old bytes are read from the build. port_sites
-   now cuts the block at the build's last fstp [ASPECT_B] and, when the
-   replacement does not fit, writes a call to a copy in the section
-   (UI_FOV). tools/portaudit.py compares the instruction shapes covering
-   every site between retail and the build, gate or no gate; read its
-   list rather than counting it - a function vomap does not know
-   decodes as nothing, and the imul and roll sites differ by register
-   on purpose.
-8. A jump's new bytes are retail's until proven otherwise. The credits
-   jne-to-jmp sites (0x080074, 0x167084) carry retail's displacement,
-   and port_sites rebased every e8/e9 from the retail site, so the
-   ported jmp landed on retail's target inside JPRE's engine - mid
-   instruction, three bytes into a mov. port_sites now takes the
-   displacement from the build's own jcc, and only rebases jumps whose
-   target is in the appended sections; the F4 exit is built from A()
-   and already right.
+1. **Swap blob addresses by position, not by name.** ui.asm assembles derived addresses
+   that no equate names: FB_PITCH-4 (the surface pointer), PROJ_A+8, hook returns like
+   SUBMIT_A+6, the hangar callee and three IAT slots. So UI_REFS holds positions from the
+   blob's own disassembly.
+2. **Resolve duplicated code from a nearby anchor.** The two 2D engines are byte-twins, so
+   the map collapses them and can mispair pre/post across engines. The call instructions
+   at the stub sites tell them apart.
+3. **Do not assume boot order.** JPRE shows a warning screen through the 2D layer before
+   any viewport init, which is why the null-surface guard exists.
+4. **Keep context windows on instruction boundaries.** A whole-build 48-byte window placed
+   the flush-bucket site 16 bytes off, inside two `and` instructions of JPRE's flush. That
+   corrupted list-type masks, blanked the screen and then walked a null bucket. Windows now
+   align to instruction boundaries, and the boundary audit is the gate.
+5. **Pair repeated code by order.** The map translated JPRE's mask pointer to a neighbouring
+   global, so the span search found nothing, and the fallbacks put all its mask sites on
+   renderer B. Every build is MMX throughout (a start-up requirement), and the scalar
+   mask-advance idiom is in every build, sixteen times each. The generator derives the mask
+   pointer from the build's own spans. Any site whose surroundings occur more than once in
+   retail is paired by order of occurrence, not by the map.
+6. **Read a site's new bytes for addresses too.** Four MMX mask spans have the interleaved
+   instruction `mov ecx, [FB_PITCH]` (or the row pointer). build_sites writes retail's
+   `between` bytes verbatim, so a ported span would load ecx, the next span's row pointer,
+   from a retail address. apply() only checks that the build's load, add and store are in
+   the span. port_sites rebuilds every mask span from the build's own bytes.
+7. **Check a block's length.** JPRE dropped the 0.95 projection case, so its FOV block is 54
+   bytes to retail's 82. An 82-byte replacement runs 28 bytes into the viewport function's
+   pointer stores, leaving JPRE's surface pointer null and the blob standing down every
+   frame. The old-bytes check still passes, because the table's old bytes are read from the
+   build. port_sites cuts the block at the build's last fstp [ASPECT_B]. When the replacement
+   does not fit, it writes a call to a copy in the section (UI_FOV).
+8. **Take a jump's displacement from the build.** The credits jne-to-jmp sites (0x080074,
+   0x167084) carry retail's displacement. Rebased from the retail site, the ported jmp lands
+   on retail's target inside JPRE's engine, three bytes into a mov. port_sites takes the
+   displacement from the build's own jcc, and rebases only jumps whose target is in the
+   appended sections. The F4 exit is built from A().
+
+tools/portaudit.py compares the instruction shapes covering every site between retail and
+the build, gate or no gate. Read its list rather than counting it: a function vomap does not
+know decodes as nothing, and the imul and roll sites differ by register on purpose.
 
 ## The scenes, as read off the game
 
@@ -579,12 +546,10 @@ HIRES_DEBUG_STATES shows the two cells it reads.
 
 ### The pass functions
 
-Twenty functions call the projection setup with the HUD focal lengths.
-Through v0.16.0 all twenty were wrapped: six seen in the first traces and
-fourteen more "for the modes not traced". The readout, played through
-every mode on retail - a full 1P game, a split match, a network match
-as host and as guest, the attract demo, the tutorial, name entry, a
-draw, a time-up, the replay, the continue and the ranking - saw six run:
+Twenty functions call the projection setup with the HUD focal lengths. Only six are wrapped.
+The readout was played through every mode on retail: a full 1P game, a split match, a network
+match as host and as guest, the attract demo, the tutorial, name entry, a draw, a time-up, the
+replay, the continue and the ranking. It saw these six run:
 
 | Function | Seen in |
 | --- | --- |
@@ -683,10 +648,8 @@ Not the marker, though they read the same way:
   bearing per quadrant;
 - 0x4c5772's 0x1000/0x2000 buckets at 0x4c692f quantise a heading into
   stick directions;
-- 0x57f1b0 and 0x5829c3 are two of the four phase drivers of scene 0xc,
-  whose four 0x4a729f quads are the iris wipe;
-  first read as the demo and tutorial, but neither runs in either (the
-  readout).
+- 0x57f1b0 and 0x5829c3 are two of the four phase drivers of scene 0xc, whose four 0x4a729f
+  quads are the iris wipe. Neither runs in the demo or tutorial (the readout).
 
 ### Ending
 
@@ -698,20 +661,18 @@ writing a phase past 2.
 The in-game machine's analogue is 0x44a523/0x4489d6. The roll's tile ring
 buffer is 0x1cc18ea.
 
-### Credits letterboxing, found and removed
+### Credits letterboxing
 
 During the ending (SUBMODE 0x20, the roll flag 0x66c190 set) the tail of
 each engine's 2D post draw cleared frame rows 0..0x60 and 0x180..0x1e0 to
 black, one row-memset (0x47e580, value 0) per row - 0x480c6c in engine 1,
 0x567c7c in engine 2, halved under the low-resolution flag.
 
-Those are the bands the roll passed behind, and they were load-bearing.
-The roll's tile walkers (the windowed path of each engine's plane-A draw,
-0x480520 / 0x567520) push a visible row count for the window's top tile
-and for the entering tile at its foot. The shared blit 0x47fee0 discards
-that argument and always draws all 8 glyph rows, so the top tile redrew
-unscrolled at row 0 and the entering line popped in whole. The bands hid
-both.
+The roll passes behind those bands, and it depends on them. The roll's tile walkers (the
+windowed path of each engine's plane-A draw, 0x480520 / 0x567520) push a visible row count for
+the window's top tile and for the entering tile at its foot. The shared blit 0x47fee0 discards
+that argument and always draws all 8 glyph rows. So the top tile redraws unscrolled at row 0
+and the entering line pops in whole, and the bands hide both.
 
 The patch skips both band blocks (jne -> jmp at 0x480c74 / 0x567c84) and
 points 0x47fee0's entry at ui.asm roll_blit, which honours the count; the
@@ -719,33 +680,29 @@ top edge's push is re-encoded fine+8 (was 8-fine, ambiguous against the
 foot's) so the blit can tell the edges apart. One glyph source row is 16
 bytes in the full mode, the only mode left under this patch.
 
-The window itself is 50 tile rows tall - 400 lines, the 0x32 stored at
-0x480568 (its branch twin at 0x480556 is the 44-row low-resolution
-window), plus the partial entering row - top-aligned in a 64-row ring.
-The writer (the
-command interpreter at 0x4cdab4, cursors 0xbf7758/0xbf775c, driven by
-the hand-timed schedule in 0x58ecd0) fills each ring row just as it
-scrolls up to the window's foot; below that the ring holds stale content
-from 512 lines ago. The upshot: lines appear at row 400 with nothing
-real below them, and making them enter at row 480 by feeding earlier
-would mean re-timing the authored schedule, which is not attempted.
+The window itself is 50 tile rows tall: 400 lines, the 0x32 stored at 0x480568 (its branch twin
+at 0x480556 is the 44-row low-resolution window), plus the partial entering row. It is
+top-aligned in a 64-row ring.
+
+The writer (the command interpreter at 0x4cdab4, cursors 0xbf7758/0xbf775c, driven by the
+hand-timed schedule in 0x58ecd0) fills each ring row just as it scrolls up to the window's foot.
+Below that the ring holds stale content from 512 lines ago. So lines appear at row 400 with
+nothing real below them. Entering at row 480 by feeding earlier would mean re-timing the
+authored schedule, and the patch does not do that.
 
 With the clip wired, a line slides in at the foot a glyph row at a time
 and out through the real row 0, the scenery clean behind both edges.
 
-The roll's end is timed for the band too. The ending driver (0x58ecd0,
-frame counter 0x1ad09f0) scrolls plane A one line a frame from frame
-0x116 and, at 0x10e2, zeroes the scroll word and hides the plane
-(0x4d4504). At that point the last line is still 72 lines short of row
-0, under the band in stock. The schedule (0x6bcd48, 188 entries of strip,
-width, rows; feed frame 0x116 + 8 * rows so far) has the last text
-entry, 155, fed at 0x0f2e into ring rows 51..53, followed by blank
-entries through 0x1136. Row 53 is off the top at 0x112e; rows 51..53
-come round to the foot from 0x1136, and a blank entry clears only
-columns 9..59 of a row (51 words at +0x12, 0x58f12a), so a line's
-right-hand tiles survive it - the flash of white at the bottom right
-seen with a 96-frame extension. Both thresholds therefore move 80
-frames, to 0x1132; the scene change at 0x1490 is untouched.
+The roll's end is timed for the band too. The ending driver (0x58ecd0, frame counter 0x1ad09f0)
+scrolls plane A one line a frame from frame 0x116. At 0x10e2 it zeroes the scroll word and hides
+the plane (0x4d4504), when the last line is still 72 lines short of row 0, under the band in stock.
+
+The schedule (0x6bcd48, 188 entries of strip, width, rows; feed frame 0x116 + 8 * rows so far) has
+the last text entry, 155, fed at 0x0f2e into ring rows 51..53, followed by blank entries through
+0x1136. Row 53 is off the top at 0x112e, and rows 51..53 come round to the foot from 0x1136. A blank
+entry clears only columns 9..59 of a row (51 words at +0x12, 0x58f12a), so a line's right-hand tiles
+survive it, which shows as a flash of white at the bottom right with a 96-frame extension. So both
+thresholds move 80 frames, to 0x1132. The scene change at 0x1490 is untouched.
 
 The roll's pixels are strips loaded incrementally into two banks
 (0x66c1a0/0x66c1a8, 565->555 converted at 0x480f30) and blitted as plain
@@ -753,78 +710,51 @@ copies (0x47f2e0); there is no per-pixel fade anywhere in the path. The
 arcade's letterbox and shade call (0x4a70c6/0x4ff496 into
 0x514629/0x5cc579, alpha 0x80 arguments) remains a stubbed no-op on PC -
 it lands in bare sort flushes at 0x5d1a70/0x5dc940.
+Without the bands the engine shows two more things. Both were verified by running the patched
+walkers under Unicorn, executing the machine code against a fabricated tile ring and canvas, with
+the output checked line by line.
 
-Removing the bands exposed garbage they had been hiding, and chasing it
-down produced two facts about the engine. Both were verified by running
-the patched walkers under Unicorn - the actual machine code, executed in
-an emulator against a fabricated tile ring and canvas, its output
-checked line by line.
-
-First, the window's foot is not the walker's row count but its
-destination helper: 0x480930 rejects tile rows past 0x31, so the roll
-never reached below line ~392-400 - consistent with the writer feeding at
+First, the window's foot is not the walker's row count but its destination helper. 0x480930 rejects
+tile rows past 0x31, so the roll never reached below line ~392-400, which fits the writer feeding at
 the foot.
 
-Rather than stretch the window down into the writer's workspace, the
-patch moves the whole window down thirteen rows: plane A's walker starts
-thirteen ring rows earlier ((coarse - 13) mod 64 in place of the plain
-coarse row), draws 60 rows, and the cap rises to 0x3d.
+The patch moves the whole window down thirteen rows, so it does not reach into the writer's workspace.
+Plane A's walker starts thirteen ring rows earlier ((coarse - 13) mod 64 in place of the plain coarse
+row), draws 60 rows, and the cap rises to 0x3d.
 
-The feed turns out to land about two rows inside the old window, at the
-0x31 cap. (Measured on video: at ten rows of shift a fed line arrived
-~0.6 s after its ring row had already entered the window, showing the
-row's stale 512-line-old content in the meantime.) With thirteen rows of
-shift the window's bottom row, start+47, trails the feed at start+48 by
-a full row - so every line is complete before it slides in at line
-480.
+The feed lands about two rows inside the old window, at the 0x31 cap. On video, at ten rows of shift, a
+fed line arrived ~0.6 s after its ring row had entered the window, showing the row's stale 512-line-old
+content in the meantime. With thirteen rows of shift the window's bottom row, start+47, trails the feed
+at start+48 by a full row, so every line is complete before it slides in at line 480.
 
-Why thirteen exactly, and not more: the writer composes each entering
-line in three scratch rows of the ring, cursor..cursor+2, which sit at
-start-16..start-14. At fourteen rows of shift the third scratch row and
-the top display row were the same row, so glyph bottoms flashed at the
-screen's top edge for a few frames per line - caught on 60 fps video. At
-thirteen the window clears all three scratch rows, and a row that has
-scrolled off the top keeps three rows of margin before the feed comes
-around to rewrite it.
+Thirteen is also the most it can be. The writer composes each entering line in three scratch rows of the
+ring, cursor..cursor+2, which sit at start-16..start-14. At fourteen rows of shift the third scratch row
+and the top display row are the same row, so glyph bottoms flash at the screen's top edge for a few frames
+per line, as a 60 fps video shows. At thirteen the window clears all three scratch rows, and a row that has
+scrolled off the top keeps three rows of margin before the feed rewrites it.
 
 Verified under emulation: continuous coverage of lines 0..479 at every
 fine value, wrap across the ring boundary included.
 
-The shift moves everything on plane A, not only the roll. The SEGA card
-that follows it (0x58a570 at frame 0x1490: seven rows of 17 tiles written
-at cursor row 22 = ring row 28, which the walker shows at line 224 once
-the cut has zeroed the scroll) came out 104 lines low, at 328 - 13 rows,
-measured on a 1080p capture as 234
-px. It is written at cursor row 9 instead (the `push 0x16` at
-0x58a576), so it lands at line 224 as in stock. The in-game copy of
-the driver (0x4489d6, card writer 0x4443b0) is left alone, as its cut
-is.
+The shift moves everything on plane A, not only the roll. The SEGA card after it (0x58a570 at frame 0x1490:
+seven rows of 17 tiles written at cursor row 22 = ring row 28, which the walker shows at line 224 once the cut
+has zeroed the scroll) would land 104 lines low, at 328. That is 13 rows, measured on a 1080p capture as 234 px.
+So it is written at cursor row 9 (the `push 0x16` at 0x58a576), and lands at line 224 as in stock. The in-game
+copy of the driver (0x4489d6, card writer 0x4443b0) is left alone, as its cut is.
 
-Making lines enter at 480 surfaced one consequence on screen. The strip
-loaders keep availability watermarks (0xbf5f7c/0xbf5f78, 24 stores
-across the 12 loader variants) that round the load cursor up, so a tile
-with only part of its 128 bytes read counted as loaded. Harmless while
-fed rows sat below line 400 - nothing drew them - but entering at 480
-they were drawn half-read, which garbled the streamed name strips at the
-moment of entry. The fix floors the rounding: a partial tile is culled
-for the one frame it takes to finish, and the strips are 128-aligned so
-no final tile is stranded.
+The strip loaders keep availability watermarks (0xbf5f7c/0xbf5f78, 24 stores across the 12 loader variants) that
+round the load cursor up, so a tile with only part of its 128 bytes read counts as loaded. Entering at 480 draws
+those half-read tiles, which garbles the streamed name strips. The patch floors the rounding: a partial tile is
+culled for the one frame it takes to finish, and the strips are 128-aligned so no final tile is stranded.
 
-Second, the roll uses a second tile plane (rings 0x1cc3e00/0x1cc41ea,
-its own scroll word 0x34155c6, 60 rows). Its destination helpers
-(0x480a52, 0x480eb0 and kin) index the 2D row table with rows past
-either end - deliberately, in stock: a second table sat right behind
-this one in memory, so an out-of-range row landed in it and wrapped the
-plane vertically. Relocating the row table broke that arrangement. The
-new neighbour is the coverage mask, so the plane's over-the-edge rows
-sprayed writes at garbage offsets - the corruption seen over the top
-line once the top band was gone.
+Second, the roll uses a second tile plane (rings 0x1cc3e00/0x1cc41ea, its own scroll word 0x34155c6, 60 rows). Its
+destination helpers (0x480a52, 0x480eb0 and kin) index the 2D row table with rows past either end. In stock this is
+deliberate: a second table sits right behind this one, so an out-of-range row lands in it and wraps the plane
+vertically. With the row table relocated, the neighbour is the coverage mask, and those rows write at garbage offsets.
 
-The ten unbounded loads now go through ui.asm rowsafe. In range it is
-the plain table load; out of range it wraps by the frame height, the way
-stock's table adjacency did; and during the roll it parks the write on
-the canvas guard instead, since the wrapped sliver was only ever hidden
-by the bands anyway.
+So the ten unbounded loads go through ui.asm rowsafe. In range it is the plain table load. Out of range it wraps by
+the frame height, as stock's table adjacency did. During the roll it parks the write on the canvas guard instead, since
+the bands only ever hid the wrapped sliver.
 
 ### Credits assets sized for the band
 
@@ -843,13 +773,10 @@ through credits_moon, which scales the matrix by UI_CMOON (1.25) first.
 Neither depends on the size, only on the aspect and the missing band,
 so the F4 table has no entries for them.
 
-Left as is: the star texture is undersampled at 640x480 - about 2.5
-texels a pixel - so stock shows a sparser field of single pixels that
-twinkle as the grid drifts under the sampling; at 1080p every texel
-shows and nothing pops. Reproducing that would mean rasterising those
-tiles at the 640 step, which is not attempted. Also open: in the SEGA
-card phase after the roll both the stars and the moon are cut at about
-row 950 of 1080, under a band in stock.
+Two things are left as they are. The star texture is undersampled at 640x480, at about 2.5 texels a pixel, so stock
+shows a sparser field of single pixels that twinkle as the grid drifts. At 1080p every texel shows and nothing pops;
+matching stock would mean rasterising those tiles at the 640 step. In the SEGA card phase after the roll, both the stars
+and the moon are cut at about row 950 of 1080, under a band in stock.
 
 ## Wider than 16:9
 
