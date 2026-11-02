@@ -6,7 +6,8 @@
 Scenes: sweep (1P select, rightward), bounce (1P select, Apharmd and
 Bal-Bas-Bow), round (1P match), split (2P round, a live layout switch, a loss),
 select2p (the 2P select with the 3D hangar), bbb and apharmd (1P, a lost round and
-the continue). It captures at 60 FPS and reports frames that are nearly all black
+the continue), jag and zgradt (1P as a boss, a lost round), fullj and fullz (a whole
+game as one, by the debug kill), lastz (the last stage as Z-Gradt). It captures at 60 FPS and reports frames that are nearly all black
 and frames with flat red or blue at the right edge. Screen changes show as black, and the flat-colour count only means something
 on the machine select. One game runs at a time; the captures are in the rig's
 shots/ folder.
@@ -41,7 +42,7 @@ from check import config                                    # noqa: E402
 
 DISPLAY = 91
 WRITES = ('vonpvr.exe', 'vonpvr.exe.bak', 'v_on.ini', 'ddraw.ini', 'bkup.bin',
-          'pvrsgl.log', 'vo-net.ini')
+          'pvrsgl.log', 'vo-net.ini', 'bosses.bin')
 # Title's choice, read at 0x5aa6a3: forced to two players.
 FORCE_2P = 0x5aa6a3, bytes.fromhex('a1c0ccd201'), bytes.fromhex('b801000000')
 CURSOR, TURN, HOLD = 0x1df6738, 0x1df6700, 0x1df673c   # what a key press writes
@@ -67,6 +68,24 @@ def continue_scene(cursor):
             (25, 'key', 'space'), (36, 'post', 0x111, KILL_1P)])
 
 
+def boss_scene(cursor):
+    """1P with the bosses unlocked: walk the row to a boss, fight, lose. The
+    camera slides a machine a move, so the walk goes one at a time."""
+    walk = 17 + cursor * 1.4
+    return ('0', False, walk + 75, 14, walk + 55, [(t, 'key', 'space') for t in (5, 8, 14)]
+            + moves(17, 1.4, [(i, 1) for i in range(1, cursor + 1)]) + [
+                (walk + 4 + i * 3, 'key', 'space') for i in range(4)] + [
+                (walk + 32, 'post', 0x111, KILL_1P)])
+
+
+def win_scene(cursor):
+    """1P as a boss, winning every round by the debug kill, to the ending."""
+    return ('0', False, 420, 40, 370, [(t, 'key', 'space') for t in (5, 8, 14)]
+            + moves(17, 1.6, [(2, 1), (4, 1), (6, 1), (cursor, 1)])
+            + [(t, 'key', 'space') for t in range(25, 410, 3)]
+            + [(t + 0.5, 'post', 0x111, KILL_2P) for t in range(38, 410, 4)])
+
+
 SCENES = {
     # selmode, two players, seconds, capture start and length, events
     'sweep': ('0', False, 25, 9.5, 13.5, BOOT + moves(10.5, 1.5, [
@@ -78,6 +97,16 @@ SCENES = {
         (35, 'poke', SPLIT_RADIO, 0), (44, 'post', 0x111, KILL_2P)]),
     'select2p': ('0', True, 25, 9.5, 13.5, BOOT + moves(10.5, 1.3, [
         (i, 1) for i in range(1, 6)])),
+    'lastz': ('0', False, 75, 18, 55, [(t, 'key', 'space') for t in (5, 8, 14)]
+              + moves(17, 1.6, [(2, 1), (4, 1), (6, 1), (9, 1)]) + [
+                  (t / 2, 'poke', 0x200a29c, 9) for t in range(48, 70)] + [
+                  (25, 'key', 'space'), (28, 'key', 'space'), (31, 'key', 'space'),
+                  (34, 'key', 'space')] + [(t + 0.5, 'post', 0x111, KILL_2P) for t in range(38, 74, 4)]
+              + [(t, 'key', 'space') for t in range(37, 74, 3)]),
+    'fullj': win_scene(8),
+    'fullz': win_scene(9),
+    'jag': boss_scene(8),
+    'zgradt': boss_scene(9),
     'bbb': continue_scene(5),
     'apharmd': continue_scene(6),
 }
@@ -237,6 +266,8 @@ def main():
         exe[at:at + 5] = FORCE_2P[2]
     with open(os.path.join(folder, 'vonpvr.exe'), 'wb') as fh:
         fh.write(exe)
+    with open(os.path.join(folder, 'bosses.bin'), 'wb') as fh:
+        fh.write((2).to_bytes(4, 'little'))         # both unlocked
     with open(os.path.join(folder, 'v_on.ini'), 'w', newline='') as fh:
         fh.write('[View]\r\nSky=On\r\nOutside=On\r\n[Option]\r\nMovie=Off\r\n'
                  'Motion=1\r\nColorFormat=565\r\nScrSize=0\r\nSSHoriz=%d\r\n'
@@ -251,6 +282,10 @@ def main():
         subprocess.run(['xvfb-run', '-n', str(DISPLAY), 'wineboot', '-i'], env=env,
                        capture_output=True)
         subprocess.run(['wineserver', '-w'], env=env, capture_output=True)
+    # No audio driver in the rig's prefix, so the runs are silent.
+    subprocess.run(['wine', 'reg', 'add', r'HKCU\Software\Wine\Drivers', '/v', 'Audio',
+                    '/d', '', '/f'], env=env, capture_output=True)
+    subprocess.run(['wineserver', '-w'], env=env, capture_output=True)
     subprocess.run(['timeout', str(seconds + 120), 'xvfb-run', '-n', str(DISPLAY),
                     '-s', '-screen 0 1024x576x24', sys.executable,
                     os.path.abspath(__file__), '_play', folder, helper, out,

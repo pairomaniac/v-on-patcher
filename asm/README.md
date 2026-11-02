@@ -43,6 +43,7 @@ and release workflow see [DEVELOPING.md](../docs/DEVELOPING.md).
 | `bosses.asm` | Playable bosses: the bosses in the select's row once unlocked, the unlocks and their screen, the boss's colour, and every place the game only handled the eight machines |
 | `ui.asm` | Native widescreen: the resolution blob, built by `tools/uibuild.py` (see below) |
 | `pvrwide.asm` | Native widescreen on the PowerVR build: what it needs on top of `ui.asm`, which it runs as the other builds do |
+| `pvrboss.asm` | Playable bosses on the PowerVR build: what it needs on top of `bosses.asm` |
 | `layout.py` | data blob layout and string table, shared by `vocd.asm` and the blob |
 | `padtables.py` | gamepad: what each pad input is, what it is called, the F7 device list |
 | `dialogs.py` | the F11 Extras template and its tables, and the F5 frame rate labels |
@@ -717,6 +718,13 @@ next frame's viewport and renders.
 `pvr_wide_sites` and `pvr_ui_install` in the script write the hooks and the
 pointers that need the blob's section. [HIRES.md](../docs/HIRES.md), *The PowerVR
 build*, has the reasons.
+
+## pvrboss.asm
+
+Runs `bosses.asm` on the PowerVR build. Its select lists a machine for the card's
+texture loader, where the other builds' draw loads the file, so `selskip` keeps that
+draw from running for a boss. `pvr_boss_sites` in the script writes the hook.
+[BOSSES.md](../docs/BOSSES.md), *The PowerVR build*, says what works.
 
 ## overlay.asm
 

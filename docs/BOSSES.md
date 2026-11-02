@@ -370,6 +370,54 @@ texture bank the fights had loaded is reloaded.
   passes Raiden. After a continue the cursor starts on Z-Gradt, so the
   launch loads the file as the select would (`BS_LOADFILE`).
 
+## The PowerVR build
+
+The port is in two stages, and the first is done. A boss can be picked from the row
+and fights, and the select does not draw its model yet.
+
+The fight code, the palette RAM (`0x1e159a0`) and its expansion (`0x5753a1`) work as
+on the other builds. Addresses come from retail, checked against the rerelease, whose
+stack frames and AI state (at `0xd68910`) this build shares. Its clone's frame is
+retail's, 0x44.
+
+Not done, for the second stage:
+
+- **The select's model.** The draw `0x5c9ba3` lists a machine for the card's texture
+  loader (`0x57f03f`) where the other builds' loads the file, so `selskip` skips it for
+  a boss. The row, cursor, name, weapons, portrait frame and countdown are in. With no
+  model, the launch shows no machine.
+- **Its hooks,** left out with it: `selmdl_a`, `selpart_a`, `selrows`, `seld68` and
+  `selda8`. `BS_SLOTS` and `BS_MTSELMEM` hold stand-ins, since this build's loader
+  keeps its files elsewhere. `BS_LOADTEX` is a stock routine that does nothing, since
+  this build has no texture bank files to load.
+- **Jaguarandi on the report.** It has no turning model there, which is drawn in its
+  select pose. Z-Gradt's shows.
+- **`jlum_a`** is not wired. Its fix is for the software renderer's sort, and the card
+  shows no flicker without it.
+
+Played: the portraits, and both bosses in fights. Jaguarandi's red segments do not
+flicker with `jlum_a` not wired.
+
+Seen in the rig, with a hidden display and the debug kill:
+
+- Both bosses through the row, a round, a KO, its replay, a loss, the continue screen
+  and `GAME OVER`.
+- A whole game as Jaguarandi to its ending, name entry and the scoreboard, then a
+  normal game with Temjin to the credits.
+- Z-Gradt through nine stages and the report, and on the last stage against the CPU's
+  Z-Gradt to its charge, laser and ending, reached by writing the stage.
+
+Seen and not explained:
+
+- A whole game as Z-Gradt stopped at the last stage's ending. The kill came on the
+  round's first frame, and the state then went between `0x1f` and `0x20`. A player
+  cannot win that early, but the cause has not been confirmed.
+- The screen went solid red for some seconds in that last round as Z-Gradt. The other
+  builds have not been compared.
+
+Not tried: the unlock screens, Z-Gradt's laser on Dash, its gauge and turn, arena edges,
+and Machine Color Select on a boss.
+
 ## Testing it
 
 - `bosses.bin` beside the game: delete it to start locked, or write the

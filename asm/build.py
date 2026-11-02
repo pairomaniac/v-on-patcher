@@ -286,7 +286,7 @@ SOURCES = [
     ('CAMSKIP', 'camskip.asm'), ('OVERLAY', 'overlay.asm'),
     ('TITLEVER', 'titlever.asm'), ('ACTIVATE', 'activate.asm'),
     ('LOCKLINE', 'lockline.asm'), ('BOSSES', 'bosses.asm'),
-    ('PVRWIDE', 'pvrwide.asm'),
+    ('PVRWIDE', 'pvrwide.asm'), ('PVRBOSS', 'pvrboss.asm'),
 ]
 
 
