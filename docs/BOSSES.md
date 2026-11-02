@@ -421,12 +421,12 @@ Not done:
   is not known.
 - **Stand-ins.** `BS_MTSELMEM` and `BS_LOADTEX` hold stand-ins, for Z-Gradt's unlock
   screen, which has not been run.
-- **`jlum_a`** is wired since the red segments flickered in the hangar, though not in a
-  fight, without it. Whether it cures that has not been played.
 
 Played: the portraits, both bosses in fights, their models, launches and cameras, their
-textures after a reset, and Z-Gradt's flames. Jaguarandi has no launch flames, by design.
-Neither boss shows on the continue screen, as on retail.
+textures after a reset, Z-Gradt's flames, laser, gauge and turn, and the arena's edges.
+Jaguarandi's red segments are steady in the hangar with `jlum_a`, and flickered there
+without it. Jaguarandi has no launch flames, by design. Neither boss shows on the
+continue screen, as on retail.
 
 Seen in the rig, with a hidden display and the debug kill:
 
@@ -449,8 +449,7 @@ Seen and not explained:
 - The screen went solid red for some seconds in that last round as Z-Gradt. The other
   builds have not been compared.
 
-Not tried: the unlock screens, Z-Gradt's laser on Dash, its gauge and turn, arena edges,
-and Jaguarandi on the report with the models in.
+Not tried: the unlock screens, and Jaguarandi on the report with the models in.
 
 ## Testing it
 
