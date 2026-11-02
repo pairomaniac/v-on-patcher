@@ -1,6 +1,6 @@
 # On-screen text
 
-Where each string the patcher touches actually lives, and why some of them
+Where each string the patcher touches lives, and why some of them
 are not strings at all.
 
 The tables give file offsets into the English retail `v_on.exe`, unless

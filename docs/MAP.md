@@ -65,8 +65,7 @@ is stale, so the line numbers are current.
 What the patches needed to find, in address order. The rest of `.text` -
 most of it - has no name yet: the 3D geometry, physics, AI, the ending
 cutscene, the sound engine's core and the DirectPlay session code are
-untouched and unmapped. The fourteen functions the widescreen patch
-once wrapped and no longer does are listed with their addresses in
+untouched and unmapped. The fourteen functions the widescreen patch does not wrap are listed with their addresses in
 HIRES.md, *The pass functions*. `maps/` has the per-build function maps for the
 region around each site.
 

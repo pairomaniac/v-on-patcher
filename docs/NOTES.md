@@ -70,15 +70,15 @@ discs have the OEM shape: 99 files, `cpuid32.dll`, the help files in
 
 ### The other builds
 
-Four builds of `v_on.exe` patch: English retail, the USA OEM pressing, the
-Japanese original and the Japanese rerelease. They are compiles of the same
-source through the same toolchain - the Japanese original and the OEM in
-February 1997, four days apart, retail in April, the rerelease in October,
-link 3.0 against 3.10 - with the same section order and a `.reloc` in
-each. A recompile is not a relayout: data moves by a different delta
-per region, functions grow or lose locals, a few globals change order.
-Nothing is a constant shift, so no address is derived from a neighbour's;
-each build carries its own.
+Four builds of `v_on.exe` patch: English retail, the USA OEM pressing, the Japanese
+original and the Japanese rerelease. They are compiles of the same source through the
+same toolchain, with the same section order and a `.reloc` in each. The Japanese original
+and the OEM date from February 1997, four days apart, retail from April and the rerelease
+from October, on link 3.0 against 3.10.
+
+A recompile is not a relayout. Data moves by a different delta per region, functions grow
+or lose locals, and a few globals change order. Nothing is a constant shift, so no address
+is derived from a neighbour's; each build carries its own.
 
 A build is a `Build` in `v-on-patcher.py`: its sections, where each blob goes,
 what every symbol the blobs name resolves to there, its title artwork, and
@@ -93,28 +93,23 @@ The blobs are one set of bytes for all builds, linked from the build's
 tables when the patcher loads, and the site table's hooks and blob sites
 are expressions the build fills in.
 
-The tables are made, not typed. `tools/vomap.py` matches the two
-executables function by function with addresses masked and votes on where
-every address went; `tools/votrans.py` runs the site table, the asm
-symbols and the symbol table through the map. What the map cannot settle -
-a function split at the wrong place, a site in a switch table, ten bytes
-that occur twice - is in `HAND` there, per build, with a reason each.
-`docs/DEVELOPING.md` has the recipe.
+The tables are generated. `tools/vomap.py` matches the two executables function by function
+with addresses masked, and votes on where every address went. `tools/votrans.py` runs the
+site table, the asm symbols and the symbol table through the map. What the map cannot settle
+(a function split at the wrong place, a site in a switch table, ten bytes that occur twice)
+is in `HAND` there, per build, with a reason each. `docs/DEVELOPING.md` has the recipe.
 
 Two things are the same in every build:
 
-- Every blob lives in an appended section, `.vojp`, written empty before
-  any patch and filled through the site table. The annex's place is fixed
-  by the file's headers, so it links at import; `.voxt` and `.vocd` land
-  after it. Only the F7 device list and the levers tail, which the game
-  reaches itself, are written in place. Runs of zeros in `.rdata` are not
-  used: one long enough for a blob is the NULL tail of a handler table the
-  game calls through, or a constant that happens to be zero. Both have
-  crashed the game.
-- The patcher's scratch - the XInput state, the recreate flags, the two
-  bytes the ending screens track a press with - sits in the page slack
-  past `.data`'s VirtualSize. Nothing in the file references it; it is
-  not proven free the way an appended section is.
+- Every blob lives in an appended section, `.vojp`, written empty before any patch and
+  filled through the site table. The annex's place is fixed by the file's headers, so it
+  links at import, and `.voxt` and `.vocd` land after it. Only the F7 device list and the
+  levers tail, which the game reaches itself, are written in place. Runs of zeros in
+  `.rdata` are not used. One long enough for a blob is the NULL tail of a handler table the
+  game calls through, or a constant that happens to be zero, and both crash the game.
+- The patcher's scratch (the XInput state, the recreate flags, the two bytes the ending
+  screens track a press with) sits in the page slack past `.data`'s VirtualSize. Nothing in
+  the file references it, but it is not proven free the way an appended section is.
 
 The netplay DLL tells the builds apart by the PE timestamp and
 fingerprints each one's own two sites (`fp_builds` in `net/dpctrl.c`).
@@ -299,7 +294,7 @@ installed.
 
 ## How each patch works
 
-In the order of the table above; rows that are a single obvious byte edit are
+In the order of the table above; rows that are a single byte edit are
 skipped. Addresses are the English retail build's, which is what the site
 table is keyed on - each other build maps them through its own site map.
 Most patches install assembled machine code rather than editing bytes; the
@@ -332,12 +327,9 @@ the others.
 
 #### Getting called
 
-The obvious way in is the import table: overwrite the
-entry the loader fills with the address of `mciSendCommandA` and every call
-lands on the routine instead. That is what this patch did until 0.7.3, and it
-is one slot of memory any loaded DLL can overwrite - a wrapper that hooks the
-same function by name silently takes the routine out of the chain, leaving a
-game that runs with no music.
+Overwriting the import table entry for `mciSendCommandA` would catch every call, but it is
+one slot of memory any loaded DLL can overwrite. A wrapper that hooks the same function by
+name would silently take the routine out of the chain, leaving a game with no music.
 
 So `apply_cdaudio` rewrites the calls instead. The 37 sites are all the
 six-byte indirect form, and become a direct call plus a `nop` - same six
@@ -520,32 +512,28 @@ that binds all twelve actions.
 *Keyboard (Simple)* itself returns in slot 3, the hidden *2 Joysticks*
 profile's: its handler stubs still exist and the slot's page, validation and
 joystick-spend table entries only needed repointing. Startup fills its
-block through the call that used to write 2 Joysticks defaults there,
-redirected to the tail of `asm/bindmap.asm`.
+block through the call that writes 2 Joysticks defaults in stock, redirected to the tail of `asm/bindmap.asm`.
 
-*Keyboard (Real)* is the game's other keyboard profile, untouched except for
-where it keeps its binds. It shared one twenty-four byte block with Simple,
-which the gamepad now owns, so it moves to the block belonging to the hidden
-*Joystick + Keyboard* profile: eleven sites, each changing a `+0x08` to a
-`+0x20` or an address by the same amount. Its page, defaults and live table
-were always its own, and the *Joy+Key Assign* v_on.ini line keeps the block
-persistent. Two consequences. The startup defaults run every profile's set
-in turn and *Joystick + Keyboard* writes that block after *Real* does, so
-its call is dropped - it is unreachable anyway. And **Default** on the
-keyboard page passed a hardcoded player 0, resetting 1P's binds from the 2P
-side; the other two pages pass the current player, so this one is corrected
-to match.
+*Keyboard (Real)* is the game's other keyboard profile, untouched except for where it keeps
+its binds. Its twenty-four byte block, shared with Simple, now belongs to the gamepad. So it
+moves to the block of the hidden *Joystick + Keyboard* profile: eleven sites, each changing a
+`+0x08` to a `+0x20` or an address by the same amount. Its page, defaults and live table are
+its own, and the *Joy+Key Assign* v_on.ini line keeps the block persistent.
 
-*Twin-stick* adds no logic. The tick is a bind -> condition -> lever mask
-engine, and the arcade scheme is a different set of binds and masks: each
-of the twelve slots drives one lever direction or button instead of a named
-action, so the thumbsticks land straight in the two lever words. It binds
-nothing, so it takes the page-table entry that opens no dialog, which also
-removes the `0x3651554 == 1` check that made **Next** refuse without a
-joystick. Jump and guard are lever gestures - both levers spread outward,
-both squeezed inward - and share the words movement writes to, so neither
-came out while moving. A routine after each tick strips that, only when a
-pad was read, so the keyboard path is untouched.
+This has two consequences. The startup defaults run every profile's set in turn, and
+*Joystick + Keyboard* writes that block after *Real* does, so its call is dropped; it is
+unreachable anyway. And **Default** on the keyboard page passed a hardcoded player 0, resetting
+1P's binds from the 2P side. The other two pages pass the current player, so this one now does.
+
+*Twin-stick* adds no logic. The tick is a bind -> condition -> lever mask engine, and the
+arcade scheme is a different set of binds and masks. Each of the twelve slots drives one lever
+direction or button, so the thumbsticks land straight in the two lever words. It binds nothing,
+so it takes the page-table entry that opens no dialog. That also removes the `0x3651554 == 1`
+check that made **Next** refuse without a joystick.
+
+Jump and guard are lever gestures: both levers spread outward, or both squeezed inward. They
+share the words movement writes to, so neither would come out while moving. A routine after
+each tick strips that, only when a pad was read, so the keyboard path is untouched.
 
 #### The shared bind page
 
@@ -661,12 +649,11 @@ its own globals (`0x1ef8a90` the mode word, `0x1ef9eb0` the sub-state), its
 own tick at `0x40f528` that the loop's two-player branch calls, and its own
 teardown, boot and negative-mode path.
 
-So the pad poll writes `-1` to both. The first always, on the press of LB,
-RB and Start with both triggers past XInput's threshold, on either pad; the
-second as well when the loop mode `0x6bc94c` reads 1, two players. Neither
-while it reads 2, a network match, as the F-key handlers refuse there. While
-the combination is down the poll posts no key at all for that pad, because
-Start alone is F3, pause, and a paused game never runs the tick.
+So the pad poll writes `-1` to both. It writes the first on the press of LB, RB and Start with
+both triggers past XInput's threshold, on either pad. It writes the second as well when the loop
+mode `0x6bc94c` reads 1, two players. It writes neither while the mode reads 2, a network match,
+as the F-key handlers refuse there. While the combination is down the poll posts no key for that
+pad, because Start alone is F3, pause, and a paused game never runs the tick.
 
 ### F11 dialog
 
@@ -696,19 +683,15 @@ The dialog also carries each player's stick deadzone as a two-digit
 percent, read back and written to that player's v_on.ini line when the
 box closes - a Deadzone group of its own, `1P [40] %  2P [40] %`.
 
-The template lives in a small read-only section the patch appends, the
-way the CD-audio patch's does. The dead menu resource it used to squeeze into
-capped it at 460 bytes, which had been pricing every label; that is left
-as it came now. `asm/f11pause.asm` carries a placeholder where the
-template's address belongs, filled at apply time once the section exists.
+The template lives in a small read-only section the patch appends, the way the CD-audio patch's
+does. `asm/f11pause.asm` carries a placeholder where the template's address belongs, filled at
+apply time once the section exists.
 
-The section carries code at its tail too. The dialog's long paths live in
-`asm/voxt.asm`, position independent, reached through a rel32 placeholder
-in the dialog procedure: the close-time read, the ini save, the Defaults
-button that seeds both players back to 40 with the dialog still open, and
-Quit, which is back and still closes the dialog before posting, the game
-tearing the window down under it. The check-box init stayed in
-`asm/f11pause.asm`'s tail.
+The section carries code at its tail too. The dialog's long paths live in `asm/voxt.asm`, position
+independent, reached through a rel32 placeholder in the dialog procedure. They are the close-time
+read, the ini save, the Defaults button that seeds both players back to 40 with the dialog still
+open, and Quit, which closes the dialog before posting because the game tears the window down under
+it. The check-box init is in `asm/f11pause.asm`'s tail.
 
 The values and their digits live in the gamepad patch's `.data` scratch,
 and the ini write-back in `asm/iniparse.asm`, so the close path calls it
@@ -740,22 +723,18 @@ makes. cnc-ddraw exports `DDGetProcAddress` for this, which forwards to the
 real `GetProcAddress`, and asking it for user32's `GetClientRect` gives the
 unhooked one.
 
-The size the game passes is its window for the movie - 640x400, 320x200
-or 640x440 - not the movie's: `von.avi` is 320x240, with the picture
-letterboxed inside it (rows 30..209, 16:9 exactly, with a dim edge row
-either side that reads as a thin bar if included). mciavi stretches the frame
-to whatever the window is, so the fitted rectangle has to take the shape
-from the file, through `MCI_WHERE` with `MCI_ANIM_WHERE_SOURCE`, and only
-fall back to the game's numbers if that fails. The letterbox is in the
-frames themselves, so with the frame size known the stub fits the band
-rather than the frame and sends the band as an `MCI_ANIM_PUT_SOURCE`
-rect: 1878x1080 on a 1080p screen. The size query carries
-`MCI_DGV_WHERE_MAX`: the placement runs more than once, and a plain
-`WHERE_SOURCE` answers with the source rect the previous run set, so
-each run would crop the crop (seen: 320x141 after two). The band is measured on the retail
-file (MD5 `1ba89e5aa2098b87208225b8cd698aa8`) and applied as a fraction
-of the frame height; the fallback path, without a frame size, crops
-nothing.
+The size the game passes is its window for the movie (640x400, 320x200 or 640x440), not the movie's.
+`von.avi` is 320x240, with the picture letterboxed inside it: rows 30..209, 16:9 exactly, with a dim edge
+row either side that reads as a thin bar if included. mciavi stretches the frame to whatever the window
+is, so the fitted rectangle takes the shape from the file through `MCI_WHERE` with
+`MCI_ANIM_WHERE_SOURCE`, and falls back to the game's numbers only if that fails.
+
+The letterbox is in the frames themselves. So with the frame size known, the stub fits the band rather
+than the frame and sends the band as an `MCI_ANIM_PUT_SOURCE` rect: 1878x1080 on a 1080p screen. The size
+query carries `MCI_DGV_WHERE_MAX`, because the placement runs more than once and a plain `WHERE_SOURCE`
+answers with the source rect the previous run set, so each run would crop the crop (seen: 320x141 after
+two). The band is measured on the retail file (MD5 `1ba89e5aa2098b87208225b8cd698aa8`) and applied as a
+fraction of the frame height. The fallback path, without a frame size, crops nothing.
 
 That is more than an edit, so it is a stub in the annex - see
 [asm/](../asm/). Without cnc-ddraw the import is already the real function and
@@ -845,14 +824,11 @@ string, so they are left as they are.
 
 ### Native widescreen
 
-Lives in v-on-patcher.py (the section headed "The resolution patch"), blob
-source in asm/ui.asm, built by tools/uibuild.py. Design, the game structures
-it rewrites (viewport globals, row tables, coverage mask, projection,
-the two 2D engines, the two renderer copies), and the full record of
-the JPRE/OEM porting attempt - what broke, what it taught, and the
-per-build addresses recovered - are in docs/HIRES.md. The other three
-builds' tables are generated by tools/hiresport.py and spliced into
-v-on-patcher.py between the PORT TABLES markers.
+The code is in v-on-patcher.py (the section headed "The resolution patch"), with the blob's source in
+asm/ui.asm, built by tools/uibuild.py. docs/HIRES.md has the design, the game structures it rewrites
+(viewport globals, row tables, coverage mask, projection, the two 2D engines, the two renderer copies), the
+porting rules and the per-build addresses. The other three builds' tables are generated by
+tools/hiresport.py and spliced into v-on-patcher.py between the PORT TABLES markers.
 
 ### Playable bosses
 
