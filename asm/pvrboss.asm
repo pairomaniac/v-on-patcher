@@ -13,7 +13,7 @@ extern PVR_TEXFREE              ; (1, machine): and let go of them
 extern PVR_LOADER               ; the loader (list, count, mode), past its prologue
 extern PVR_FREEALL              ; what frees every model's textures, past its prologue
 extern BOSSID                   ; asm/bosses.asm: the boss the player took
-extern CURSOR                   ; 1P's cursor on the select
+extern SELCURSOR                ; 1P's cursor on the select
 extern BS_FREE
 extern PVR_FCLOSE               ; the C library's
 extern BS_SLOTJ                 ; a boss's slot
@@ -99,7 +99,7 @@ loader:
     mov     eax, [BOSSID]
     test    eax, eax
     jne     .which
-    mov     eax, [CURSOR]
+    mov     eax, [SELCURSOR]
 .which:
     cmp     eax, ZGRADT
     jne     .each

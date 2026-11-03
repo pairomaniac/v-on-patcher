@@ -208,6 +208,9 @@ HAND = {'d19320bdc3381a48228990907910a391': ({           # Japanese rerelease
                                                       # its two loads the other way round
 }), '383d3bff66504954f84924a0b41dc3fa': ({            # PowerVR
     0x000000a8: 0x000000a8,                           # PE header: the entry point field
+    0x001c5900: 0x0009759c,                           # titlever: the load before the flip
+    0x001fcec8: None, 0x001fcecc: None,               # the roll's byte counts and block
+    0x002bbb54: None,                                 # list: PowerVR has In() sites
     0x006035ac: None, 0x0060c064: None,               # retail's F5 resource: the
                                                       # PowerVR one has In() sites
     0x0010afbe: 0x0016d234, 0x0010afeb: 0x0016d261,   # Motion= fallbacks: the ini

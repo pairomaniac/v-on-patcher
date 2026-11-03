@@ -37,6 +37,7 @@ and release workflow see [DEVELOPING.md](../docs/DEVELOPING.md).
 | `credits.asm` | ending screens: ends the credits once the button has been held a second |
 | `overlay.asm` | ending screens: draws HOLD TO SKIP over the credits while it is held |
 | `titlever.asm` | credit: prints the patcher's version on the title screen |
+| `pvrhold.asm` | ending screens: on PowerVR, the store HOLD TO SKIP's hook displaces |
 | `nameentry.asm` | ending screens: adds A to the initials screen, beside the triggers |
 | `camskip.asm` | gamepad: lets A skip the win and lose screens, as Select does |
 | `lockline.asm` | Fix the lock-on line: the clippers project 2D quads with the 2D scale |
@@ -762,6 +763,11 @@ buffer, `0x1ae5f5c`, across the call and put back after.
 The gate is `MODE` 4, `SUBMODE` `0x20` and phase 2, and only then the hold
 count. `HELD` only means anything while the roll is running, where
 `credits.asm` owns it.
+
+On the PowerVR build, the matching call at `0x498178` runs only behind a toggle.
+The hook there is the store of the time at `0x498186`, which runs every frame
+after the drawing and ahead of the flip at `0x4981a9`. `pvrhold.asm` holds that
+store, and it is what the stub calls first in place of the displaced call.
 
 ## activate.asm
 

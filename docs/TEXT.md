@@ -74,6 +74,15 @@ Adding a line means all three: an entry in the block list, its cells in
 counts above. `tools/vocredits.py` does it, cutting glyphs out of the
 existing artwork so a new line matches the rest.
 
+The PowerVR build's roll is different, and `PVR_ROLL` in `v-on-patcher.py` holds
+what differs. It names its own staff in 1192 tiles, and its ink is `0xffdf`.
+`vonpvr.exe` keeps the two byte counts at file offset `0x1fa520` and the block
+list at `0x37c728`. Only four spacers of four rows follow its title, so the
+lines get five blank rows above and below them. That leaves no entry for the
+gap between the lines, so line 1's block is four rows tall and carries the gap
+itself. The lines' bitmaps are the same as on the other builds, and new tiles
+are given the ink of that build's sheet.
+
 There are two faces. The 24px body face covers everything the roll says, so
 a line set in it is harvested whole.
 

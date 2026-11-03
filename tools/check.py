@@ -8,8 +8,8 @@
 
 ~/.vo-test (template: tools/vo-test.example) names the game folder per
 build: VO_GAME_RETAIL, VO_GAME_OEM, VO_GAME_JP, VO_GAME_JPRE and VO_GAME_PVR.
-The PowerVR build has no credit line or playable bosses, so their checks do
-not run on it. Folders
+The portrait check reads v_on.exe, so it does not run on the PowerVR build.
+Folders
 on the command line come first, then VO_GAME from the environment, then
 the file.
 
@@ -37,8 +37,7 @@ ROOT = os.path.dirname(HERE)
 PY = sys.executable or 'python3'
 CONF = os.path.expanduser('~/.vo-test')
 BUILDS = ('RETAIL', 'OEM', 'JP', 'JPRE', 'PVR')
-# The builds the credit and portrait checks run on: PowerVR has no credit patch, and
-# the portrait check reads v_on.exe.
+# The builds the portrait check runs on: it reads v_on.exe.
 WHOLE = ('retail', 'oem', 'jp', 'jpre')
 
 
@@ -106,7 +105,7 @@ CHECKS = [
     ('banner', 'the title prompt reads back as written',
      [PY, 'tools/bannertest.py', '{game}'], True, False),
     ('credit', 'the credit line reads back out of the roll',
-     [PY, 'tools/credittest.py', '{game}'], True, False, WHOLE),
+     [PY, 'tools/credittest.py', '{game}'], True, False),
     ('portrait', 'the boss portraits read back as written',
      [PY, 'tools/portraittest.py', '{game}'], True, False, WHOLE),
     ('uiemu', 'the resolution blob run under Unicorn',

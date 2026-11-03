@@ -16,6 +16,7 @@ to keep in step with it.
 https://github.com/pairomaniac/v-on-patcher
 """
 
+import collections
 import ctypes
 import errno
 import hashlib
@@ -3058,7 +3059,7 @@ class Build(object):
     def __init__(self, name, short, md5, size, stamp, sections, caves,
                  symbols, art, sites=None, annex=None, own=None,
                  patches=None, reasons=None, note=None, exe='v_on.exe',
-                 without=None, fixed_ini=None, cautions=None):
+                 fixed_ini=None, cautions=None):
         # the name on screen, and a word for a label or a log line
         self.name, self.short = name, short
         self.md5, self.size = md5, size
@@ -3091,9 +3092,6 @@ class Build(object):
         # of the others why not; unsupported() says it.
         self.patches = tuple(patches) if patches is not None else None
         self.reasons = dict(reasons or {})
-        # Blobs a patch it takes goes without here: their sites are skipped
-        # and they are not linked. The hooks that call them map to None.
-        self.without = tuple(without or ())
         # [Option] values v_on.ini must hold for this build, set whenever
         # the patcher installs it or moves its v_on.ini aside (fix_ini)
         self.fixed_ini = dict(fixed_ini or {})
@@ -4792,6 +4790,16 @@ PVR = Build('PowerVR', 'pvr', PVR_MD5, PVR_SIZE, 0x33b3b0ae, sections=(
     'ISICONIC': 0x024a2698,         # IAT: IsIconic
     'HWND': 0x02009c94,             # the game's window
     'BACK': 0x02009c70,             # back buffer
+    'FBX': 0x006a3480,              # picture origin and size on the surface
+    'FBY': 0x006a3484,
+    'FBW': 0x006a34c8,
+    'FBH': 0x006a34cc,
+    'DRAW': 0x00499c39,             # (text, x, y, colour, flag), cdecl
+    'FLIPTIME': 0x02009cb0,         # the time, stored just before the flip
+    'ORIG': ('PVRHOLD', 'store'),   # what HOLD TO SKIP calls first
+    'PRIMARY': 0x02009c90,          # what the flip goes through
+    'CURSOR': 0x00410c38,           # (column, row), cdecl
+    'PRINT': 0x00412260,            # (text), cdecl, from the cursor
     # places in our own blobs, the same in every build
     'LEVERS': ('PADX', 'end'),
     'DEVCUR': ('BINDLIST', 'devcur'),
@@ -5098,7 +5106,7 @@ PVR = Build('PowerVR', 'pvr', PVR_MD5, PVR_SIZE, 0x33b3b0ae, sections=(
     'RBTRY': ('BOSSES', 'sel_rbtry'),
     'RBBUF': ('BOSSES', 'sel_rbbuf'),
     'PVRLOADER': ('PVRBOSS', 'loader'),
-    'CURSOR': 0x01df6738,
+    'SELCURSOR': 0x01df6738,
     'BS_RBDIR': 0x01df4e80,
     'BS_PATHFMT': 0x006548c0,
     'BS_RBMODE': 0x0077e710,
@@ -5194,17 +5202,14 @@ PVR = Build('PowerVR', 'pvr', PVR_MD5, PVR_SIZE, 0x33b3b0ae, sections=(
     'BS_AITAB4': 0x00000018,
     'BS_HDOFF': 0x0000176d,
 }, art=RETAIL.art,
-    sites=None, annex=ANNEX_BLOBS + ('F5_PVR', 'PVRWIDE', 'PVRBOSS'),
+    sites=None, annex=ANNEX_BLOBS + ('F5_PVR', 'PVRWIDE', 'PVRBOSS', 'PVRHOLD'),
     own=('BOSSES',),
     patches=('framerate', 'continuefix', 'dinput', 'activate', 'sound',
              'defaults', 'nodisc', 'debugbox', 'movie', 'padxinput', 'hires',
-             'bosses', 'bossunlock'),
+             'bosses', 'bossunlock', 'credits'),
     reasons={'nocpucheck': 'the PowerVR build has no processor check',
              'lockline': 'the PowerVR build does not need this fix'},
     note=PVR_NOTE, exe='vonpvr.exe',
-    # HOLD TO SKIP over the credits: the pre-flip call retail hooks has no
-    # every-frame counterpart found here yet, so the skip goes without it
-    without=('OVERLAY',),
     # Its F5 page has no Texture boxes, so nothing in the game can turn the
     # machines' textures on; with no value they are off, and drawn black.
     fixed_ini={'Texture': '7'},
@@ -5234,8 +5239,7 @@ def build_blobs(build, blobs=None):
         return None
     out = {off.sym[0] for key, _l, _t, sites in FEATURES
            if not unsupported(build, key)
-           for off, _o, _n in sites if isinstance(off, At)} \
-        - set(build.without)
+           for off, _o, _n in sites if isinstance(off, At)}
     if 'debugbox' in build.patches:
         out.add('VOXT')             # linked when the template is appended
     return out
@@ -7045,6 +7049,10 @@ PVR.sites = {
     0x0010f8a1: (0x000adc89, 'c705e004b80000000c42'),
     0x0010f8b0: (0x000adc98, 'c705e004b8000000f041'),
     0x0010325f: (0x0004d955, 'e8969afcff'),
+    0x001c5900: (0x0009759c, 'a1909c0002'),
+    0x001fcec8: None,  # credits
+    0x001fcecc: None,  # credits
+    0x002bbb54: None,  # credits
 }
 # SITES PVR END
 
@@ -18444,7 +18452,7 @@ BLOBS = {
         (0x81, 'rel', 'PVR_FCLOSE', -4),
         (0x8e, 'rel', 'PVR_TEXFREE', -4),
         (0xae, 'abs', 'BOSSID', 0),
-        (0xb7, 'abs', 'CURSOR', 0),
+        (0xb7, 'abs', 'SELCURSOR', 0),
         (0x101, 'rel', 'PVR_LOADER', -4),
         (0x113, 'rel', 'PVR_FREEALL', -4),
         (0x11f, 'abs', 'BOSSID', 0),
@@ -18469,6 +18477,13 @@ BLOBS = {
         'rbnames': 0x189,
         'flames': 0x1d9,
         'flames3': 0x1e9,
+    }),
+    'PVRHOLD': (bytes.fromhex(
+        'a300000000c3'
+    ), (
+        (0x1, 'abs', 'FLIPTIME', 0),
+    ), {
+        'store': 0x0,
     }),
     'PAD_COND': (bytes.fromhex(
         '0200000000100000020000000020000002000000004000000200000000800000'
@@ -19126,12 +19141,31 @@ CREDIT_CELLS_AT = 126
 CREDIT_RIGHT = 366
 
 SCRSTFCG = 'scrstfcg.bin'       # the tile sheet: 1129 tiles, 8x8, 16bpp
-SCRSTFCG_SIZE = 144512
-SCRSTFCG_MD5 = '1141876c33fe75fe6aaaf5780ae730d8'
 SCRSTFMP = 'scrstfmp.bin'       # one 16-bit tile index per cell
-SCRSTFMP_SIZE = 9288
-SCRSTFMP_MD5 = '4cb38735719c986f7a303e8215466220'
-CREDIT_INK = 0xffbf             # the only non-zero value in the sheet
+
+# What differs between the roll files of the v_on.exe builds and PowerVR's.
+# counts and table are file offsets, of the two byte counts and of the first
+# spacer, for a build that has them apart from the site map. A spacer run of
+# gaps[0] rows, line 1 with pad blank rows of its own, gaps[1] rows, line 2
+# and gaps[2] rows; a gap of 0 takes no entry.
+Roll = collections.namedtuple('Roll', 'cg_size cg_md5 mp_size mp_md5 ink '
+                                      'spacers gaps pad counts table')
+STOCK_ROLL = Roll(144512, '1141876c33fe75fe6aaaf5780ae730d8',
+                  9288, '4cb38735719c986f7a303e8215466220', 0xffbf,
+                  CREDIT_SPACERS, (CREDIT_GAP_TOP, CREDIT_GAP,
+                                   CREDIT_GAP_BOTTOM), 0, None, None)
+# PowerVR's roll names its own staff, in 1192 tiles of ink 0xffdf. Four
+# spacers follow its title, sixteen rows, too few entries for the two gaps
+# around the lines and the one between them, so line 1's block carries that
+# row itself.
+PVR_ROLL = Roll(152576, '333228d6f2c2d006175420ec4bf5ed38',
+                9918, '40f3b733ce6ae9611020b4787cc0789e', 0xffdf,
+                4, (5, 0, 5), 1, 0x001fa520, 0x0037c734)
+ROLLS = {PVR.md5: PVR_ROLL}
+
+
+def roll_of(build):
+    return ROLLS.get(build.md5, STOCK_ROLL)
 
 BANNER_W, BANNER_H = 42, 3      # cells
 BANNER_TABLE = 0x00269b60       # v_on.exe, the tile index for each cell
@@ -19177,7 +19211,7 @@ def banner_tiles():
     return tiles, table
 
 
-def credit_tiles():
+def credit_tiles(roll=STOCK_ROLL):
     """Expand both lines into 8x8 tiles and the cell index for each.
 
     Deduplicated across both lines, and blank cells cost no tile at all -
@@ -19185,10 +19219,10 @@ def credit_tiles():
     line of text needs far fewer tiles than it has cells.
 
     The tiles go on the end of scrstfcg.bin, so their indices carry on from
-    the 1129 already there. Bit 15 is set on every non-zero entry because
+    the ones already there. Bit 15 is set on every non-zero entry because
     the loader tests the whole word for zero before rebasing it."""
     tiles, cells = [], []
-    for width, height, bits in CREDITS:
+    for line, (width, height, bits) in enumerate(CREDITS):
         for r in range(height):
             for c in range(width):
                 raw = bytearray()
@@ -19196,50 +19230,83 @@ def credit_tiles():
                     base = (r * 8 + y) * width
                     for x in range(c * 8, c * 8 + 8):
                         on = bits[base + (x >> 3)] >> (7 - (x & 7)) & 1
-                        raw += (CREDIT_INK if on else 0).to_bytes(2, 'little')
+                        raw += (roll.ink if on else 0).to_bytes(2, 'little')
                 raw = bytes(raw)
                 if not any(raw):
                     cells.append(0)         # blank: no tile, no index
                     continue
                 if raw not in tiles:
                     tiles.append(raw)
-                cells.append(0x8000 | (SCRSTFCG_SIZE // 128 + tiles.index(raw)))
+                cells.append(0x8000 | (roll.cg_size // 128 + tiles.index(raw)))
+        if line == 0:
+            cells += [0] * (width * roll.pad)
     return tiles, cells
 
 
-CREDIT_NEW_TILES, CREDIT_CELLS = credit_tiles()
+def credit_roll(data, cells, build):
+    """The two stock roll files with the lines in: (tile sheet, map)."""
+    tiles, new = credit_tiles(roll_of(build))
+    at = CREDIT_CELLS_AT * 2
+    return (bytes(data) + b''.join(tiles),
+            bytes(cells[:at]) + b''.join(c.to_bytes(2, 'little') for c in new)
+            + bytes(cells[at:]))
 
 
-def credit_table(original):
+def credit_table(original, roll=STOCK_ROLL):
     """The block list with the two new lines placed after the title.
 
     Nothing calls this at patch time - the result is committed as the site's
     hex - but tools/credittest.py runs it against the original bytes to check
     that what is committed is still what this produces.
 
-    The five blank spacers between the title and "PC version STAFF" are
-    replaced by five entries carrying the same twenty rows, with the lines
-    centred in them. Nothing shifts and the roll does not get longer."""
+    The blank spacers between the title and "PC version STAFF" are replaced
+    by as many entries carrying the same rows, with the lines centred in
+    them. Nothing shifts and the roll does not get longer."""
     entry = struct.Struct('<3I')
     rows = [entry.unpack_from(original, i * 12)
             for i in range(len(original) // 12)]
-    gap = rows[CREDIT_AFTER:CREDIT_AFTER + CREDIT_SPACERS]
+    gap = rows[CREDIT_AFTER:CREDIT_AFTER + roll.spacers]
     # Text in there would mean the table moved under us and the lines would
     # land on top of somebody's credit.
     if any(w for _flag, w, _h in gap):
         raise AssertionError('block %d..%d are not the blank spacers this '
                              'expects' % (CREDIT_AFTER,
-                                          CREDIT_AFTER + CREDIT_SPACERS - 1))
-    placed = [(0, 0, CREDIT_GAP_TOP),
-              (CREDIT_FLAG, CREDITS[0][0], CREDITS[0][1]),
-              (0, 0, CREDIT_GAP),
+                                          CREDIT_AFTER + roll.spacers - 1))
+    placed = [(0, 0, roll.gaps[0]),
+              (CREDIT_FLAG, CREDITS[0][0], CREDITS[0][1] + roll.pad),
+              (0, 0, roll.gaps[1]),
               (CREDIT_FLAG, CREDITS[1][0], CREDITS[1][1]),
-              (0, 0, CREDIT_GAP_BOTTOM)]
-    if sum(h for _f, _w, h in placed) != sum(h for _f, _w, h in gap):
-        raise AssertionError('the lines do not fit the twenty rows they '
-                             'replace')
-    rows[CREDIT_AFTER:CREDIT_AFTER + CREDIT_SPACERS] = placed
+              (0, 0, roll.gaps[2])]
+    placed = [row for row in placed if row[1] or row[2]]
+    if len(placed) != len(gap) \
+            or sum(h for _f, _w, h in placed) != sum(h for _f, _w, h in gap):
+        raise AssertionError('the lines do not fit the rows they replace')
+    rows[CREDIT_AFTER:CREDIT_AFTER + roll.spacers] = placed
     return b''.join(entry.pack(*r) for r in rows[:len(original) // 12])
+
+
+def pvr_hold_site():
+    """The call HOLD TO SKIP makes first on PowerVR, a blob only it has."""
+    code = link('PVRHOLD', PVR)
+    return (In(PVR_MD5, PVR.off(cave_va('PVRHOLD', PVR))),
+            '00' * len(code), code.hex())
+
+
+def pvr_credit_sites():
+    """The roll's sites on PowerVR, whose byte counts and block list are its
+    own: the same list as retail's, but with its figures and its spacers."""
+    roll = PVR_ROLL
+    tiles, cells = credit_tiles(roll)
+    spacers = struct.pack('<3I', 0, 0, 4) * roll.spacers
+    table = credit_table(struct.pack('<3I', CREDIT_FLAG, CREDITS[0][0], 3)
+                         + spacers, roll)[12:]
+    return [(In(PVR_MD5, roll.counts),
+             struct.pack('<I', roll.cg_size).hex(),
+             struct.pack('<I', roll.cg_size + 128 * len(tiles)).hex()),
+            (In(PVR_MD5, roll.counts + 4),
+             struct.pack('<I', roll.mp_size).hex(),
+             struct.pack('<I', roll.mp_size + 2 * len(cells)).hex()),
+            (In(PVR_MD5, roll.table), spacers.hex(), table.hex())]
 
 
 BANNER_TILES, BANNER_CELLS = banner_tiles()
@@ -19900,7 +19967,8 @@ FEATURES = [
          #
          #   call titlever
          (0x001c5900, 'a1405fae01', call(0x001c5900, ('TITLEVER', 'titlever'))),
-         (site('TITLEVER'), zeros('TITLEVER'), blob('TITLEVER'))]),
+         (site('TITLEVER'), zeros('TITLEVER'), blob('TITLEVER'))]
+     + pvr_credit_sites()),
 
     ('movie', 'Intro, loading and ending screens',
      'Four fixes to the screens either side of the fighting.\n'
@@ -19963,7 +20031,12 @@ FEATURES = [
          # surface is flipped is made in the stub instead, which is
          # what puts the text on the frame about to be shown.
          (0x001c58e7, 'e8f31b0000', call(0x001c58e7, ('OVERLAY', 'overlay'))),
-         (site('OVERLAY'), zeros('OVERLAY'), blob('OVERLAY'))]),
+         (site('OVERLAY'), zeros('OVERLAY'), blob('OVERLAY')),
+         # PowerVR's retail-shaped call runs only behind a toggle, so its
+         # hook is the store just before the flip (asm/pvrhold.asm).
+         (In(PVR_MD5, 0x00097586), 'a3b09c0002',
+          call(In(PVR_MD5, 0x00097586), ('OVERLAY', 'overlay'))),
+         pvr_hold_site()]),
 
 
     ('defaults', 'Better defaults with no v_on.ini',
@@ -20744,8 +20817,6 @@ def features(build):
             out.append((key, label, tip, rows))
             continue
         for off, orig, new in sites:
-            if isinstance(off, At) and off.sym[0] in build.without:
-                continue
             if isinstance(off, In):
                 if off.md5 != build.md5:
                     continue
@@ -23155,9 +23226,10 @@ class Patcher:
         accepted with stock=False: that is a re-run, and the line is
         already in it."""
         folder = os.path.dirname(self.exe_path)
+        roll = roll_of(self.build)
         out = []
-        for name, size, want in ((SCRSTFCG, SCRSTFCG_SIZE, SCRSTFCG_MD5),
-                                 (SCRSTFMP, SCRSTFMP_SIZE, SCRSTFMP_MD5)):
+        for name, size, want in ((SCRSTFCG, roll.cg_size, roll.cg_md5),
+                                 (SCRSTFMP, roll.mp_size, roll.mp_md5)):
             path = os.path.join(folder, name)
             try:
                 with open(path, 'rb') as fh:
@@ -23204,11 +23276,11 @@ class Patcher:
             if stock and not self._backup(path, log):
                 log.append('patch: credit line skipped')
                 return False
+        new_cg, new_mp = credit_roll(cg, mp, self.build)
         if cg_stock:
-            cg += b''.join(CREDIT_NEW_TILES)
-        at = CREDIT_CELLS_AT * 2
+            cg = new_cg
         if mp_stock:
-            mp[at:at] = b''.join(c.to_bytes(2, 'little') for c in CREDIT_CELLS)
+            mp = new_mp
         # Both temps written before either rename: the two files have to
         # change together, or the renderer walks a map that disagrees with
         # the block list already in the executable.

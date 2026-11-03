@@ -287,6 +287,7 @@ SOURCES = [
     ('TITLEVER', 'titlever.asm'), ('ACTIVATE', 'activate.asm'),
     ('LOCKLINE', 'lockline.asm'), ('BOSSES', 'bosses.asm'),
     ('PVRWIDE', 'pvrwide.asm'), ('PVRBOSS', 'pvrboss.asm'),
+    ('PVRHOLD', 'pvrhold.asm'),
 ]
 
 

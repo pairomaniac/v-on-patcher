@@ -544,8 +544,6 @@ Archive.
 | **Renderer** | Built in | Needs the [add-on](#powervr-renderer-pvr-sgl-wrapper), unless you have the card |
 | **Native widescreen** | 1920x1080, on by default | 1024x576, off by default, needs a fast CPU |
 | **Playable bosses**, **Pre-unlock the bosses** | Yes | Yes; the unlock screens are untested here |
-| **Version and credit in the game** | Yes | No |
-| **HOLD TO SKIP** prompt | Yes | No; the ending credits can still be skipped |
 | **Fix the lock-on line** | Yes | Not needed |
 | **Internet play** | Yes | Yes, including against the other versions |
 

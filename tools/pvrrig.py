@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Run the PowerVR build through a scripted scene, on a hidden display.
 
-    python3 tools/pvrrig.py SCENE [--exe FILE] [--tag NAME] [--layout ver|hor]
+    python3 tools/pvrrig.py SCENE [--exe FILE] [--tag NAME] [--layout ver|hor] [--narrow]
 
-Scenes: sweep (1P select, rightward), bounce (1P select, Apharmd and
+Scenes: title (the title screen and its menu), roll (the ending credits),
+sweep (1P select, rightward), bounce (1P select, Apharmd and
 Bal-Bas-Bow), round (1P match), split (2P round, a live layout switch, a loss),
 select2p (the 2P select with the 3D hangar), bbb and apharmd (1P, a lost round and
 the continue), jag and zgradt (1P as a boss, a lost round), fullj and fullz (a whole
@@ -96,6 +97,8 @@ SCENES = {
     'bounce': ('0', False, 25, 9.5, 13.5, BOOT + moves(10.5, 1.35, [
         (2, 1), (4, 1), (5, 1), (6, 1), (5, 0), (6, 1), (5, 0), (6, 1), (5, 0)])),
     'round': ('0', False, 40, 20, 18, ROUND),
+    'title': ('0', False, 26, 8, 16, [(5, 'key', 'space'), (15, 'key', 'space')]),
+    'roll': ('0', False, 120, 28, 90, ROUND + [(30, 'poke', 0x200c5b0, 0x1f), (80, 'key', 'space')]),
     'split': ('2', True, 70, 25, 40, ROUND2 + [
         (35, 'poke', SPLIT_RADIO, 0), (44, 'post', 0x111, KILL_2P)]),
     'select2p': ('0', True, 25, 9.5, 13.5, BOOT + moves(10.5, 1.3, [
@@ -173,14 +176,34 @@ def rig_folder(game):
     return rig, folder, helper
 
 
-def patched(game):
-    """The working tree's patches on the original, all of them."""
+def patched(game, folder, narrow=False):
+    """The working tree's patches on the original, all of them, and the two
+    roll files they go with, as copies in place of the rig's links."""
     vp = load_patcher()
     with open(os.path.join(game, 'vonpvr.exe.bak'), 'rb') as fh:
         original = fh.read()
     wanted = {key: True for key in vp.PVR.patches}
-    wanted['hires'] = (1920, 1080)
-    return vp.apply_selected(bytearray(original), wanted, vp.PVR)[0]
+    if narrow:
+        del wanted['hires']
+    else:
+        wanted['hires'] = (1920, 1080)
+    buf = vp.apply_selected(bytearray(original), wanted, vp.PVR)[0]
+    vp.stamp_version(buf, vp.PVR)
+    stock = []
+    for name in (vp.SCRSTFCG, vp.SCRSTFMP):
+        path = os.path.join(game, name)
+        if os.path.exists(path + '.bak'):
+            path += '.bak'
+        with open(path, 'rb') as fh:
+            stock.append(fh.read())
+    for name, data in zip((vp.SCRSTFCG, vp.SCRSTFMP),
+                          vp.credit_roll(stock[0], stock[1], vp.PVR)):
+        path = os.path.join(folder, name)
+        if os.path.lexists(path):
+            os.remove(path)             # a link into the install
+        with open(path, 'wb') as fh:
+            fh.write(data)
+    return buf
 
 
 def play(folder, helper, out, seconds, start, length, events):
@@ -274,6 +297,8 @@ def main():
     parser.add_argument('scene', choices=sorted(SCENES))
     parser.add_argument('--exe')
     parser.add_argument('--tag')
+    parser.add_argument('--narrow', action='store_true',
+                        help='without Native widescreen')
     parser.add_argument('--layout', choices=('ver', 'hor'), default='hor')
     args = parser.parse_args()
     game = os.environ.get('VO_GAME_PVR') or config().get('VO_GAME_PVR')
@@ -284,8 +309,13 @@ def main():
     if args.exe:
         with open(args.exe, 'rb') as fh:
             exe = bytearray(fh.read())
+        for name in ('scrstfcg.bin', 'scrstfmp.bin'):   # stock, not the last run's
+            link = os.path.join(folder, name)
+            if os.path.lexists(link):
+                os.remove(link)
+            os.symlink(os.path.join(game, name), link)
     else:
-        exe = bytearray(patched(game))
+        exe = bytearray(patched(game, folder, args.narrow))
     if two:
         at = FORCE_2P[0] - 0x401000 + 0x400
         if exe[at:at + 5] != FORCE_2P[1]:
