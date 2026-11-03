@@ -37,7 +37,7 @@ and release workflow see [DEVELOPING.md](../docs/DEVELOPING.md).
 | `credits.asm` | ending screens: ends the credits once the button has been held a second |
 | `overlay.asm` | ending screens: draws HOLD TO SKIP over the credits while it is held |
 | `titlever.asm` | credit: prints the patcher's version on the title screen |
-| `pvrhold.asm` | ending screens: on PowerVR, the store HOLD TO SKIP's hook displaces |
+| `pvrhold.asm` | ending screens: on PowerVR, the store of the time that HOLD TO SKIP's hook replaces |
 | `nameentry.asm` | ending screens: adds A to the initials screen, beside the triggers |
 | `camskip.asm` | gamepad: lets A skip the win and lose screens, as Select does |
 | `lockline.asm` | Fix the lock-on line: the clippers project 2D quads with the 2D scale |
@@ -735,7 +735,7 @@ loader where the other builds' draw loads the file.
 - `flames` is Raiden's booster flames in the record shape `bosses.asm` reads, for
   Z-Gradt's launch.
 
-`pvr_boss_sites` in the script writes the hook. [BOSSES.md](../docs/BOSSES.md), *The
+`pvr_boss_sites` in the script writes the hooks. [BOSSES.md](../docs/BOSSES.md), *The
 PowerVR build*, has the reasons.
 
 ## overlay.asm

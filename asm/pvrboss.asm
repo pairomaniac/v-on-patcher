@@ -37,9 +37,10 @@ selmdl:
     sub     esp, 0x34
     jmp     PVR_SELDRAW
 
-; bosses.asm's fclose. When it closes a boss's file, read whole, its block goes
-; through the texture routine, with the slot on the block for it. esi the block,
-; ebp the file slot, and on the stack the file and what the read returned.
+; bosses.asm's fclose. When it closes a boss's file after reading it whole, the
+; block goes through the texture routine, with the boss's slot pointing at the
+; block meanwhile. On entry esi is the block and ebp the file slot, and the stack
+; holds the file and what the read returned.
 fclose:
     cmp     dword [esp], RBLOAD ; called from its read of a boss's file?
     jb      PVR_FCLOSE
@@ -72,7 +73,8 @@ fclose:
     popad
     jmp     PVR_FCLOSE
 
-; ecx the machine in a place, or -1. One of the eight goes.
+; ecx is the machine in one of the routine's places, or -1. If it is one of the
+; eight, its textures are freed.
 vacate:
     cmp     ecx, JAG
     jae     .out                ; a boss, or -1 unsigned
@@ -84,9 +86,9 @@ vacate:
     ret
 
 ; In place of the loader's prologue. Mode 1 is the select's: a boss comes off its
-; list, and Raiden goes on it for Z-Gradt, whose launch's flames are in its file. Any
-; other mode is a fight's, and the select is over: its
-; boss's textures and block go, to be made again on the next select.
+; list, and Raiden goes on it for Z-Gradt, whose launch's flames are in Raiden's
+; file. Any other mode is a fight's, which ends the select, so the select's boss
+; textures and blocks are freed. The next select makes them again.
 loader:
     cmp     dword [esp+12], 1
     jne     .over
@@ -191,8 +193,9 @@ drop:
 
 ready:  db 0, 0
 
-; asm/bosses.asm's table of the fight models' files, by the slots its names have on
-; the other builds: name, size. Here the game's own goes by machine id.
+; The table of fight model files that asm/bosses.asm reads: name, size. It uses the
+; slots these files have on the other builds. This build's own table goes by
+; machine id.
 rbnames:
     times 5 dd 0, 0
     dd      0x00825360, 0xd838

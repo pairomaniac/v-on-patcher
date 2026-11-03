@@ -108,12 +108,10 @@ python3 tools/check.py --only asm,net         # just those
 `~/.vo-test` is yours and not in the repository; `tools/vo-test.example`
 is its template. It names the game folder of each build
 (`VO_GAME_RETAIL`, `VO_GAME_OEM`, `VO_GAME_JP`, `VO_GAME_JPRE`,
-`VO_GAME_PVR`). Folders
-on the command line come first, then `VO_GAME` from the environment, then
+`VO_GAME_PVR`). Folders on the command line come first, then `VO_GAME` from the environment, then
 the file. A folder or any file inside one will do. The checks that need the game run once per folder
 given and are named by build - `offsets/jpre` - because a table can only be
-wrong on the build it is for; before tagging, give all five. On the
-PowerVR build `portrait` does not run, since it reads `v_on.exe`. `uiemu` runs on
+wrong on the build it is for; before tagging, give all five. `uiemu` runs on
 the retail exe only.
 
 | Name | What it proves |
@@ -262,14 +260,14 @@ A build that takes only some patches uses these `Build` arguments:
   selftest ask.
 - `annex=` is `ANNEX_BLOBS` plus any blob only it carries, like the PowerVR F5
   template, so the layout matches. `build_blobs()` names the blobs it links.
-- `without=` names a blob a ported patch cannot use on it, with its hook sites
-  `None` in `HAND`.
 - `fixed_ini=` holds a `v_on.ini` value the game gives no way to set.
 - `cautions=` holds a warning for a patch. The patch starts unticked, and ticking
   it asks first.
 
 Its site map needs only those patches' sites. `buildsites.py` skips the rest, and
 what the map cannot place goes in `HAND` in `tools/votrans.py`, as for any build.
+The PowerVR map is the exception. It is kept by hand, and `buildsites.py PVR` stops
+on the bosses' 80 sites, so new rows go straight into `PVR.sites`.
 
 Two things to check by eye before anyone runs it. A site placed by its
 bytes may be in the wrong function: ten bytes of `cmp [ebp-8], 0x1a; jge`

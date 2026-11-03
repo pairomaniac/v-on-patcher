@@ -185,8 +185,6 @@ def patched(game, folder, narrow=False):
     wanted = {key: True for key in vp.PVR.patches}
     if narrow:
         del wanted['hires']
-    else:
-        wanted['hires'] = (1920, 1080)
     buf = vp.apply_selected(bytearray(original), wanted, vp.PVR)[0]
     vp.stamp_version(buf, vp.PVR)
     stock = []
@@ -310,10 +308,13 @@ def main():
         with open(args.exe, 'rb') as fh:
             exe = bytearray(fh.read())
         for name in ('scrstfcg.bin', 'scrstfmp.bin'):   # stock, not the last run's
+            stock = os.path.join(game, name)
+            if os.path.exists(stock + '.bak'):
+                stock += '.bak'
             link = os.path.join(folder, name)
             if os.path.lexists(link):
                 os.remove(link)
-            os.symlink(os.path.join(game, name), link)
+            os.symlink(stock, link)
     else:
         exe = bytearray(patched(game, folder, args.narrow))
     if two:

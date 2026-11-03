@@ -207,6 +207,8 @@ HAND = {'d19320bdc3381a48228990907910a391': ({           # Japanese rerelease
     0x004977c6: 0x00497764,                           # kbpage: the 2P-key accept label,
                                                       # its two loads the other way round
 }), '383d3bff66504954f84924a0b41dc3fa': ({            # PowerVR
+    # What the map could not place when this build's sites were generated. Its
+    # site map is now kept by hand in v-on-patcher.py, so this is a record.
     0x000000a8: 0x000000a8,                           # PE header: the entry point field
     0x001c5900: 0x0009759c,                           # titlever: the load before the flip
     0x001fcec8: None, 0x001fcecc: None,               # the roll's byte counts and block

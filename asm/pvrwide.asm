@@ -47,9 +47,9 @@ frame:
     push    dword [esp+4]
     call    [framefn]
     add     esp, 4
-    ; ui.asm takes the view's centres as the setup left them, at its first 2D
-    ; call. Here a frame's HUD passes come between, and put back what it took
-    ; last time, so it keeps them for that call.
+    ; ui.asm reads the view's centres at its first 2D call. On this build the
+    ; frame's HUD passes run before that call and restore the centres ui.asm
+    ; read last frame, so these are saved for drawn3d to put back.
     mov     eax, [CENTREAX]
     mov     [centres], eax
     mov     eax, [CENTREAY]
@@ -58,8 +58,9 @@ frame:
     mov     [centres+8], eax
     mov     eax, [CENTREBY]
     mov     [centres+12], eax
-    ; Its HUD passes restore the viewport's size from ui.asm's copy, which here
-    ; would be last frame's until its next 2D call, and then be taken again.
+    ; The HUD passes also restore the viewport's size from ui.asm's copy. Until
+    ; ui.asm's next 2D call that copy holds last frame's size, and that call
+    ; would read it back as current. So the copy is updated here.
     mov     ecx, [uisize]
     mov     eax, [VIEWW]
     mov     [ecx], eax
@@ -70,23 +71,23 @@ frame:
 
 ; In place of each renderer's call to set its own region in a split game. A
 ; frame ui.asm shows from one engine is one view, so it takes the whole frame.
+%macro region 1
+    mov     eax, [uishow]
+    cmp     dword [eax], 0
+    jne     whole
+    jmp     %1
+%endmacro
 region1:
-    mov     eax, [uishow]
-    cmp     dword [eax], 0
-    jne     whole
-    jmp     REGION1
+    region  REGION1
 region2:
-    mov     eax, [uishow]
-    cmp     dword [eax], 0
-    jne     whole
-    jmp     REGION2
+    region  REGION2
 whole:
     push    0
     call    REGIONFULL
     add     esp, 4
     ret
 
-; In place of the pushes of the scene's context for its render. The
+; In place of the push of the SGL context at each render call. The
 ; card's dither lifts near-black to a visible checkerboard, where the other builds'
 ; rasterizers, which do not dither, truncate it to black.
 nodither:
@@ -221,38 +222,27 @@ insert2:
     call    origin_off
     call    [insertfn]
     ; esi holds what the hook loaded
+%macro origin 1                         ; add or sub, on the record's vertices
+    push    eax
+    push    ecx
+    mov     eax, [ORGX2]
+    mov     ecx, [ORGY2]
+    %1      [edx+0x10], ax
+    %1      [edx+0x12], cx
+    %1      [edx+0x14], ax
+    %1      [edx+0x16], cx
+    %1      [edx+0x18], ax
+    %1      [edx+0x1a], cx
+    %1      [edx+0x1c], ax
+    %1      [edx+0x1e], cx
+    pop     ecx
+    pop     eax
+    ret
+%endmacro
 origin_on:
-    push    eax
-    push    ecx
-    mov     eax, [ORGX2]
-    mov     ecx, [ORGY2]
-    add     [edx+0x10], ax
-    add     [edx+0x12], cx
-    add     [edx+0x14], ax
-    add     [edx+0x16], cx
-    add     [edx+0x18], ax
-    add     [edx+0x1a], cx
-    add     [edx+0x1c], ax
-    add     [edx+0x1e], cx
-    pop     ecx
-    pop     eax
-    ret
+    origin  add
 origin_off:
-    push    eax
-    push    ecx
-    mov     eax, [ORGX2]
-    mov     ecx, [ORGY2]
-    sub     [edx+0x10], ax
-    sub     [edx+0x12], cx
-    sub     [edx+0x14], ax
-    sub     [edx+0x16], cx
-    sub     [edx+0x18], ax
-    sub     [edx+0x1a], cx
-    sub     [edx+0x1c], ax
-    sub     [edx+0x1e], cx
-    pop     ecx
-    pop     eax
-    ret
+    origin  sub
 
 centres:    dd 0, 0, 0, 0
 rendered:   dd 0

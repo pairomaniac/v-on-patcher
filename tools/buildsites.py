@@ -4,8 +4,8 @@
     python3 tools/buildsites.py NAME RETAIL.exe OTHER.exe [MAP.pkl]
 
 NAME is the Build's name in v-on-patcher.py (JPRE). For every site the table
-names by retail offset, in the patches that build takes: where it is in the other build, through votrans.py,
-and the bytes that build has there. A site whose retail original is not
+names by retail offset, in the patches that build takes: where it is in the
+other build, through votrans.py, and the bytes that build has there. A site whose retail original is not
 what the retail file holds is one an earlier site in the same patch wrote,
 so its original is kept as the table has it. The result goes between the
 `# SITES NAME BEGIN` and `END` markers, which must exist.

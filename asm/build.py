@@ -242,12 +242,12 @@ def check_link(vp, blobs):
     for build in vp.BUILDS.values():
         anywhere |= carried(build)
     for build in vp.BUILDS.values():
+        # A build that takes only some patches links only the blobs those
+        # write or name; the rest keep their place, zeroed.
+        needed = vp.build_blobs(build)
         for name in blobs:
             if name in anywhere and name not in carried(build):
                 continue
-            # A build that takes only some patches links only the blobs
-            # those write or name; the rest keep their place, zeroed.
-            needed = vp.build_blobs(build, blobs)
             if needed is not None and name not in needed:
                 continue
             try:

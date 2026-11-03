@@ -1,9 +1,9 @@
 bits 32
-; The PowerVR build's call for HOLD TO SKIP to make first. overlay.asm makes a
-; displaced call before it draws, and retail's has no counterpart here: 0x498178
-; runs only behind a toggle. The hook there is the store of the time at
-; 0x498186, after the frame is drawn and ahead of the flip at 0x4981a9, so this
-; is that store. Nothing before it changes eax.
+; The PowerVR build's half of HOLD TO SKIP. overlay.asm starts by making the call
+; its hook replaced. Retail's call has no match here that runs every frame:
+; 0x498178 runs only behind a toggle. So the hook replaces the store of the time
+; at 0x498186, after the frame is drawn and ahead of the flip at 0x4981a9. This
+; routine does that store. overlay.asm has not changed eax when it calls this.
 
 extern FLIPTIME                 ; where the displaced store writes
 

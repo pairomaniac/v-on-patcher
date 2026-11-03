@@ -105,7 +105,6 @@ def f4_check(vp, original, keys, build, result):
     """The resolution patch's F4 table: its first byte set is what the
     file holds at every site, and the file with the second set copied in
     is a build made for the other size, outside the table itself."""
-    import struct
     if not vp.hires_supported(bytearray(original)) \
             or vp.by_key(build)['hires'][2] is not None:
         return 'no table for this build'

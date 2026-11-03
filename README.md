@@ -585,7 +585,7 @@ Wine has no `sgl.dll` of its own, so nothing needs setting in `winecfg`. With
 cnc-ddraw, keep `singlecpu=false` in `ddraw.ini`. Tested with release 0.1 under Wine and
 Proton.
 
-### Texture=7
+### Black machines (Texture=7)
 
 Without a Texture value in `v_on.ini` the machines are black, and this version's F5 page
 cannot set one. The installer writes a `v_on.ini` with only `Texture=7`, and the gamepad

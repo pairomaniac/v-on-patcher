@@ -8,9 +8,7 @@
 
 ~/.vo-test (template: tools/vo-test.example) names the game folder per
 build: VO_GAME_RETAIL, VO_GAME_OEM, VO_GAME_JP, VO_GAME_JPRE and VO_GAME_PVR.
-The portrait check reads v_on.exe, so it does not run on the PowerVR build.
-Folders
-on the command line come first, then VO_GAME from the environment, then
+Folders on the command line come first, then VO_GAME from the environment, then
 the file.
 
 The game is not in the repository, so CI can only run the first form. The
@@ -37,8 +35,7 @@ ROOT = os.path.dirname(HERE)
 PY = sys.executable or 'python3'
 CONF = os.path.expanduser('~/.vo-test')
 BUILDS = ('RETAIL', 'OEM', 'JP', 'JPRE', 'PVR')
-# The builds the portrait check runs on: it reads v_on.exe.
-WHOLE = ('retail', 'oem', 'jp', 'jpre')
+UNKNOWN = 'no build the patcher knows', 'unknown'
 
 
 def config():
@@ -107,7 +104,7 @@ CHECKS = [
     ('credit', 'the credit line reads back out of the roll',
      [PY, 'tools/credittest.py', '{game}'], True, False),
     ('portrait', 'the boss portraits read back as written',
-     [PY, 'tools/portraittest.py', '{game}'], True, False, WHOLE),
+     [PY, 'tools/portraittest.py', '{game}'], True, False),
     ('uiemu', 'the resolution blob run under Unicorn',
      [PY, 'tools/uiemu.py', '{exe}'], True, False, ('retail',)),
 ]
@@ -130,26 +127,28 @@ def find_games(args):
         if not given and conf.get('VO_GAME'):
             given = [conf['VO_GAME']]
     out = []
+    vp = load_patcher() if given else None
     for game in given:
         if os.path.isfile(game):
             game = os.path.dirname(game) or '.'
-        exe = os.path.join(game, 'v_on.exe')
-        if not os.path.exists(exe) and os.path.exists(
-                os.path.join(game, 'vonpvr.exe')):
-            exe = os.path.join(game, 'vonpvr.exe')
-        name, short = build_name(exe)
-        out.append((game, exe if os.path.exists(exe) else None, name, short))
+        exe = vp.game_exe(game)
+        name, short = build_name(vp, exe) if exe else UNKNOWN
+        out.append((game, exe, name, short))
     return out
 
 
-def build_name(exe):
-    """Which build an executable, or the original beside it, is."""
-    import hashlib
+def load_patcher():
     import importlib.util
     spec = importlib.util.spec_from_file_location(
         'vonpatcher', os.path.join(ROOT, 'v-on-patcher.py'))
     vp = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(vp)
+    return vp
+
+
+def build_name(vp, exe):
+    """Which build an executable, or the original beside it, is."""
+    import hashlib
     for candidate in (exe, exe + '.bak'):
         try:
             with open(candidate, 'rb') as fh:
@@ -158,7 +157,7 @@ def build_name(exe):
             continue
         if build:
             return build.name, build.short
-    return 'no build the patcher knows', 'unknown'
+    return UNKNOWN
 
 
 def main():

@@ -158,11 +158,13 @@ a PowerVR PCX1 or PCX2 through `sgl.dll`. It is the furthest from retail:
 3846 of 7934 functions match, 3054 identically. It takes the patches below
 and no others. `Build.patches` lists them; the window greys out the rest,
 and the apply skips them with the reason in `Build.reasons`. Its site map
-comes from `tools/buildsites.py` like the others', with the sites the map
-cannot place in `HAND` in `tools/votrans.py`, each placed by aligning its
-function between the builds instruction by instruction. Its annex carries
-every blob, so the layout matches the other builds'; only the blobs its
-patches write are linked for it (`build_blobs`).
+is kept by hand. It began as `tools/buildsites.py`'s output, with what the map
+could not place in `HAND` in `tools/votrans.py`, each placed by aligning its
+function between the builds instruction by instruction. The bosses' sites went
+straight into the map, so the generator now stops on them. Its annex carries
+every blob, so the layout matches the other builds'. Blobs its patches do not
+write stay zero, and `build_blobs` tells `asm/build.py`'s link check which is
+which.
 
 - **Processor check**: none. The `ProcessorCheck` keys are not in the
   file.
@@ -199,9 +201,9 @@ patches write are linked for it (`build_blobs`).
   pause locked a null back buffer. The hook now makes the two tests the
   game's own F5 to F8 make first, on every build (`DLGOK`, `DLGBUSY`).
 - **Gamepad**: the device list, the bind tables, both players' keyboard
-  handlers and profile switches are retail's at other addresses; the 2P
+  handlers and profile switches are retail's at other addresses. The 2P
   handler (`0x54b60d`) and its masks were found from the 2P bind table,
-  0x18 past 1P's as in retail. Each switch table the patch repoints was
+  which is 0x18 past 1P's, as in retail. Each switch table the patch repoints was
   paired with retail's entry by entry through its function's alignment.
   The bind page fill reads its counter at `[ebp-0x18]`, the F7 page its
   selection at `[ebp-0x10]` and the save its line buffer at `[ebp-0x18c]`.
@@ -213,12 +215,17 @@ patches write are linked for it (`build_blobs`).
   `escrgame.bin` is retail's, byte for byte, so the banner's tiles go
   where they go there.
 - **Intro, loading and ending screens**: the movie placer reads
-  `[ebp-0x14]` and `[ebp-0x18]`. HOLD TO SKIP is not ported: the frame end
-  is a function of its own here (`0x498093`), and its call before the flip
-  (`0x498178`) runs only behind a toggle the window procedure flips on a
-  Shift key, so the build goes without the overlay (`Build.without`).
+  `[ebp-0x14]` and `[ebp-0x18]`. The frame end is a function of its own here
+  (`0x498093`), and its call before the flip (`0x498178`) runs only behind a
+  toggle the window procedure flips on a Shift key. So HOLD TO SKIP hooks the
+  store of the time at `0x498186` instead (`asm/pvrhold.asm`).
+- **Version and credit**: the version line is retail's code, hooked at the load
+  before the flip (`0x49819c`). The roll files and the block list are this
+  build's own; see [TEXT.md](TEXT.md#the-ending-roll).
 - **Native widescreen**: 1024x576, the other builds' blob on this build's
   frame; see [HIRES.md](HIRES.md#the-powervr-build).
+- **Playable bosses**: `asm/bosses.asm` with `asm/pvrboss.asm` on top; see
+  [BOSSES.md](BOSSES.md#the-powervr-build).
 
 It reads and writes `v_on.ini`, not the `VONPVR.INI` its `ssp.ini` names,
 and the patcher keeps `Texture=7` in it; see *Why no v_on.ini* above.
@@ -689,9 +696,9 @@ apply time once the section exists.
 
 The section carries code at its tail too. The dialog's long paths live in `asm/voxt.asm`, position
 independent, reached through a rel32 placeholder in the dialog procedure. They are the close-time
-read, the ini save, the Defaults button that seeds both players back to 40 with the dialog still
-open, and Quit, which closes the dialog before posting because the game tears the window down under
-it. The check-box init is in `asm/f11pause.asm`'s tail.
+read, the ini save, the Defaults button and Quit. Defaults seeds both players back to 40 with the
+dialog still open. Quit closes the dialog before posting, because the game tears the window down
+under it. The check-box init is in `asm/f11pause.asm`'s tail.
 
 The values and their digits live in the gamepad patch's `.data` scratch,
 and the ini write-back in `asm/iniparse.asm`, so the close path calls it

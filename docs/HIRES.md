@@ -913,8 +913,8 @@ the differences follow from that order.
   (`0x41e2d3`) and list (`0xb7c920`), treated the same. The other builds' fade is left
   out. The loader has 8 memory blocks for machines; two full lists would exceed them,
   and no problem from that has been seen.
-- **Sites placed by hand.** `PVR_UI` holds the blob's addresses, from the map where
-  it has one and otherwise by alignment or callees: renderer B's setups and submit
+- **Sites placed by hand.** `PVR_UI` holds the blob's addresses. They come from the
+  map where it has one. The rest come from alignment or callees: renderer B's setups and submit
   (`0x4a084d`, `0x4a088e`, `0x4a0976`), the HUD passes (`0x435b36`, `0x474906`,
   `0x5cf657`, `0x423c11`) and `MATSCALE` (`0x418060`, the copy using the current
   matrix pointer). `hiresport.py` stops at the coverage mask, so it does not run
@@ -943,7 +943,7 @@ Under Wine 11 with cnc-ddraw's GDI renderer and pvr-sgl-wrapper 0.1, in Xvfb:
   changes were not available.
 
 P2's view of the two-player machine select, played only: the 3D across the whole
-width. The bottom left corner stays black, as the README's known issue has it.
+width. The bottom left corner stays black, a known issue in the README.
 
 Played: the intro movie, the end of the roll and the SEGA card after it, the
 two-player photo screens, and internet play, including against the software builds.
