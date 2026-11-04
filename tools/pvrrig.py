@@ -10,7 +10,9 @@ select2p (the 2P select with the 3D hangar), bbb and apharmd (1P, a lost round a
 the continue), jag and zgradt (1P as a boss, a lost round), fullj and fullz (a whole
 game as one, by the debug kill), lastz (the last stage as Z-Gradt), again (Z-Gradt,
 game over, Z-Gradt again), igr and igrj (Z-Gradt or Jaguarandi, the reset and the attract demo, again),
-hold0, hold and holdz (parked on Temjin, Jaguarandi or Z-Gradt). It captures at 60 FPS and reports frames that are nearly all black
+hold0, hold and holdz (parked on Temjin, Jaguarandi or Z-Gradt), unlock (Very Hard
+from nothing unlocked, two games by state, both unlock screens in the second, since the
+difficulty is written too late for the first), report (Jaguarandi, by state, to its report). It captures at 60 FPS and reports frames that are nearly all black
 and frames with flat red or blue at the right edge. Screen changes show as black, and the flat-colour count only means something
 on the machine select. One game runs at a time; the captures are in the rig's
 shots/ folder.
@@ -50,6 +52,12 @@ WRITES = ('vonpvr.exe', 'vonpvr.exe.bak', 'v_on.ini', 'ddraw.ini', 'bkup.bin',
 FORCE_2P = 0x5aa6a3, bytes.fromhex('a1c0ccd201'), bytes.fromhex('b801000000')
 CURSOR, TURN, HOLD = 0x1df6738, 0x1df6700, 0x1df673c   # what a key press writes
 SPLIT_RADIO, KILL_1P, KILL_2P = 0x6a34a4, 0x9c61, 0x9c62
+STATE, DIFF, VERY_HARD = 0x200c5b0, 0x1e299c1, 2
+ROUNDS, REPORT, ROLL = (0xa, 0xb), 0x1e, 0x20
+# Stage 5, Jaguarandi's, is skipped when the missions so far average 1680 units
+# of this or less, as the debug kill's do; a unit is about 1/50 second.
+STAGE, MISSION_TIME = 0x200a29c, 0x200b69c
+UNLOCKS = {'unlock': 0}                 # bosses.bin, 2 (both) by default
 
 
 def moves(start, step, cursors):
@@ -88,6 +96,16 @@ def win_scene(cursor):
             + moves(17, 1.6, [(2, 1), (4, 1), (6, 1), (cursor, 1)])
             + [(t, 'key', 'space') for t in range(25, 410, 3)]
             + [(t + 0.5, 'post', 0x111, KILL_2P) for t in range(38, 410, 4)])
+
+
+def state_scene(cursor, seconds, start, length, very_hard=False):
+    """1P to the ending, driven by the game's state once the pick is settled."""
+    walk = 17 + cursor * 1.4
+    diff = [(t, 'diff') for t in (3, 6, 12, 16)] if very_hard else []
+    return ('0', False, seconds, start, length,
+            diff + [(t, 'key', 'space') for t in (5, 8, 14)]
+            + moves(17, 1.4, [(i, 1) for i in range(1, cursor + 1)])
+            + [(walk + 4, 'auto')])
 
 
 SCENES = {
@@ -131,6 +149,8 @@ SCENES = {
                   (43, 'key', 'space'), (60, 'post', 0x111, KILL_1P)]
               + [(t, 'key', 'space') for t in (92, 97)]
               + moves(101, 1.4, [(i, 1) for i in range(1, 10)])),
+    'unlock': state_scene(0, 620, 140, 470, True),
+    'report': state_scene(8, 175, 120, 45),
     'jag': boss_scene(8),
     'zgradt': boss_scene(9),
     'bbb': continue_scene(5),
@@ -215,18 +235,42 @@ def play(folder, helper, out, seconds, start, length, events):
         subprocess.run(['wine', helper] + [str(a) for a in args],
                        capture_output=True)
 
-    def key(name):
+    def key(name, hold=0.3):
         found = subprocess.run(['xdotool', 'search', '--onlyvisible', '--name',
                                 '.+'], capture_output=True, text=True).stdout
         for window in found.split():
             subprocess.run(['xdotool', 'windowfocus', window], capture_output=True)
         subprocess.run(['xdotool', 'keydown', name])
-        time.sleep(0.3)
+        time.sleep(hold)
         subprocess.run(['xdotool', 'keyup', name])
 
+    def peek(address):
+        got = subprocess.run(['wine', helper, 'peek', '0x%x' % address],
+                             capture_output=True, text=True).stdout.split()
+        return int(got[0]) if got else None
+
     pending = sorted(events, key=lambda e: e[0])
+    auto = state = None
+    since = pressed = 0
+    log = open(os.path.join(out, 'states.txt'), 'w')
     while time.time() - began < seconds:
         now = time.time() - began
+        if auto:
+            # A round is killed once it has run a while, a report stands 7
+            # seconds so that its screen is seen, and the rest is pressed through.
+            got = peek(STATE)
+            if got != state:
+                state, since = got, now
+                print('%.1f state 0x%x' % (now, got or 0), file=log, flush=True)
+            if state in ROUNDS:
+                if peek(STAGE) == 4:
+                    tool('poke', '0x%x=%d' % (MISSION_TIME, 10000))
+                if now - since > 6 and now - pressed > 4:
+                    tool('post', 0x111, KILL_2P)
+                    pressed = now
+            elif (state != REPORT or now - since > 7) and now - pressed > 2:
+                key('space', 1.5 if state == ROLL else 0.3)
+                pressed = now
         if capture is None and now >= start:
             capture = subprocess.Popen([
                 'ffmpeg', '-v', 'error', '-y', '-f', 'x11grab', '-framerate', '60',
@@ -236,7 +280,11 @@ def play(folder, helper, out, seconds, start, length, events):
                 os.path.join(out, 'cap.mkv')])
         if pending and now >= pending[0][0]:
             event = pending.pop(0)
-            if event[1] == 'key':
+            if event[1] == 'auto':
+                auto = True
+            elif event[1] == 'diff':
+                tool('pokeb', '0x%x=%d' % (DIFF, VERY_HARD))
+            elif event[1] == 'key':
                 key(event[2])
             elif event[1] == 'move':
                 tool('poke', '0x%x=%d' % (CURSOR, event[2]),
@@ -325,7 +373,7 @@ def main():
     with open(os.path.join(folder, 'vonpvr.exe'), 'wb') as fh:
         fh.write(exe)
     with open(os.path.join(folder, 'bosses.bin'), 'wb') as fh:
-        fh.write((2).to_bytes(4, 'little'))         # both unlocked
+        fh.write(UNLOCKS.get(args.scene, 2).to_bytes(4, 'little'))
     with open(os.path.join(folder, 'v_on.ini'), 'w', newline='') as fh:
         fh.write('[View]\r\nSky=On\r\nOutside=On\r\n[Option]\r\nMovie=Off\r\n'
                  'Motion=1\r\nColorFormat=565\r\nScrSize=0\r\nSSHoriz=%d\r\n'

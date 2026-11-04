@@ -418,7 +418,20 @@ def main():
             finally:
                 vp._urlopen = urlopen
 
-            # ---- applying it needs the real file ----------------------
+            # ---- the offer after Apply, the patching itself stubbed ----
+            apply_all = vp.Patcher.apply
+            vp.Patcher.apply = lambda _self, _wanted: (True, [])
+            try:
+                del shown[:]
+                root.after(20, answer, 'Not now')
+                buttons['Apply patches'][0].invoke()
+                check('Apply offers to install sgl.dll, and it can be declined',
+                      shown and not os.path.exists(
+                          os.path.join(pvr_dir, 'sgl.dll')))
+            finally:
+                vp.Patcher.apply = apply_all
+
+            # ---- applying it for real needs the real file --------------
             if pvr is not None:
                 real_dir = os.path.join(tmp, 'pvr-real')
                 os.makedirs(real_dir)
@@ -433,7 +446,7 @@ def main():
                 del shown[:]
                 root.after(20, answer, 'Not now')
                 buttons['Apply patches'][0].invoke()
-                check('Apply offers to install it, and it can be declined',
+                check('the real file applies, and the offer comes after',
                       shown and not os.path.exists(
                           os.path.join(real_dir, 'sgl.dll')))
         finally:

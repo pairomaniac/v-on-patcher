@@ -2,7 +2,7 @@ name: "Build"
 
 on:
   push:
-    branches: [main]
+    branches: [main, powervr]
     tags: ['v*']
   pull_request:
   workflow_dispatch:

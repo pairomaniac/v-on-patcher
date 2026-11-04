@@ -405,10 +405,8 @@ How its select differs:
   order.
 - **Z-Gradt's launch flames.** They are in Raiden's select file, so `loader` keeps that
   listed with the cursor on Z-Gradt or Z-Gradt taken, and `BS_LOADFILE` does nothing
-  here. `0x580865`, which a map gave for it, loads a scene: given Raiden's 3, it loaded
-  Green Hills' (`FC_Fore.bin`, `FFOR.VRB`) and broke the hangar's textures. A flame record
-  here has a fourth field, for the other mode, so `flames` gives Raiden's in the other
-  builds' shape.
+  here. A flame record here has a fourth field, for the other mode, so `flames` gives
+  Raiden's in the other builds' shape.
 - **The draw.** `0x5c9ba3` has a bigger frame than the other builds', which `selmdl`
   makes up, and its bone is at `SEL_BONE`, -0x10.
 
@@ -420,7 +418,15 @@ Not done:
   Temjin. Not looked at while the camera moves, and not compared with retail. The cause
   is not known.
 - **Stand-ins.** `BS_MTSELMEM` and `BS_LOADTEX` hold stand-ins, for Z-Gradt's unlock
-  screen, which has not been run.
+  screen. `BS_MTSELMEM`, `0x2480000`, is not where this build reads `MT_sel.bin`, and its
+  0x2cdc4 bytes run over `.idata` and into the read-only `.rsrc`. When that screen ended
+  in the rig, `unl_scnback` faulted writing `0x24a4000`, and the game carried on to the
+  initials.
+- **The unlock screens.** Both ran in the rig and both show YOU UNLOCKED, with no model
+  and no name. PRESS BUTTON TO CONTINUE was seen on Z-Gradt's. `bosses.bin` went from 0
+  to 2. The cause is not known.
+- **Jaguarandi on the report.** In the rig the report shows its name, times and rank, and
+  no model. Temjin's model shows on the same screen. The cause is not known.
 
 Played: the portraits, both bosses in fights, their models, launches and cameras, their
 textures after a reset, Z-Gradt's flames, laser, gauge and turn, and the arena's edges.
@@ -449,7 +455,6 @@ Seen and not explained:
 - The screen went solid red for some seconds in that last round as Z-Gradt. The other
   builds have not been compared.
 
-Not tried: the unlock screens, and Jaguarandi on the report with the models in.
 
 ## Testing it
 

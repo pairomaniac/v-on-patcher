@@ -1,4 +1,6 @@
 /* pvrrig.exe poke ADDR=VALUE... : write dwords into the running vonpvr.exe
+   pvrrig.exe pokeb ADDR=VALUE    : write one byte
+   pvrrig.exe peek ADDR           : print a dword, in decimal
    pvrrig.exe post MSG WPARAM     : post a message to its window
    The helper tools/pvrrig.py runs under Wine. */
 #include <windows.h>
@@ -41,6 +43,28 @@ int main(int n, char **a)
         if (!found)
             return 1;
         PostMessageA(found, strtoul(a[2], 0, 0), strtoul(a[3], 0, 0), 0);
+        return 0;
+    }
+    if (n > 2 && !strcmp(a[1], "peek")) {
+        HANDLE p = OpenProcess(PROCESS_ALL_ACCESS, 0, game());
+        DWORD v = 0;
+        SIZE_T done = 0;
+
+        if (!p || !ReadProcessMemory(p, (void *) strtoul(a[2], 0, 0), &v, 4, &done))
+            return 1;
+        printf("%lu\n", v);
+        return 0;
+    }
+    if (n > 2 && !strcmp(a[1], "pokeb")) {
+        HANDLE p = OpenProcess(PROCESS_ALL_ACCESS, 0, game());
+        char *eq = strchr(a[2], '=');
+        BYTE v = (BYTE) strtoul(eq + 1, 0, 0);
+        SIZE_T done = 0;
+
+        if (!p)
+            return 1;
+        *eq = 0;
+        WriteProcessMemory(p, (void *) strtoul(a[2], 0, 0), &v, 1, &done);
         return 0;
     }
     if (n > 2 && !strcmp(a[1], "poke")) {
