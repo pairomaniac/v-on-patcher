@@ -186,6 +186,104 @@ and commit the result.
 python3 tools/assets.py
 ```
 
+## The PowerVR rig
+
+`tools/pvrrig.py` plays the PowerVR build without anyone at the keyboard, on a hidden
+display with the sound off. It answers questions like "does this screen draw its model"
+without a play-through. It does not judge anything: someone has to look at what it leaves.
+
+```bash
+python3 tools/pvrrig.py lastu              # a scene, on the working tree's patches
+python3 tools/pvrrig.py lastu --tag try2   # keeps its output under another name
+python3 tools/pvrrig.py lastu --exe FILE   # on that executable instead
+```
+
+It needs `VO_GAME_PVR` in `~/.vo-test`, with `vonpvr.exe.bak` and `sgl.dll` in that
+folder, and wine, xvfb-run, xdotool, ffmpeg, i686-w64-mingw32-gcc and Pillow. Xvfb's
+socket fails inside a sandbox, so run it outside one. One game runs at a time.
+
+### How a run works
+
+The rig works in `~/.cache/vo-pvr-rig`, or `$VO_PVR_RIG`. Its `game` folder holds links to
+the install and its own copies of what the game writes, so the install is not touched.
+The rig does these things in order:
+
+1. It applies the patches to a copy of the executable, or takes `--exe`.
+2. It writes `bosses.bin`, `v_on.ini` and `ddraw.ini` with the GDI renderer.
+3. It starts the game under Wine and follows the scene's events: key presses, memory
+   writes and the debug menu's commands, through the helper `tools/pvrrig.c`.
+4. It reports how many exceptions `pvrsgl.log` holds, and what the scene collected.
+
+If the game hangs, the run is cut off 120 seconds after the scene's time, with no line saying
+how the game ended.
+
+A scene collects in one of two ways, and its output is in `shots/` under the scene's name.
+
+- **Screenshots.** The scene follows the game's state and logs each change in
+  `states.txt`. It takes a screenshot at set times in a state, or when the report's frame
+  counter shows the whole card, and captions them on `sheet.jpg`. It stops when it has
+  them all, and says so if any were missed.
+- **A recording.** The scene keeps to fixed times and records at 60 FPS to `cap.mkv`. It
+  reports nearly black frames and flat red or blue at the right edge. Screen changes show
+  as black, and the flat-colour count only means something on the machine select. The
+  recording and its frames take gigabytes, so delete them when done.
+
+### The scenes
+
+The times are one run's, setup included.
+
+| Scene | What it does | Collects | Time |
+| --- | --- | --- | --- |
+| `unlj` | Jaguarandi's unlock screen, written to the state | screenshots | 1 min |
+| `lastu` | Z-Gradt's unlock screen and the name entry, the stage written to the last | screenshots | 2 min |
+| `lastz` | The last stage as Z-Gradt, the stage written, to the name entry | screenshots | 2 min |
+| `report` | Jaguarandi through five stages and its stage to its report | screenshots | 3 min |
+| `unlock` | Very Hard from nothing unlocked: a whole game, both unlock screens, the report | screenshots | 5 min |
+| `fullj`, `fullz` | A whole game as Jaguarandi or Z-Gradt, to the name entry | screenshots | 5, 6 min |
+| `title` | The title screen and its menu | recording | 40 s |
+| `sweep`, `bounce` | The 1P select: rightward, or Apharmd and Bal-Bas-Bow | recording | 40 s |
+| `select2p` | The 2P select with the 3D hangar | recording | 40 s |
+| `round` | A 1P match | recording | 1 min |
+| `hold0`, `hold`, `holdz` | Parked on Temjin, Jaguarandi or Z-Gradt | recording | 1, 1.5 min |
+| `split` | A 2P round, a live layout switch and a loss | recording | 1.5 min |
+| `bbb`, `apharmd` | 1P, a lost round and the continue | recording | 1.5 min |
+| `roll` | The ending credits | recording | 2.5 min |
+| `jag`, `zgradt` | 1P as a boss, a lost round | recording | 2.5 min |
+| `igr`, `igrj` | Z-Gradt or Jaguarandi, the reset, the attract demo, and the select again | recording | 2.5 min |
+| `again` | Z-Gradt, game over, and Z-Gradt again | recording | 3 min |
+
+### What a scene cannot show
+
+- A scene that writes the stage or the state skips what the game would have done before
+  it. `lastu` and `unlj` are quick, and only a whole game proves the real path.
+- `lastu` did reproduce the wrong textures of `unlock`'s name entry, so it is enough for
+  that fault.
+- The rig runs only this build. It cannot steer a machine or reach P2's view of the select.
+- A clean result is not proof, since the rig has missed what a player saw. The captures use
+  the GDI renderer, and F12 under the wrapper shows only what the card drew.
+
+### Things the rig works around
+
+- **The cursors.** The keyboard does not move the title's or the select's cursor in Xvfb.
+  The 2P scenes force the title's choice in the rig's executable, and cursor moves are
+  written to memory one machine at a time, because the camera slides between them.
+- **Jaguarandi's stage.** The game skips it when the missions so far average 1680 units of
+  time or less, about 33.6 seconds, and the debug kill's take about 5. The rig raises the
+  time during the fifth mission, so the report's times and rank are not a player's.
+- **Very Hard and a clean run.** The rig writes the difficulty and `unl_clean` at the select.
+  A write of the difficulty alone came too late for the first game to unlock anything.
+- **The kill.** Jaguarandi kills a standing machine in about 5 seconds, which loses the
+  run, so a round is killed after 2. It waits 6 on the last stage, where an early kill has
+  stuck the game once, and 12 as Z-Gradt, which flies in first.
+- **Labels.** A scene can write a label of `asm/bosses.asm` by name. The rig takes its place
+  from the working tree, so with `--exe` that file has to be built from the same tree.
+
+### Adding a scene
+
+A scene is one entry in `SCENES`, a `Scene` with its most seconds and its events. Use
+`state_scene` for anything that plays through rounds, with `shots` saying when to take
+each screenshot in which state. Use `capture=` only for what happens between screenshots.
+
 ## Where the blobs live
 
 Every blob but three is in the annex: a section, `.vojp`, appended before
@@ -315,11 +413,6 @@ tools/vo-dll.sh build
 tools/vo-dll.sh install               # or install /other/folder
 tools/vo-dll.sh restore
 ```
-
-`tools/pvrrig.py` runs the PowerVR build through a scripted scene on a hidden
-display, with its own Wine prefix and links to the install, and reports black and
-flat-colour frames from a 60 FPS capture. A clean capture is not proof: 2P's view of
-the select is out of its reach, and it has missed what a player sees.
 
 `tools/vo-dbg.sh` is gdb on the running game: interactive, or one of
 pixel / watch / break / read / cmd for a question answered in one go (who

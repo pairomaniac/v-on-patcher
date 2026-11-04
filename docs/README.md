@@ -27,6 +27,7 @@ Where something lives, by question:
   HIRES.md's *Rebuilding* for `asm/ui.asm`.
 - *How does the widescreen patch reach the OEM and Japanese builds?*
   HIRES.md, *Porting to other builds* and *Porting rules*. The PowerVR build: HIRES.md, *The PowerVR build*.
+- *How do I test the PowerVR build without playing it?* DEVELOPING.md, *The PowerVR rig*.
 - *How do I cut a release?* DEVELOPING.md, *Releasing*.
 - *How is the exe signed, and how is signing set up?* DEVELOPING.md,
   *Signing* and *Setting up signing*.

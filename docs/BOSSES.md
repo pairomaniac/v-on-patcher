@@ -446,11 +446,8 @@ Seen in the rig, with a hidden display and the debug kill:
 - Both bosses back on the select after a continue, textured, and Z-Gradt after a game
   over and a new game, and after the reset (writing -1 to the mode word) and the attract
   demo. Jaguarandi in `RJAG.VRB`'s colours, on the select and in a round.
-- Before the models were in: a whole game as Jaguarandi to its ending, name entry and
-  the scoreboard, then a normal game with Temjin to the credits.
-- Before the models were in: Z-Gradt through the stages and the report, and on the last
-  stage against the CPU's Z-Gradt to its charge, laser and ending, reached by writing
-  the stage.
+- A whole game as Jaguarandi and as Z-Gradt to the name entry, with the models: every
+  stage, the report with its model, and the ending.
 
 - Both unlock screens, earned in a game on Very Hard: the boss turning, YOU UNLOCKED, its
   name, PRESS BUTTON TO CONTINUE, and `bosses.bin` going from 0 to 2. Jaguarandi on the
@@ -463,6 +460,9 @@ Seen and not explained:
   cannot win that early, but the cause has not been confirmed.
 - The screen went solid red for some seconds in that last round as Z-Gradt. The other
   builds have not been compared.
+- The `again` scene hung once: two faults at `0x53921f`, reading address 3 with `ebp` 3,
+  as a state handler returned. Three later runs were clean, two of them without the
+  commit that fixed the unlock screens, so it has not been tied to anything.
 
 
 ## Testing it
