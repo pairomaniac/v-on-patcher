@@ -2635,6 +2635,8 @@ UNL_PROMPTH equ 2                   ; covers, cleared
 UNL_NJ      equ 0x22 * 2            ; the names' tiles, Jaguarandi's
 UNL_NZ      equ 0x1a * 3            ; and Z-Gradt's
 UNL_TILE    equ 0x80                ; a tile's bytes
+UNL_BANK2   equ 0x4000              ; a map entry's mark for the other bank; its
+                                    ; count is the dword before BS_ARTCOUNT
 ST_SELECT   equ 4                   ; A's state on the select
 UNL_BUTTONS equ 0x10110             ; the buttons that end the report, as
                                     ; held (BS_PADEDGE is held, not pressed):
@@ -2892,6 +2894,27 @@ unl_grab:
 ; past the art holds textures, which, the tiles written there, kept them
 ; (seen on the ground behind the initials). unl_map the boss's name's map
 ; there. CF set if they are out of the art's reach.
+; eax a bank's start -> edi unl_area at a whole tile from it, ebp its first
+; tile's number, eax the number past the names. CF set if out of its reach.
+unl_reach:
+        push    eax
+        mov     edi, unl_area
+        sub     eax, edi
+        and     eax, UNL_TILE - 1
+        add     edi, eax
+        mov     ebp, edi
+        pop     eax
+        sub     ebp, eax
+        jb      .far
+        shr     ebp, 7
+        lea     eax, [ebp + UNL_NJ + UNL_NZ]
+        cmp     eax, 0x4000
+        jae     .far
+        clc
+        ret
+.far:   stc
+        ret
+
 unl_place:
         pushad
         cld
@@ -2899,27 +2922,25 @@ unl_place:
         je      .no
         cmp     byte [unl_placed], 0
         jne     .map
-        mov     edi, unl_area       ; a whole tile on from the art's start
-        mov     eax, [BS_ARTPOOL]
-        sub     eax, edi
-        and     eax, UNL_TILE - 1
-        add     edi, eax
-        mov     ebp, edi
-        sub     ebp, [BS_ARTPOOL]
-        jb      .no
-        shr     ebp, 7              ; its first tile's number
-        lea     eax, [ebp + UNL_NJ + UNL_NZ]
-        cmp     eax, 0x4000
-        jae     .no
-        mov     esi, unl_tiles
+        mov     eax, [BS_ARTPOOL]   ; in reach of the art's bank, or the other's
+        call    unl_reach
+        mov     ebx, BS_ARTCOUNT
+        jnc     .reach
+        mov     eax, [BS_ARTPOOL2]
+        call    unl_reach
+        jc      .no
+        mov     ebx, BS_ARTCOUNT - 4
+        or      ebp, UNL_BANK2
+.reach: mov     esi, unl_tiles
         mov     ecx, (UNL_NJ + UNL_NZ) * UNL_TILE / 4
         rep movsd
         mov     [unl_first], ebp
-        mov     ecx, [BS_ARTCOUNT]
+        mov     [unl_countp], ebx
+        mov     ecx, [ebx]
         mov     [unl_count], ecx
         cmp     eax, ecx
         jbe     .in
-        mov     [BS_ARTCOUNT], eax
+        mov     [ebx], eax
 .in:    mov     byte [unl_placed], 1
 .map:   mov     ebp, [unl_first]
         xor     ebx, ebx            ; the map: the name's own entries,
@@ -2950,9 +2971,12 @@ unl_unplace:
         cmp     byte [unl_placed], 0
         je      .out
         push    eax
+        push    ebx
+        mov     ebx, [unl_countp]
         mov     eax, [unl_count]
-        mov     [BS_ARTCOUNT], eax
+        mov     [ebx], eax
         mov     byte [unl_placed], 0
+        pop     ebx
         pop     eax
 .out:   ret
 
@@ -5089,6 +5113,7 @@ unl_got: dd     0                   ; the names' tiles taken
 unl_placed: dd  0                   ; and placed: their first tile, and
 unl_first: dd   0                   ; the art's count before
 unl_count: dd   0
+unl_countp: dd  0                   ; and where it is
 unl_x1: dd      0x29                ; the unlock's layout: YOU UNLOCKED,
                                     ; column and row,
 unl_y1: dd      0x13

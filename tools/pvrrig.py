@@ -12,7 +12,7 @@ game as one, by the debug kill), lastz (the last stage as Z-Gradt), again (Z-Gra
 game over, Z-Gradt again), igr and igrj (Z-Gradt or Jaguarandi, the reset and the attract demo, again),
 hold0, hold and holdz (parked on Temjin, Jaguarandi or Z-Gradt), unlock (Very Hard
 from nothing unlocked, two games by state, both unlock screens in the second, since the
-difficulty is written too late for the first), report (Jaguarandi, by state, to its report). It captures at 60 FPS and reports frames that are nearly all black
+difficulty is written too late for the first), report (Jaguarandi, by state, to its report), repj (the same, the report written to the state). It captures at 60 FPS and reports frames that are nearly all black
 and frames with flat red or blue at the right edge. Screen changes show as black, and the flat-colour count only means something
 on the machine select. One game runs at a time; the captures are in the rig's
 shots/ folder.
@@ -149,8 +149,11 @@ SCENES = {
                   (43, 'key', 'space'), (60, 'post', 0x111, KILL_1P)]
               + [(t, 'key', 'space') for t in (92, 97)]
               + moves(101, 1.4, [(i, 1) for i in range(1, 10)])),
-    'unlock': state_scene(0, 620, 140, 470, True),
-    'report': state_scene(8, 175, 120, 45),
+    'unlock': state_scene(0, 620, 400, 215, True),
+    'report': state_scene(8, 195, 150, 40),
+    'repj': ('0', False, 68, 40, 26, [(t, 'key', 'space') for t in (5, 8, 14)]
+             + moves(17, 1.4, [(i, 1) for i in range(1, 9)])
+             + [(t, 'key', 'space') for t in (33, 36, 39)] + [(44, 'poke', STATE, 0x1c)]),
     'jag': boss_scene(8),
     'zgradt': boss_scene(9),
     'bbb': continue_scene(5),
@@ -263,9 +266,11 @@ def play(folder, helper, out, seconds, start, length, events):
                 state, since = got, now
                 print('%.1f state 0x%x' % (now, got or 0), file=log, flush=True)
             if state in ROUNDS:
-                if peek(STAGE) == 4:
+                stage = peek(STAGE)
+                if stage == 4:
                     tool('poke', '0x%x=%d' % (MISSION_TIME, 10000))
-                if now - since > 6 and now - pressed > 4:
+                # Jaguarandi kills a standing machine in about 5 seconds.
+                if now - since > (2 if stage == 5 else 6) and now - pressed > 4:
                     tool('post', 0x111, KILL_2P)
                     pressed = now
             elif (state != REPORT or now - since > 7) and now - pressed > 2:

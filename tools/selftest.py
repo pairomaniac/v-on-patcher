@@ -27,11 +27,11 @@ import sys
 # Everything ticked, per build: retail, the Japanese rerelease, the OEM,
 # the Japanese original, and the PowerVR build with what it takes.
 EXPECTED_ALL = {
-    'a464b0ff32d5bab499f265e45658504e': 'f18c0578fa1f93984b61c39009ad0ae6',
-    'd19320bdc3381a48228990907910a391': 'a60d0305310f6079a4463b62052fd8f2',
-    '4c70f780a7f0d98d74be62304fb99021': '8b4b2432569801f5041d5b5aedeac543',
-    '9764d946ffc8cee94788707c91753478': '49bbd267df50280ca2765154e7c4e79e',
-    '383d3bff66504954f84924a0b41dc3fa': '9c88895a885d482dd8d9be8a390a6064',
+    'a464b0ff32d5bab499f265e45658504e': 'a1b0c04977d3d80b8e3abc4ac478c66c',
+    'd19320bdc3381a48228990907910a391': 'f2d5ae73f00828c73e27a0e60ee8252c',
+    '4c70f780a7f0d98d74be62304fb99021': '6a17c0632ede0a0ebb62962261452520',
+    '9764d946ffc8cee94788707c91753478': '553b1dc2b2fa4cb7630124e8a331cf5e',
+    '383d3bff66504954f84924a0b41dc3fa': '1284fd414cb427d591d0e166cff7ef5a',
 }
 
 HERE = os.path.dirname(os.path.abspath(__file__))

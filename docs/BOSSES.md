@@ -409,6 +409,15 @@ How its select differs:
   Raiden's in the other builds' shape.
 - **The draw.** `0x5c9ba3` has a bigger frame than the other builds', which `selmdl`
   makes up, and its bone is at `SEL_BONE`, -0x10.
+- **The report.** The select's draw stops at a full list of machines (`0x84c5f4`), and
+  only the select's frame empties the list, so `selmdl` empties it in state 0x1e.
+- **The unlock screen.** The card renders a frame only with the top bit of `0x24a0640`
+  set, and the rest of that word is the background's colour. The report's handler sets
+  it, and the unlock screen runs in place of that handler, so `repmodel` sets it to
+  black, `0x8000`.
+- **The bosses' names on the unlock screen.** This build's `.vobs` is out of reach of the
+  art's bank, so `unl_place` puts the names in the other bank, whose count is the dword
+  before `BS_ARTCOUNT`.
 
 Not done:
 
@@ -417,16 +426,12 @@ Not done:
   ceiling lights, weapon edges, text and cursor frame, and the bosses add nothing on
   Temjin. Not looked at while the camera moves, and not compared with retail. The cause
   is not known.
-- **Stand-ins.** `BS_MTSELMEM` and `BS_LOADTEX` hold stand-ins, for Z-Gradt's unlock
-  screen. `BS_MTSELMEM`, `0x2480000`, is not where this build reads `MT_sel.bin`, and its
-  0x2cdc4 bytes run over `.idata` and into the read-only `.rsrc`. When that screen ended
-  in the rig, `unl_scnback` faulted writing `0x24a4000`, and the game carried on to the
-  initials.
-- **The unlock screens.** Both ran in the rig and both show YOU UNLOCKED, with no model
-  and no name. PRESS BUTTON TO CONTINUE was seen on Z-Gradt's. `bosses.bin` went from 0
-  to 2. The cause is not known.
-- **Jaguarandi on the report.** In the rig the report shows its name, times and rank, and
-  no model. Temjin's model shows on the same screen. The cause is not known.
+- **Stand-ins.** `BS_MTSELMEM` and `BS_LOADTEX` hold stand-ins. `BS_MTSELMEM`,
+  `0x2470000`, is not where this build reads `MT_sel.bin`. It is a place in `.data` that
+  the 0x2cdc4 bytes of the save and restore fit in.
+- **The name entry after Z-Gradt's unlock screen.** In the rig its floor and machines
+  show the wrong textures. After the same last stage with no unlock they are right. The
+  cause is not known. Skipping `BS_SCNEND` on that path did not change it.
 
 Played: the portraits, both bosses in fights, their models, launches and cameras, their
 textures after a reset, Z-Gradt's flames, laser, gauge and turn, and the arena's edges.
@@ -446,6 +451,10 @@ Seen in the rig, with a hidden display and the debug kill:
 - Before the models were in: Z-Gradt through the stages and the report, and on the last
   stage against the CPU's Z-Gradt to its charge, laser and ending, reached by writing
   the stage.
+
+- Both unlock screens, earned in a game on Very Hard: the boss turning, YOU UNLOCKED, its
+  name, PRESS BUTTON TO CONTINUE, and `bosses.bin` going from 0 to 2. Jaguarandi on the
+  report, with its name, times and rank, and a fight after Jaguarandi's screen.
 
 Seen and not explained:
 

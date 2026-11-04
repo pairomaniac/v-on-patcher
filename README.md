@@ -543,7 +543,7 @@ Archive.
 | --- | --- | --- |
 | **Renderer** | Built in | Needs the [add-on](#powervr-renderer-pvr-sgl-wrapper), unless you have the card |
 | **Native widescreen** | 1920x1080, on by default | 1024x576, off by default, needs a fast CPU |
-| **Playable bosses**, **Pre-unlock the bosses** | Yes | Yes; the unlock screens show no model or name here |
+| **Playable bosses**, **Pre-unlock the bosses** | Yes | Yes; the name entry after Z-Gradt's unlock screen shows the wrong textures here |
 | **Fix the lock-on line** | Yes | Not needed |
 | **Internet play** | Yes | Yes, including against the other versions |
 

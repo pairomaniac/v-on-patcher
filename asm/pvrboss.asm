@@ -7,6 +7,7 @@ bits 32
 ; game's texture routine, which the other machines go through as they load, is run
 ; on that block here. Without it the model draws flat.
 
+extern PVR_REPMODEL             ; the report's model
 extern PVR_SELDRAW              ; the select's draw of a machine, past its prologue
 extern PVR_TEXLOAD              ; (1, machine, the other's, 0): a model's textures
 extern PVR_TEXFREE              ; (1, machine): and let go of them
@@ -24,6 +25,10 @@ extern RBTRY                    ; asm/bosses.asm's reads: tried, per file slot
 extern RBBUF                    ; and the block
 TEXSLOT1    equ 0x00824d6c      ; the texture routine's two places
 TEXSLOT2    equ 0x00824d70
+STATEA      equ 0x0200c5b0      ; A's state machine, and the report's state
+ST_REPORT   equ 0x1e
+RENDERW     equ 0x024a0640      ; the top bit: the card renders this frame
+SELCOUNT    equ 0x0084c5f4      ; how many machines the select's draw has listed
 RB_JAG      equ 5               ; its file slots
 RB_Z        equ 9
 RAIDEN      equ 3
@@ -31,11 +36,24 @@ JAG         equ 8
 ZGRADT      equ 9
 
 ; bosses.asm starts the select's draw with the other builds' frame and carries on
-; six bytes in. This build's frame is 0x34 bigger, and carries on here.
+; six bytes in. This build's frame is 0x34 bigger, and carries on here. The draw stops
+; at a full list of machines, which only the select's frame empties, so on the report
+; it is emptied here.
 selmdl:
     times 6 nop
+    cmp     dword [STATEA], ST_REPORT
+    jne     .draw
+    mov     dword [SELCOUNT], 0
+.draw:
     sub     esp, 0x34
     jmp     PVR_SELDRAW
+
+; The unlock screen's call of the report's model. The card renders a frame only with
+; the top bit of this word set, the rest being the background's colour. The report's
+; own handler sets it to black; the unlock screen runs in place of that handler.
+repmodel:
+    mov     word [RENDERW], 0x8000
+    jmp     PVR_REPMODEL
 
 ; bosses.asm's fclose. When it closes a boss's file after reading it whole, the
 ; block goes through the texture routine, with the boss's slot pointing at the
