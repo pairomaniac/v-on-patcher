@@ -252,15 +252,24 @@ The times are one run's, setup included.
 | `igr`, `igrj` | Z-Gradt or Jaguarandi, the reset, the attract demo, and the select again | recording | 2.5 min |
 | `again` | Z-Gradt, game over, and Z-Gradt again | recording | 3 min |
 
-### What a scene cannot show
+### What the rig cannot do
 
-- A scene that writes the stage or the state skips what the game would have done before
-  it. `lastu` and `unlj` are quick, and only a whole game proves the real path.
-- `lastu` did reproduce the wrong textures of `unlock`'s name entry, so it is enough for
-  that fault.
-- The rig runs only this build. It cannot steer a machine or reach P2's view of the select.
-- A clean result is not proof, since the rig has missed what a player saw. The captures use
-  the GDI renderer, and F12 under the wrapper shows only what the card drew.
+- **Only this build.** It runs only the PowerVR build, so a change to shared code still
+  needs the other builds played.
+- **Written shortcuts.** A scene that writes the stage or the state skips what the game
+  would have done before it. `lastu` and `unlj` are quick, and only a whole game proves
+  the real path. `lastu` did reproduce the wrong textures of `unlock`'s name entry, so it
+  is enough for that fault.
+- **Playing.** It cannot steer a machine or reach P2's view of the select.
+- **Judging.** A clean result is not proof, since the rig has missed what a player saw.
+  The captures use the GDI renderer, and F12 under the wrapper shows only what the card
+  drew. The counts of black and flat-colour frames say little without someone watching.
+- **Recorded scenes.** They keep to fixed times and log no states, so a hang in one cannot
+  be placed. Their times were set by hand on one machine.
+- **Timing.** In every scene, the first key presses and the walk along the row keep to fixed
+  times, so a slower machine may miss them.
+- **Addresses.** State, stage, cursor, difficulty and the report's frame come from the
+  patcher's table. The rest are written in the rig and belong to this build.
 
 ### Things the rig works around
 

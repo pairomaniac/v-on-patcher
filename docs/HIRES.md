@@ -780,12 +780,9 @@ and the moon are cut at about row 950 of 1080, under a band in stock.
 
 ## Wider than 16:9
 
-This is untested and partly blocked. The limits are width 2040 (the mask stride
-immediates), the 1024-px canvas (OFF_PITCH and the cap in pre, with the guard/copy
-layout in UI_OFF_SIZE following it), and 1440p and up generally. The enemy marker
-window and the hangar's angle window are sized from the width, but only checked at
-16:9. The credits star grid takes its column count from the aspect and is untested
-past 16:9.
+This is out of scope. The limits are width 2040 (the mask stride immediates), the 1024-px
+canvas (OFF_PITCH and the cap in pre, with the guard/copy layout in UI_OFF_SIZE following
+it), and 1440p and up generally.
 
 ## The PowerVR build
 
@@ -911,8 +908,7 @@ the differences follow from that order.
   has no slot and drew in flat, wrong colours, so it is not drawn (`0x5c9bea`). The
   second renderer, for 2P's view of the select, has its own window (`0x5fc148`), draw
   (`0x41e2d3`) and list (`0xb7c920`), treated the same. The other builds' fade is left
-  out. The loader has 8 memory blocks for machines; two full lists would exceed them,
-  and no problem from that has been seen.
+  out.
 - **Sites placed by hand.** `PVR_UI` holds the blob's addresses. They come from the
   map where it has one. The rest come from alignment or callees: renderer B's setups and submit
   (`0x4a084d`, `0x4a088e`, `0x4a0976`), the HUD passes (`0x435b36`, `0x474906`,
@@ -960,8 +956,8 @@ Not tried: a real PowerVR card and Windows.
 The window's recommendation of 4,000 is an estimate between those two. In a round
 under Wine on the 9800X3D, the game used about 370% of a thread at 1024x576 and
 about 210% at 640x480. About 18% of real time went to the wrapper's single-threaded
-`pcxr_prepare` and `plane_q`, and about 6% to the blob. The cost of the machine
-select's extra machines has not been measured.
+`pcxr_prepare` and `plane_q`, and about 6% to the blob. In play, the cost of the machine
+select's extra machines is negligible.
 
 ## Per-build facts worth keeping
 

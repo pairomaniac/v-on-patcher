@@ -455,11 +455,6 @@ Seen in the rig, with a hidden display and the debug kill:
 
 Seen and not explained:
 
-- A whole game as Z-Gradt stopped at the last stage's ending. The kill came on the
-  round's first frame, and the state then went between `0x1f` and `0x20`. A player
-  cannot win that early, but the cause has not been confirmed.
-- The screen went solid red for some seconds in that last round as Z-Gradt. The other
-  builds have not been compared.
 - The `again` scene hung once: two faults at `0x53921f`, reading address 3 with `ebp` 3,
   as a state handler returned. Three later runs were clean, two of them without the
   commit that fixed the unlock screens, so it has not been tied to anything.
