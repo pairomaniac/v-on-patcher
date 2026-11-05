@@ -2,9 +2,10 @@
 """Virtual-On (PC, 1997) patcher. See README.md.
 
     python3 v-on-patcher.py                 patch a copy of v_on.exe
-    python3 v-on-patcher.py --install CUE DIR   install from a disc image
+    python3 v-on-patcher.py --install IMAGE DIR   install from a .cue or .mds
     python3 v-on-patcher.py --rip SRC DIR   rip the soundtrack, no window needed
     python3 v-on-patcher.py --ddraw DIR     fetch cnc-ddraw into the game folder
+    python3 v-on-patcher.py --sgl DIR       fetch the PowerVR sgl.dll replacement
     python3 v-on-patcher.py --netplay DIR   install the UDP netplay DLL
     python3 v-on-patcher.py --selfcheck     validate the patch tables and exit
     python3 v-on-patcher.py --version
@@ -15,10 +16,12 @@ to keep in step with it.
 https://github.com/pairomaniac/v-on-patcher
 """
 
+import collections
 import ctypes
 import errno
 import hashlib
 import io
+import json
 import math
 import os
 import queue
@@ -2191,9 +2194,7 @@ def build_sites(w, h, sec_va, span_va, rowtab_va, pool, A=None):
     # inside that edge, so the outermost mech is a silhouette that lights
     # up as it turns in (ui.asm hangar_draw, wrapping the platform draw
     # at 0x59e4ea).
-    f = 600 * 1.21875                    # focal times the 1P aspect
-    margin = math.degrees(math.atan(w / (h / 480) / 2 / f)
-                          - math.atan(320 / f))
+    wide, margin, win = wider_view(w, h)
     if margin > 0:
         sites += [(0x2213f0, struct.pack('<d', 31.57),
                    struct.pack('<d', 31.57 + margin + 8)),
@@ -2211,8 +2212,6 @@ def build_sites(w, h, sec_va, span_va, rowtab_va, pool, A=None):
     # the extra half field of view; the y bounds stay, since the
     # vertical view is unchanged. Both renderers keep their own copy of
     # the float pool; the compare immediates are in the code.
-    wide = w / (h / 480) / 640           # visible width over 4:3's
-    win = 0x1500 + round(margin * 65536 / 360)
     sites += [(0x205d38, f32(-256.0), f32(-256.0 * wide)),
               (0x205d3c, f32(256.0), f32(256.0 * wide)),
               (0x1fb4a0, f32(-256.0), f32(-256.0 * wide)),
@@ -2342,8 +2341,7 @@ def build_sites(w, h, sec_va, span_va, rowtab_va, pool, A=None):
     # than 4:3: it starts further left, by the extra width in columns
     # plus one. The moon card's commit (0x58f549) goes through ui.asm
     # credits_moon, which scales it to the full height (UI_CMOON).
-    cols = int(math.ceil(max(0.0, w / h / (4 / 3) - 1) * 5)) + 1
-    sites += imm_sites([0x18ea14], -9000, -9000 - cols * 1800)
+    sites += imm_sites([0x18ea14], -9000, star_start(w, h))
     sites.append((0x18e949, b'\xe8' + u32(0x514430 - (0x58f549 + 5)),
                   b'\xe8' + u32(sec_va + UI_CREDITS_MOON - (0x58f549 + 5))))
     return sites
@@ -2367,6 +2365,36 @@ def apply(buf, sites, mask_load=MASK_LOAD, mask_store=MASK_STORE):
         buf[off:off + len(new)] = new
 
 
+def wider_view(w, h):
+    """How a wider picture differs from 4:3: its visible width over 4:3's, its
+    extra half field of view in degrees, and the marker's bearing window."""
+    f = 600 * 1.21875                    # focal times the 1P aspect
+    margin = math.degrees(math.atan(w / (h / 480) / 2 / f)
+                          - math.atan(320 / f))
+    return (w / (h / 480) / 640, margin,
+            0x1500 + round(margin * 65536 / 360))
+
+
+def star_start(w, h):
+    """Where the credits' star field starts: -9000, further left by the extra
+    width in columns of 1800, plus one."""
+    return -9000 - (int(math.ceil(max(0.0, w / h / (4 / 3) - 1) * 5)) + 1) * 1800
+
+
+def _f5_item(buf, old, ident, lo, hi):
+    """Where a control's text is in an F5 template, by string and control id."""
+    pat = old.encode('utf-16-le') + b'\0\0'
+    hits = []
+    i = buf.find(pat, lo, hi)
+    while i >= 0:
+        if struct.unpack_from('<H', buf, i - 6)[0] == ident:
+            hits.append(i)
+        i = buf.find(pat, i + 1, hi)
+    if len(hits) != 1:
+        raise ValueError('F5 item %s not found once' % old)
+    return hits[0]
+
+
 def _split_dialog(buf):
     """Relabel the F5 Screen Split radios for the two layouts this patch
     keeps: Type1 -> Ver (side by side), Type3 -> Hor (top/bottom). Type2
@@ -2380,19 +2408,10 @@ def _split_dialog(buf):
                                   ('Type3', 'Hor  ', False, 0x431),
                                   ('Normal', '720p  ', False, 0x420),
                                   ('Large', '1080p', False, 0x421)):
-        pat = old.encode('utf-16-le') + b'\0\0'
-        hits = []
-        i = buf.find(pat, lo, hi)
-        while i >= 0:
-            if struct.unpack_from('<H', buf, i - 6)[0] == ident:
-                hits.append(i)
-            i = buf.find(pat, i + 1, hi)
-        if len(hits) != 1:
-            raise ValueError('F5 radio %s not found once' % old)
-        i = hits[0]
+        i = _f5_item(buf, old, ident, lo, hi)
         if new:
             enc = new.encode('utf-16-le')
-            assert len(enc) == len(pat) - 2
+            assert len(enc) == len(old) * 2
             buf[i:i + len(enc)] = enc
         if hide:
             so = i - 22                     # the item's style dword
@@ -2404,7 +2423,7 @@ def _split_dialog(buf):
 
 def hires_supported_stamp(stamp):
     """Whether a build (by PE timestamp) has a full site table."""
-    return stamp == RETAIL_STAMP or '%08x' % stamp in PORT
+    return stamp in (RETAIL_STAMP, PVR.stamp) or '%08x' % stamp in PORT
 
 
 def hires_supported(buf):
@@ -2490,6 +2509,23 @@ def _ui_words(w, hh):
         # a margin over the 1.227 that just covers it.
         UI_CMOON: f32(1.25),
     }
+
+
+def _ui_data(buf, rawptr, words, rowtab):
+    """The blob's data block: the size's words and the fixed ones."""
+    for off, val in words.items():
+        buf[rawptr + off:rawptr + off + len(val)] = val
+    struct.pack_into('<I', buf, rawptr + UI_ROWTAB, rowtab)
+    struct.pack_into('<I', buf, rawptr + UI_PINTH, HIRES_HUD_BAND)
+    splitc, botrow, botcol = HIRES_HUD_SPREAD or (0, 0, 0)
+    struct.pack_into('<I', buf, rawptr + UI_SPLITC, splitc)
+    struct.pack_into('<II', buf, rawptr + UI_BOTROW, botrow, botcol)
+    struct.pack_into('<i', buf, rawptr + UI_BARDX, 320 - HIRES_HUD_BARS)
+    struct.pack_into('<Q', buf, rawptr + UI_SPLITST,
+                     sum(1 << n for n in HIRES_SPLIT_STATES))
+    struct.pack_into('<I', buf, rawptr + UI_DEBUG, int(HIRES_DEBUG_STATES))
+    struct.pack_into('<ffff', buf, rawptr + UI_CONST, 65536.0, 640.0,
+                     480.0, 0.5)
 
 
 def _hires_check_size(width, height):
@@ -2689,19 +2725,7 @@ def hires_install(buf, width, height, alt=HIRES_ALT):
         assert len(stub) <= 20 and o + 20 <= 0x1c00
         buf[rawptr + o:rawptr + o + len(stub)] = stub
     words, alt_words = _ui_words(w, hh), _ui_words(aw, ah)
-    for off, val in words.items():
-        buf[rawptr + off:rawptr + off + len(val)] = val
-    struct.pack_into('<I', buf, rawptr + UI_ROWTAB, sec_va + rowtab_off)
-    struct.pack_into('<I', buf, rawptr + UI_PINTH, HIRES_HUD_BAND)
-    splitc, botrow, botcol = HIRES_HUD_SPREAD or (0, 0, 0)
-    struct.pack_into('<I', buf, rawptr + UI_SPLITC, splitc)
-    struct.pack_into('<II', buf, rawptr + UI_BOTROW, botrow, botcol)
-    struct.pack_into('<i', buf, rawptr + UI_BARDX, 320 - HIRES_HUD_BARS)
-    struct.pack_into('<Q', buf, rawptr + UI_SPLITST,
-                     sum(1 << n for n in HIRES_SPLIT_STATES))
-    struct.pack_into('<I', buf, rawptr + UI_DEBUG, int(HIRES_DEBUG_STATES))
-    struct.pack_into('<ffff', buf, rawptr + UI_CONST, 65536.0, 640.0,
-                     480.0, 0.5)
+    _ui_data(buf, rawptr, words, sec_va + rowtab_off)
     sites = build_sites(w, hh, sec_va, sec_va + mask_off,
                         sec_va + rowtab_off,
                         pool=(sec_va + pool_off, HIRES_POLYS), A=A)
@@ -2750,6 +2774,239 @@ def hires_install(buf, width, height, alt=HIRES_ALT):
         apply(buf, sites)
     _split_dialog(buf)
     return len(sites)
+
+# The PowerVR build's addresses for what the blob names, retail's on the left.
+# It runs the blob as the others do, without the software renderer's sites.
+# Each 2D call is still its engine's; the card replaces the rasterizers, so
+# what they drew through (mask, row-table copies, polygon pools) is not here.
+# Retail addresses no site here reaches - the F4 switch, its dialog and ini
+# hooks - map to themselves and are never run.
+PVR_UI = {
+    0x0047f2e0: 0x00418e30, 0x004800d0: 0x00419d10, 0x004803d0: 0x00419f70,
+    0x00480410: 0x00419fb0, 0x004804f0: 0x0041a090, 0x00514430: 0x00503df0,
+    0x0051457c: 0x00503f3c, 0x005670c0: 0x00439030, 0x005673c0: 0x00439290,
+    0x00567400: 0x004392d0, 0x005674f0: 0x004393c0, 0x0059cb93: 0x005c9ba3,
+    0x005c56a2: 0x00495692, 0x005c680b: 0x00496813, 0x005c8317: 0x004983d9,
+    0x005c8ca0: 0x00498ec1, 0x005c991c: 0x00499c39, 0x005cc4cc: 0x004a097c,
+    0x005d1db0: 0x005e4310, 0x005dcc80: 0x005e4530, 0x00427ec9: 0x00594df9,
+    0x00428241: 0x00595171,
+    0x0066c180: 0x00647048, 0x0066c190: 0x0064704c,
+    0x006bc1e4: 0x0074b1d0, 0x006bc1e8: 0x0074b1d4, 0x006bc948: 0x0082fb58,
+    0x006bc94c: 0x0082fb5c, 0x006bf598: 0x006a34a0, 0x006bf5a8: 0x006a34b8,
+    0x006bf5ac: 0x006a34bc, 0x006bf5b0: 0x006a34c0, 0x006bf5b8: 0x006a34c8,
+    0x006bf5bc: 0x006a34cc, 0x006c84c8: 0x006ac3d8, 0x006c84cc: 0x006ac3dc,
+    0x006c866c: 0x006ac5a4, 0x006c8b24: 0x006b3d78, 0x006c8b28: 0x006b3d7c,
+    0x006db4c8: 0x0084c6a8, 0x006db4d0: 0x0084c6b0, 0x006db4d4: 0x0084c6b4,
+    0x006db530: 0x0084cf20, 0x006db534: 0x0084cf24, 0x007001d0: 0x0089b0c0,
+    0x007087a0: 0x008a3b00, 0x00708818: 0x008a36e8, 0x0070881c: 0x008a36ec,
+    0x00708820: 0x008a36f0, 0x00708870: 0x008a3740, 0x00708874: 0x008a3744,
+    0x00725f50: 0x0089b0c0, 0x00791ad0: 0x00a0ae84, 0x00be4300: 0x01d2cc20,
+    0x00bf5f78: 0x00b7c910, 0x00bf5f7c: 0x00b7c914, 0x01ad0030: 0x00b7cde4,
+    0x01ad0034: 0x00b7cde8, 0x01ae3594: 0x0200b760, 0x01ae3690: 0x0200c5b0,
+    0x01ae5f40: 0x02009c90, 0x01ae5f5c: 0x02009c70, 0x01cc6700: 0x01fc3ba0,
+    0x01ef1140: 0x01fdced0, 0x01ef8a90: 0x01ff1250, 0x01ef9eb0: 0x01ff2ae8,
+    0x01efb728: 0x01ff33f8, 0x01efb730: 0x01ff3400,
+    0x034155c8: 0x024a0638, 0x034155d0: 0x024a0640, 0x0345b2c8: 0x01df5b08,
+    0x0345bd58: 0x01df6728,
+}
+# MATSCALE, which the credits' moon card scales through; the map has no pair
+# for it, and the blob's table has it by retail's address.
+PVR_MATSCALE = 0x00408790, 0x00418060
+
+# The loader's slot table (0x825548, four rows of 0x10): where each address
+# is an immediate, the shifts that turn a row into its offset, and the loops
+# over a row's slots.
+PVR_LOADER_TABLE = {
+    0x825548: (0x57f122, 0x57f153, 0x57f1a0, 0x57f1bb, 0x57f1e3, 0x57f3f0,
+               0x57f92d, 0x57f9af, 0x57faf6, 0x57fc1e, 0x57fc55, 0x57fc99,
+               0x57fccb, 0x57fce4, 0x57fd23, 0x57fd34, 0x57fd43, 0x57fe80,
+               0x57ff55, 0x57ff6d, 0x580002, 0x5800aa, 0x58018e),
+    0x82554c: (0x57f4eb,),
+    0x825550: (0x57f505, 0x57fb4c),
+    0x825554: (0x57f51f, 0x57fb5d),
+    0x825558: (0x57f947, 0x57fd6d, 0x57fe36, 0x57fe47, 0x57fe56),
+    0x825568: (0x57f920, 0x57f954, 0x57f9a2, 0x57f9bc),
+    0x825578: (0x57f93a, 0x57f965),
+}
+PVR_LOADER_SHIFTS = (
+    0x57f10b, 0x57f149, 0x57f196, 0x57f1b1, 0x57f1d9, 0x57f3ed, 0x57f4e8,
+    0x57f502, 0x57f51c, 0x57fb49, 0x57fb5a, 0x57fc4e, 0x57fc88, 0x57fcc4,
+    0x57fcdd, 0x57ff4e, 0x57ff66, 0x57fffb)
+PVR_LOADER_LOOPS = (
+    0x57f0fe, 0x57f189, 0x57f910, 0x57f992, 0x57fc41, 0x57fd16, 0x57fd5d,
+    0x57fe29, 0x57fe70, 0x57ff41)
+PVR_ROWTAB = 0x006ab4d8         # the 2D row table: it stays where it is
+UI_VIEWSIZE = 0x1c08            # ui.asm's D_W and D_H
+UI_SHOW = 0x1e88                # and its D_SHOW
+
+
+def pvr_ui_install(buf):
+    """Append the blob's section to the PowerVR build and wire it up. The
+    sites in FEATURES have been written; these need the section's address."""
+    w, h = PVR_WIDE
+    va = dict(PVR_UI)
+    va[ADDR['DRAWN']] = symbol_va('WIDE3D', PVR)
+    va[PVR_MATSCALE[0]] = PVR_MATSCALE[1]
+    code = bytearray(UI_CODE)
+    for o, ref in UI_REFS:
+        assert struct.unpack_from('<I', code, o)[0] == ref
+        struct.pack_into('<I', code, o, va.get(ref, ref))
+    sec_va, rawptr = add_section(buf, UI_OFF + UI_OFF_SIZE + 0x100,
+                                 raw=bytes(code.ljust(UI_OFF, b'\0')))
+    fileoff = PVR.off
+    def rel(site, target):
+        return u32(target - (site + 5))
+    # The stubs' calls, and the sites the blob's stubs take over.
+    for off, retail in UI_CALLS:
+        struct.pack_into('<i', buf, rawptr + off + 1,
+                         va[retail] - (sec_va + off + 5))
+    sites = []
+    for (_o, _s, stub), site, (_off, retail) in zip(
+            UI_STUBS, (0x4980d9, 0x498102, 0x4980fd, 0x498114), UI_CALLS):
+        sites.append((fileoff(site), b'\xe8' + rel(site, va[retail]),
+                      b'\xe8' + rel(site, sec_va + stub)))
+    # The HUD passes: the prologue jumps to a stub that counts the pass in
+    # and out. A's and B's in-game HUD, the select, the attract, name entry.
+    for n, (site, ln) in enumerate(((0x435b36, 6), (0x474906, 6), (0x5cf657, 6),
+                                    (0x423c11, 6), (0x4135df, 6), (0x47dfc0, 9))):
+        o = UI_PASS_STUBS + 20 * n
+        at = sec_va + o
+        prologue = bytes(buf[fileoff(site):fileoff(site) + ln])
+        assert prologue[:3] == bytes.fromhex('558bec')
+        stub = (b'\xe8' + rel(at, sec_va + UI_HUD_ENTER) + prologue
+                + b'\xe9' + u32(site + ln - (at + 5 + ln + 5)))
+        buf[rawptr + o:rawptr + o + len(stub)] = stub
+        sites.append((fileoff(site), prologue,
+                      b'\xe9' + rel(site, at) + b'\x90' * (ln - 5)))
+    words = _ui_words(w, h)
+    # The 1P scale rounded up: truncated to 16.16, 480 canvas rows would come
+    # to one short of the frame, and its last row would never be drawn.
+    scale = bytearray(words[UI_SCALE])
+    struct.pack_into('<I', scale, 0, math.ceil(min(w / 640, h / 480) * 65536))
+    words[UI_SCALE] = bytes(scale)
+    _ui_data(buf, rawptr, words, PVR_ROWTAB)
+    # The projection setups and submits, by the retail ones' order in UI_WORLD
+    # and UI_SUBMIT.
+    for (_s, _o, routine), site in zip(UI_WORLD + UI_SUBMIT,
+                                       (0x503e0d, 0x503e4e, 0x4a084d, 0x4a088e,
+                                        0x503f36, 0x4a0976)):
+        sites.append((fileoff(site), bytes.fromhex('558bec535657'),
+                      b'\xe9' + rel(site, sec_va + routine) + b'\x90'))
+    # The record inserts, two a renderer, through the one list head. The
+    # second's go through the glue, which takes its viewport's origin off.
+    for site, target in ((0x5d84aa, sec_va + UI_INSERT_A),
+                         (0x5d93ab, sec_va + UI_INSERT_A),
+                         (0x5defcb, symbol_va('WIDEINS2', PVR)),
+                         (0x5dfeb3, symbol_va('WIDEINS2', PVR))):
+        sites.append((fileoff(site), bytes.fromhex('8b349dc0b08900'),
+                      b'\xe8' + rel(site, target) + b'\x90\x90'))
+    struct.pack_into('<I', buf, fileoff(symbol_va('WIDEINSFN', PVR)),
+                     sec_va + UI_INSERT_B)
+    # The flushes, and the glue's frame hook's target. A split game flushes
+    # each renderer in the main loop, right after its region; the two calls at
+    # the frame's end only reset the list.
+    for site, routine, target in ((0x496206, UI_FLUSH_A, 0x5e4310),
+                                  (0x496245, UI_FLUSH_B, 0x5e4530)):
+        sites.append((fileoff(site), b'\xe8' + rel(site, target),
+                      b'\xe8' + rel(site, sec_va + routine)))
+    struct.pack_into('<I', buf, fileoff(symbol_va('WIDEFN', PVR)),
+                     sec_va + UI_FRAME)
+    struct.pack_into('<I', buf, fileoff(symbol_va('WIDESIZE', PVR)),
+                     sec_va + UI_VIEWSIZE)
+    struct.pack_into('<I', buf, fileoff(symbol_va('WIDESHOW', PVR)),
+                     sec_va + UI_SHOW)
+    # The row loads the tile planes index past either end, in both engines.
+    for site in (0x41a02d, 0x41a07d, 0x41a5f9, 0x41a65e, 0x41aac9,
+                 0x439355, 0x4393ad, 0x439931, 0x43999e, 0x439e11):
+        sites.append((fileoff(site), bytes.fromhex('8b1495d8b46a00'),
+                      b'\xe8' + rel(site, sec_va + UI_ROWSAFE) + b'\x90\x90'))
+    # The roll's blit and the moon card.
+    sites += [(fileoff(0x419a40), bytes.fromhex('56a148706400'),
+               b'\xe9' + rel(0x419a40, sec_va + UI_ROLLBLIT) + b'\x90'),
+              (fileoff(0x51c989), b'\xe8' + rel(0x51c989, 0x503df0),
+               b'\xe8' + rel(0x51c989, sec_va + UI_CREDITS_MOON))]
+    # The model loader: four rows of four slots, the stage and three machines,
+    # and the select's list of machines capped to match. The widened window
+    # spans 88 degrees of a row 20 apart, so it can hold five, and one with no
+    # slot is not loaded. The table moves to the section, 8 slots a row so that
+    # a row's shl only changes by one, and takes six; the list moves with it.
+    table = sec_va + UI_OFF + UI_OFF_SIZE
+    def row_slot(old):
+        row, slot = divmod(old - 0x825548, 0x10)
+        return table + row * 0x20 + slot
+    sites += [(fileoff(a), u32(old), u32(row_slot(old)))
+              for old, where in PVR_LOADER_TABLE.items() for a in where]
+    sites += [(fileoff(a), b'\x04', b'\x05') for a in PVR_LOADER_SHIFTS]
+    sites += [(fileoff(a), b'\x04', b'\x06') for a in PVR_LOADER_LOOPS]
+    # The clears' size is a signed byte: 0x7c reaches the last row's fifth slot.
+    sites += [(fileoff(a), b'\x40', b'\x7c')
+              for a in (0x57faf2, 0x57fc1a, 0x5800a6, 0x58018a)]
+    machines = table + 0x80
+    # A machine past the list's end has no slot and would draw with no colours,
+    # so it is not drawn: the jump past the list goes to the routine's exit.
+    sites += [(fileoff(0x5c9bec), u32(0x5c9c0b - 0x5c9bf0),
+               u32(0x5cab5d - 0x5c9bf0))]
+    sites += [(fileoff(0x5c9be9), b'\x03', b'\x05'),
+              (fileoff(0x5c9bfc), u32(0x1d2cf34), u32(machines + 4)),
+              (fileoff(0x5cf748), u32(0x1d2cf30), u32(machines)),
+              (fileoff(0x5cf75a), u32(0x1d2cf30), u32(machines))]
+    # And the second renderer's, for 2P's view of the select.
+    machines2 = table + 0xa0
+    sites += [(fileoff(0x41e31c), u32(0x41e33b - 0x41e320),
+               u32(0x41f2ae - 0x41e320)),
+              (fileoff(0x41e319), b'\x03', b'\x05'),
+              (fileoff(0x41e32c), u32(0xb7c924), u32(machines2 + 4)),
+              (fileoff(0x423cb6), u32(0xb7c920), u32(machines2)),
+              (fileoff(0x423cc8), u32(0xb7c920), u32(machines2))]
+    # The split block: each viewport's scale from the layout, out of line.
+    ksbs, ktb = sec_va + UI_KSBS, sec_va + UI_KSBS + 4
+    scale_a, scale_b, aspect_a, aspect_b = (0x74b1d0, 0x6b3d78,
+                                            0x74b1d4, 0x6b3d7c)
+    fconst = 0x630750
+    block = (b'\xf6\x05' + u32(0x6a34a0) + b'\x03' + b'\x75\x08'
+             + b'\xd9\x05' + u32(ksbs) + b'\xeb\x06' + b'\xd9\x05' + u32(ktb)
+             + b'\xd9\x05' + u32(scale_a) + b'\xd8\xc9'
+             + b'\xd9\x1d' + u32(scale_a)
+             + b'\xd8\x0d' + u32(scale_b) + b'\xd9\x1d' + u32(scale_b)
+             + b'\xdd\x05' + u32(fconst)
+             + b'\xd9\x05' + u32(aspect_a) + b'\xd8\xc9'
+             + b'\xd9\x1d' + u32(aspect_a)
+             + b'\xd8\x0d' + u32(aspect_b) + b'\xd9\x1d' + u32(aspect_b)
+             + b'\xc3')
+    assert UI_FOV + len(block) <= UI_OFF
+    buf[rawptr + UI_FOV:rawptr + UI_FOV + len(block)] = block
+    site = 0x49854e
+    old = bytes(buf[fileoff(site):fileoff(site) + 54])
+    assert old[:6] == bytes.fromhex('d905d0b17400')
+    sites.append((fileoff(site), old, b'\xe8' + rel(site, sec_va + UI_FOV)
+                  + b'\x90' * (len(old) - 5)))
+    # The idle-pass recreate in asm/activate.asm pushes its own size.
+    pushes = _annex_pushes(buf, PVR.stamp)
+    if pushes:
+        sites.append((pushes[1], u32(640), u32(w)))
+    apply(buf, sites)
+    _pvr_dialog(buf)
+
+
+def _pvr_dialog(buf):
+    """F5: the split radios read Ver and Hor, and the Screen row goes, since
+    this build has one picture size."""
+    lo = PVR.off(cave_va('F5_PVR', PVR))
+    hi = lo + len(blob_of('F5_PVR')[0])
+    if not any(buf[lo:hi]):             # no frame rate patch: it is at home
+        lo, hi = 0x00784a58, 0x00784a58 + len(PVR_F5_STOCK)
+    for old, new, ident in (('Type1', 'Ver  ', 0x42e), ('Type2', 'Hor  ', 0x42f),
+                            ('Normal', None, 0x420), ('Large', None, 0x421),
+                            ('Screen', None, 0xffff)):
+        i = _f5_item(buf, old, ident, lo, hi)
+        if new:
+            enc = new.encode('utf-16-le')
+            buf[i:i + len(enc)] = enc
+        else:
+            so = i - 22
+            style = struct.unpack_from('<I', buf, so)[0]
+            struct.pack_into('<I', buf, so, style & ~0x10000000)
+
 
 # Stamped by the build from the tag; see .github/workflows/build.yml. A
 # source checkout has no version of its own, and saying so is more use in a
@@ -2800,7 +3057,9 @@ DISC_IMAGES = {
 
 class Build(object):
     def __init__(self, name, short, md5, size, stamp, sections, caves,
-                 symbols, art, sites=None, annex=None, own=None):
+                 symbols, art, sites=None, annex=None, own=None,
+                 patches=None, reasons=None, note=None, exe='v_on.exe',
+                 fixed_ini=None, cautions=None):
         # the name on screen, and a word for a label or a log line
         self.name, self.short = name, short
         self.md5, self.size = md5, size
@@ -2829,6 +3088,19 @@ class Build(object):
         # retail site offset -> (this build's offset, its original bytes),
         # for the sites the table names by retail offset; None for retail
         self.sites = sites
+        # The patches this build takes, None for all of them, and for each
+        # of the others why not; unsupported() says it.
+        self.patches = tuple(patches) if patches is not None else None
+        self.reasons = dict(reasons or {})
+        # [Option] values v_on.ini must hold for this build, set whenever
+        # the patcher installs it or moves its v_on.ini aside (fix_ini)
+        self.fixed_ini = dict(fixed_ini or {})
+        # Patches that start unticked here, and the (title, text) to agree
+        # to before one is ticked
+        self.cautions = dict(cautions or {})
+        # A line worth knowing about the build, said where it is identified
+        self.note = note
+        self.exe = exe                  # the game's file name in its folder
 
     def placed(self):
         """(file offset, virtual address) of every section, the build's
@@ -2926,6 +3198,7 @@ RETAIL = Build('English retail', 'retail', ORIGINAL_MD5, EXE_SIZE,
     'F_X': -0xc,                    # the movie placer's X and Y
     'F_Y': -0x10,
     'DR_FLAG': -0xc,                # playable bosses: the round's anim deref
+    'SEL_BONE': -0x18,
     'CAM_PTR': -0x4,                # the live chase camera
     'SCAN_SLOT': -0x1c,             # the ending camera's slot found
     'PAL_CPU': -0xc,                # palette events: the CPU's on 5/7
@@ -2964,6 +3237,8 @@ RETAIL = Build('English retail', 'retail', ORIGINAL_MD5, EXE_SIZE,
     'GPAUSE': 0x005c67c5,          # the built-in dialogs' pause, arg 0
     'GRESUME': 0x005c680b,         # and their resume
     'GAMEMODE': 0x006bc94c,        # loop mode: 1 two players, 2 network
+    'DLGOK': 0x005c54a0,         # () -> 0 when no F-key dialog may open
+    'DLGBUSY': 0x006bc598,       # bit 0: nor then
     'MODE2': 0x01ef8a90,           # 2P state machine's mode; ticks in mode 1
     'PENDING': 0x0365cb9c,         # a recreate owed
     'RETADDR': 0x0365cba0,         # where one returns to
@@ -3168,7 +3443,9 @@ RETAIL = Build('English retail', 'retail', ORIGINAL_MD5, EXE_SIZE,
     'BS_MTSELMEM': 0x0122ac70,      # MT_sel.bin read in, and its segment
     'BS_SEGA': 0x006a4f60,
     'BS_TXTX': 0x00bf7758,          # the text cursor's column
-    'BS_SLOTS': 0x006a0680,        # loaded files: where, and how much
+    'BS_SLOTJ': 0x006a0694,        # loaded files: where, and how much
+    'BS_SLOTZ': 0x006a06a4,
+    'BS_SLOTR': 0x006a069c,
     'BS_LOADFILE': 0x005114e9,     # load one into the pool, by slot
     'BS_RBNAMES': 0x006a05a0,      # the fight models' files
     'BS_RBDIR': 0x02b05d50,
@@ -3352,6 +3629,8 @@ JPRE = Build('Japanese rerelease', 'jpre', JPRE_MD5, JPRE_SIZE, 0x345107fa,
     'GPAUSE': 0x005c1094,          # the built-in dialogs' pause, arg 0
     'GRESUME': 0x005c10da,         # and their resume
     'GAMEMODE': 0x006b86ac,        # loop mode: 1 two players, 2 network
+    'DLGOK': 0x005bfd40,         # () -> 0 when no F-key dialog may open
+    'DLGBUSY': 0x006b82f8,       # bit 0: nor then
     'MODE2': 0x01ef4230,           # 2P state machine's mode; ticks in mode 1
     'PENDING': 0x036577fc,
     'RETADDR': 0x03657800,
@@ -3441,6 +3720,7 @@ JPRE = Build('Japanese rerelease', 'jpre', JPRE_MD5, JPRE_SIZE, 0x345107fa,
     'MCISEND': 0x0365864c,         # mciSendCommandA
     # Playable bosses: retail's captions apply.
     'DR_FLAG': -0x4,
+    'SEL_BONE': -0x18,
     'CAM_PTR': -0x8,
     'SCAN_SLOT': -0x18,
     'PAL_CPU': -0x4,
@@ -3560,7 +3840,9 @@ JPRE = Build('Japanese rerelease', 'jpre', JPRE_MD5, JPRE_SIZE, 0x345107fa,
     'BS_MTSELMEM': 0x00b53ed0,
     'BS_SEGA': 0x006a0cc0,
     'BS_TXTX': 0x00bf23ac,
-    'BS_SLOTS': 0x0069c3e0,
+    'BS_SLOTJ': 0x0069c3f4,
+    'BS_SLOTZ': 0x0069c404,
+    'BS_SLOTR': 0x0069c3fc,
     'BS_LOADFILE': 0x0050dbbb,
     'BS_RBNAMES': 0x0069c300,
     'BS_RBDIR': 0x02772b80,
@@ -3703,6 +3985,7 @@ OEM = Build('USA OEM', 'oem', OEM_MD5, OEM_SIZE, 0x3317246a, sections=(
     'F_X': -0xc,
     'F_Y': -0x10,
     'DR_FLAG': -0xc,
+    'SEL_BONE': -0x18,
     'CAM_PTR': -0x4,
     'SCAN_SLOT': -0x1c,
     'PAL_CPU': -0xc,
@@ -3740,6 +4023,8 @@ OEM = Build('USA OEM', 'oem', OEM_MD5, OEM_SIZE, 0x3317246a, sections=(
     'GPAUSE': 0x005c62de,   # func
     'GRESUME': 0x005c6324,   # func
     'GAMEMODE': 0x006bc8e4,        # loop mode: 1 two players, 2 network
+    'DLGOK': 0x005c4f70,         # () -> 0 when no F-key dialog may open
+    'DLGBUSY': 0x006bc530,       # bit 0: nor then
     'MODE2': 0x01ef8a20,           # 2P state machine's mode; ticks in mode 1
     'PENDING': 0x0365cb1c,
     'RETADDR': 0x0365cb20,
@@ -3943,7 +4228,9 @@ OEM = Build('USA OEM', 'oem', OEM_MD5, OEM_SIZE, 0x3317246a, sections=(
     'BS_MTSELMEM': 0x0122ac08,
     'BS_SEGA': 0x006a4ef8,
     'BS_TXTX': 0x00bf7718,
-    'BS_SLOTS': 0x006a0618,
+    'BS_SLOTJ': 0x006a062c,
+    'BS_SLOTZ': 0x006a063c,
+    'BS_SLOTR': 0x006a0634,
     'BS_LOADFILE': 0x00511059,
     'BS_RBNAMES': 0x006a0538,
     'BS_RBDIR': 0x02b05ce0,
@@ -4120,6 +4407,8 @@ JP = Build('Japanese original', 'jp', JP_MD5, JP_SIZE,
     'GPAUSE': 0x005c56ae,   # func
     'GRESUME': 0x005c56f4,   # func
     'GAMEMODE': 0x006bb644,        # loop mode: 1 two players, 2 network
+    'DLGOK': 0x005c4340,         # () -> 0 when no F-key dialog may open
+    'DLGBUSY': 0x006bb290,       # bit 0: nor then
     'MODE2': 0x01ef75b0,           # 2P state machine's mode; ticks in mode 1
     'PENDING': 0x0365b6dc,
     'RETADDR': 0x0365b6e0,
@@ -4208,6 +4497,7 @@ JP = Build('Japanese original', 'jp', JP_MD5, JP_SIZE,
     'MCISEND': 0x0365c67c,   # iat mciSendCommandA
     # Playable bosses: retail's captions apply.
     'DR_FLAG': -0xc,
+    'SEL_BONE': -0x18,
     'CAM_PTR': -0x4,
     'SCAN_SLOT': -0x1c,
     'PAL_CPU': -0xc,
@@ -4327,7 +4617,9 @@ JP = Build('Japanese original', 'jp', JP_MD5, JP_SIZE,
     'BS_MTSELMEM': 0x01229798,
     'BS_SEGA': 0x006a3c58,
     'BS_TXTX': 0x00bf62a8,
-    'BS_SLOTS': 0x0069f378,
+    'BS_SLOTJ': 0x0069f38c,
+    'BS_SLOTZ': 0x0069f39c,
+    'BS_SLOTR': 0x0069f394,
     'BS_LOADFILE': 0x00510a49,
     'BS_RBNAMES': 0x0069f298,
     'BS_RBDIR': 0x02b04870,
@@ -4423,11 +4715,587 @@ JP = Build('Japanese original', 'jp', JP_MD5, JP_SIZE,
 }, art=JPRE.art, sites=None, annex=ANNEX_BLOBS,
     own=('BOSSES',))    # the rerelease's art
 
+# The PowerVR version (June 1997): vonpvr.exe, drawn by the PowerVR
+# PCX1/PCX2 through sgl.dll. A later compile with the renderer replaced, so
+# it takes the Essential patches that fit it and nothing else; the site
+# map below is by hand rather than from tools/buildsites.py. It has no
+# processor check, and its renderer is not the software one the lock-on
+# line patch fixes.
+PVR_MD5 = '383d3bff66504954f84924a0b41dc3fa'
+PVR_SIZE = 8412672
+PVR_NOTE = ('vonpvr.exe draws through sgl.dll, which came with the PowerVR '
+            'card\'s driver and is not on the disc.')
+PVR_WIDE_CAUTION = (
+    'Native widescreen needs a fast CPU',
+    'The PowerVR renderer draws on the CPU, and 60 FPS at 1024x576 is demanding.',
+    'PassMark single-thread rating of 4,000 or higher (estimate)',
+    'Set 30 FPS on F5, or leave this off')
+CPU_CHART = 'https://www.cpubenchmark.net/singleThread.html'
+
+
+def tidy_cpu_name(name):
+    """A processor's name as a benchmark list has it: no trademarks, clock
+    or core count."""
+    name = re.sub(r'\((?:R|TM)\)', '', name, flags=re.I)
+    name = re.sub(r'\s+(?:CPU\s+)?@.*$', '', name)
+    name = re.sub(r'\s+(?:with\s+Radeon.*|\d+-Core\s+Processor.*)$', '', name,
+                  flags=re.I)
+    return ' '.join(name.split())
+
+
+def cpu_name():
+    """The name of the processor this runs on, or None. Wine answers the
+    registry read with the real one."""
+    try:
+        if os.name == 'nt':
+            import winreg
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,
+                                r'HARDWARE\DESCRIPTION\System'
+                                r'\CentralProcessor\0') as key:
+                name = winreg.QueryValueEx(key, 'ProcessorNameString')[0]
+        else:
+            with open('/proc/cpuinfo', encoding='utf-8',
+                      errors='replace') as fh:
+                name = next(line.split(':', 1)[1] for line in fh
+                            if line.startswith('model name'))
+    except (OSError, StopIteration):
+        return None
+    return tidy_cpu_name(name) or None
+
+
+PVR = Build('PowerVR', 'pvr', PVR_MD5, PVR_SIZE, 0x33b3b0ae, sections=(
+    (0x00000400, 0x00401000),       # .text
+    (0x001f7c00, 0x005f9000),       # .rdata
+    (0x00243000, 0x00645000),       # .data
+    (0x0077a200, 0x024a2000),       # .idata
+    (0x0077b800, 0x024a4000),       # .rsrc
+    (0x00785600, 0x024ae000),       # .reloc
+), caves={
+    'PAD_DEVLIST': 0x007816e0,      # the F7 device list's own run, in .data
+    'LEVERS': ('PADX', 'end'),
+}, symbols={
+    'SPEEDSEL': 0x01d2cc3c,         # the F5 speed choice
+    'FRAMEDIV': 0x006ac3e0,         # frames per draw, which it set
+    'ORIGENTRY': 0x005e7720,        # the entry point this replaces
+    'LOADLIB': 0x024a2498,          # LoadLibraryA
+    'GETPROC': 0x024a249c,          # GetProcAddress
+    'GRESUME': 0x00496813,          # the dialogs' resume
+    'RECREATE': 0x00495692,         # release and create the surfaces
+    'IDLE': 0x00496452,             # the loop's pass while inactive
+    'INACTIVE': 0x00b804d0,         # the flag it idles on
+    'SETACTIVE': 0x004963af,        # (pause): the loop stops on 1, runs on 0
+    'FSFLAGS': 0x006a34a0,          # bit 2: the low-resolution modes
+    'FSMODE': 0x006a346c,           # low-res: 320x240 in the FSFLAGS modes
+    'HAVESURF': 0x006a347c,         # the game's "surfaces exist" flag
+    'ISICONIC': 0x024a2698,         # IAT: IsIconic
+    'HWND': 0x02009c94,             # the game's window
+    'BACK': 0x02009c70,             # back buffer
+    'FBX': 0x006a3480,              # picture origin and size on the surface
+    'FBY': 0x006a3484,
+    'FBW': 0x006a34c8,
+    'FBH': 0x006a34cc,
+    'DRAW': 0x00499c39,             # (text, x, y, colour, flag), cdecl
+    'FLIPTIME': 0x02009cb0,         # the time, stored just before the flip
+    'ORIG': ('PVRHOLD', 'store'),   # what HOLD TO SKIP calls first
+    'PRIMARY': 0x02009c90,          # what the flip goes through
+    'CURSOR': 0x00410c38,           # (column, row), cdecl
+    'PRINT': 0x00412260,            # (text), cdecl, from the cursor
+    # places in our own blobs, the same in every build
+    'LEVERS': ('PADX', 'end'),
+    'DEVCUR': ('BINDLIST', 'devcur'),
+    'PADLIST': ('PAD_BINDS', 0),
+    'DZKEYS': ('PAD_NAMES', 'dzkeys'),
+    'COND': ('PAD_COND', 0),
+    'SIMPLEDEF': ('PAD_SIMPLEDEF', 0),
+    'INIKEYS': ('PAD_INIKEYS', 0),
+    'USER32': ('EXTRAS_DATA', 'user32'),
+    'DLGBOXPROC': ('EXTRAS_DATA', 'dlgboxproc'),
+    'CHECKS': ('EXTRAS_DATA', 'checks'),
+    'F11WRAP': ('F11PAUSE', 'f11wrap'),
+    'F11CHECKS': ('F11PAUSE', 'f11checks'),
+    'DLGPROC': ('DEBUGBOX', 'dlgproc'),
+    'LOADSIMPLE': ('INILOAD', 'loadsimple'),
+    'DZSEED': ('PAGESEL', 'dzseed'),
+    'PARSE12': ('INIPARSE', 'parse12'),
+    'DZSAVE': ('INIPARSE', 'dzsave'),
+    'HEXCHAR': ('BINDBLOCK', 'hexchar'),
+    'POLLPADS': ('PADX', 'pollpads'),
+    'TICK': ('PADX', 'tick'),
+    'CAMSKIP': ('CAMSKIP', 0),
+    'GPAUSE': 0x004967cd,           # the built-in dialogs' pause, arg 0
+    # XInput gamepad support
+    'EXIT1P': 0x0043cd7b,           # where the 1P profile switch resumes
+    'EXIT2P': 0x0054b477,           # and the 2P one
+    'KBD1P': 0x0043cf2b,            # stock keyboard handlers, called by the tick
+    'KBD2P': 0x0054b60d,
+    'SIMPLESTUB1': 0x0043cd07,      # Keyboard (Simple)'s profile stubs
+    'SIMPLESTUB2': 0x0054b403,
+    'PEEKMSG': 0x024a2688,          # IAT: PeekMessageA
+    'GETMSG': 0x024a2684,           # IAT: GetMessageA
+    'MODE2': 0x01ff1250,            # 2P state machine's mode
+    'DEVICES': 0x020b3540,          # 1P's profile, 0 being the keyboard
+    'BINDS1': 0x020b3130,           # 1P bind bytes
+    'BINDS2': 0x020b3148,           # 2P bind bytes, 0x18 on as in retail
+    'LEV1A': 0x01e15944,            # 1P lever words, left then right
+    'LEV1B': 0x01e15946,
+    'LEV2A': 0x01ff0674,            # 2P
+    'LEV2B': 0x01ff0676,
+    'MASK1A': 0x00648820,           # 1P key masks
+    'MASK1B': 0x0064882d,
+    'MASK2A': 0x007a8028,           # 2P, from its handler at 0x54b60d
+    'MASK2B': 0x007a8035,
+    'CURPLAYER': 0x00d75508,        # the side being configured, 0 or 1
+    'BLOCKS': 0x00d756b0,           # saved bind blocks: + player * 0x70
+    'KEYLIST': 0x00781700,          # the game's 33 named keys
+    'GAMEPADDEF': 0x007818c8,       # the gamepad's shipped binds
+    'CROSSCHECK': 0x00526b6a,       # key page: look at 1P's key map
+    'KBACCEPT': 0x00526bc2,         # take the key
+    'DEFAULTS': 0x00526d0b,         # fill a player's binds from the shipped set
+    'RESUME': 0x00526c96,           # what the Default button does next
+    'DIGITLOOP': 0x0052706c,        # bind page fill: the digit loop
+    'LISTLOOP': 0x005270ac,         # and the list loop
+    'FILLDONE': 0x005270f3,         # where the fill loop's jge went
+    'STORESHIFT': 0x0052726e,       # bind page store: shift down, try digits
+    'STORELIST': 0x00527293,        # and the list id store
+    'SELDIGITS': 0x00527453,        # bind page preselect: the digit loop
+    'SELLIST': 0x00527497,          # the list loop
+    'SELSET': 0x005274d3,           # search loop exit, then set the selection
+    'MEMCPY': 0x005e5840,
+    'CASEB': 0x00525f2b,            # the stock device 1 apply-and-serialize
+    'FINDLINE': 0x00445781,         # (key) -> value text, 0 if absent
+    'WRITELINE': 0x00445743,        # (key, value): one v_on.ini line
+    'JOYCHECKOK': 0x0052523d,       # startup device check: passes
+    'SPENDNONE': 0x00526747,        # F7 OK: a device that spends no joystick
+    'NODIALOG': 0x00525bb1,         # F7 page table: no dialog, success
+    'BINDPAGE12': 0x00525af1,       # and the twelve-bind page
+    # Locals of the game's own functions our stubs read
+    'FILLIDX': -0x18,               # the bind page fill's loop counter
+    'STOREIDX': -0x14,              # its store's combo index
+    'SELIDX': -0xc,                 # the preselect's loop counter
+    'DEVSEL': -0x10,                # the F7 page's combo selection
+    'DEVNUM': -0x14,                # and the device it maps to
+    'SAVEPLAYER': -0xc8,            # the OK handler's player
+    'SAVELINE': -0x18c,             # and its line buffer
+    # Intro, loading and ending screens
+    'MOVIEX': 0x02009c74,           # the offsets the replaced code read
+    'MOVIEY': 0x02009c78,
+    'F_X': -0x14,                   # the movie placer's X and Y
+    'F_Y': -0x18,
+    'GETCLIENT': 0x024a25fc,        # IAT: GetClientRect
+    'MOVIEDEV': 0x01d2d390,         # the movie's device id
+    'MCISEND': 0x024a26b8,          # IAT: mciSendCommandA
+    'MOVIEHWND': 0x01d2d368,        # the mciavi window
+    'MOVEWINDOW': 0x024a2604,       # IAT: MoveWindow
+    'ACCEPT1': 0x00b7ce29,          # 1P's key buffer slot for A and Space
+    'CAMERA1': 0x00b7cdff,          # 1P key slot for Select
+    'ACCEPT2': 0x00d865a9,          # and 2P's
+    'CAMERA2': 0x00d8658c,
+    'PHASE': 0x00d69a24,            # where the credits sequence is up to
+    'FLAG': 0x0200b768,             # the displaced write
+    'EDGEA': 0x01df58f5,            # press edges, lever A byte: bit 0 is LT
+    'EDGEB': 0x01df58f6,            # lever B byte: 2P's RT
+    'ORIGWNDPROC': 0x0049685f,      # the handler the hook falls through to
+    'GAMEMODE': 0x0082fb5c,         # loop mode: 1 two players, 2 network
+    'DLGOK': 0x00495490,         # () -> 0 when no F-key dialog may open
+    'DLGBUSY': 0x0084c260,       # bit 0: nor then
+    'MODE': 0x0200b760,             # game state
+    'SUBMODE': 0x0200c5b0,          # game sub-state
+    'NOSHOT': 0x0082f900,           # F11 check boxes: the flags they toggle
+    'SEMUTE': 0x007813e4,
+    'CDMUTE': 0x0072c070,
+    'CDSTOP': 0x004fda4b,           # CD audio stop, cdecl, no arguments
+    'GETMODULE': 0x024a24f8,        # IAT: GetModuleHandleA
+    'CHECKDLGBTN': 0x024a261c,      # IAT: CheckDlgButton
+    'GETDLGITEM': 0x024a25d4,       # IAT: GetDlgItem
+    'SENDMSG': 0x024a2638,          # IAT: SendMessageA
+    'POSTMSG': 0x024a2658,          # IAT: PostMessageA
+    'ENDDIALOG': 0x024a25c0,        # IAT: EndDialog
+    # scratch in the page slack past .data: retail's, moved by the same
+    # distance its .data's end moved, so the layout and alignment hold
+    'XIFN': 0x024a1a20,             # XInputGetState; 0 not yet, 1 failed
+    'STATE': 0x024a1a24,            # the tick's XINPUT_STATE
+    'BTN': 0x024a1a28,              # wButtons in STATE
+    'SCR1': 0x024a1a40,             # scratch the tick keeps per player
+    'SCR2': 0x024a1a41,
+    'PADIDX': 0x024a1a44,           # XInput slot + 1 per side
+    'PADRETRY': 0x024a1a46,         # misses of a side without a pad
+    'PSTATE': 0x024a1a50,           # the pump's own XINPUT_STATE
+    'PBTN': 0x024a1a54,             # wButtons in PSTATE
+    'SLEEPFN': 0x024a1a60,          # resolved Sleep: 0 not yet, 1 failed
+    'PADPREV': 0x024a1a64,          # last polled buttons, one word per pad
+    'DZTHR1': 0x024a1a6c,           # stick thresholds of 32767, 1P then 2P
+    'DZSTR1': 0x024a1a74,           # deadzone digit pairs
+    'PENDING': 0x024a1a7c,          # a recreate owed
+    'RETADDR': 0x024a1a80,          # where one returns to
+    'PREV': 0x024a1a84,             # last frame's slot, credits+names
+    'HELD': 0x024a1a85,             # and how long this press has lasted
+    # Native widescreen
+    'SPLITTYPE': 0x006a34a4,        # the F5 Screen Split radio
+    'PLANEB': 0x024a0641,           # byte holding the 2D plane's hide bit
+    'PRE2D': 0x00419c60,            # the first of the frame's 2D calls
+    'WIDEFRAME': ('PVRWIDE', 'frame'),
+    'WIDEDRAWN': ('PVRWIDE', 'drawn3d'),
+    'SURF1': 0x006a34b8,            # 2D surface pointer, first engine
+    'SURF2': 0x006a34c0,            # and second
+    'VIEWW': 0x006a34c8,            # the viewport width
+    'VIEWH': 0x006a34cc,            # and height
+    'PIXFMT': 0x01df50fc,           # the surface's pixel format
+    'WIDESHOW': ('PVRWIDE', 'uishow'),
+    'REGION1': 0x00473b95,          # (layout, radio): renderer A's region
+    'REGION2': 0x00473ec1,          # and B's, in a split game
+    'REGIONFULL': 0x00473977,       # (Screen=Normal): one view's region
+    'WIDEREG1': ('PVRWIDE', 'region1'),
+    'WIDEREG2': ('PVRWIDE', 'region2'),
+    'PLANEB2': 0x01ff3401,          # and the second engine's
+    'SKIPFLIP': 0x006ac400,         # set: the frame's flip is skipped, once
+    'SCENE': 0x0200a0a0,            # the SGL context
+    'SCENEFLAGS': 0x0200a0b8,       # its flags
+    'WIDENODITHER': ('PVRWIDE', 'nodither'),
+    'SURFBASE': 0x02009c8c,         # the locked surface
+    'SURFPITCH': 0x02009c7c,        # and its pitch
+    'WAITRENDER': 0x0047272a,       # waits for it
+    'WIDEWAIT': ('PVRWIDE', 'waitcard'),
+    'CENTREAX': 0x0084cf20,         # each renderer's view centre
+    'CENTREAY': 0x0084cf24,
+    'CENTREBX': 0x008a3740,
+    'CENTREBY': 0x008a3744,
+    'ORGX2': 0x008a3950,            # the second viewport's origin
+    'ORGY2': 0x008a3954,
+    'WIDEFILL1': ('PVRWIDE', 'fill1'),
+    'WIDEFILL2': ('PVRWIDE', 'fill2'),
+    'WIDEINS2': ('PVRWIDE', 'insert2'),
+    'WIDEINSFN': ('PVRWIDE', 'insertfn'),
+    'WIDEFN': ('PVRWIDE', 'framefn'),
+    'WIDESIZE': ('PVRWIDE', 'uisize'),
+    'WIDE3D': ('PVRWIDE', 'drawn'),
+    # Playable bosses (asm/bosses.asm). Placed through tools' maps of retail and
+    # the rerelease; the frames and the AI state are laid out as the rerelease's.
+    'DR_FLAG': -0x4,
+    'SEL_BONE': -0x10,
+    'CAM_PTR': -0x8,
+    'SCAN_SLOT': -0x18,
+    'PAL_CPU': -0x4,
+    'BS_IDLE': 0x00496551,
+    'BS_SFX': 0x00574f41,
+    'BS_SCENEA': 0x0200c5c4,
+    'BS_G1PA': 0x0200b690,
+    'BS_MODEA': 0x0200a294,
+    'BS_COL0': 0x007c86b0,
+    'BS_COL1': 0x007c86d0,
+    'BS_OBJA': 0x0200a2a0,
+    'BS_CPUA': 0x0200a8b0,
+    'BS_IDA': 0x0200a304,
+    'BS_MDLA': 0x0200a30c,
+    'BS_JAGA': 0x0062bf40,
+    'BS_ZGA': 0x0062d720,
+    'BS_STAGEA': 0x0200a29c,
+    'BS_PALA': 0x007c86f8,
+    'BS_PALSETA': 0x005753a1,
+    'BS_PALFIXA': 0x0057553f,
+    'BS_PALRETA': 0x00575560,
+    'BS_RPARTA': 0x00488301,
+    'BS_MPUSHA': 0x00417f00,
+    'BS_MPOPA': 0x00417f80,
+    'BS_MSCALEA': 0x00418060,
+    'BS_MIDENTA': 0x00417fb0,
+    'BS_BARMESHA': 0x00a0b164,
+    'BS_BARONA': 0x00a0ae24,
+    'BS_BARREDA': 0x00a0ae84,
+    'BS_BARLIVEA': 0x00a0af04,
+    'BS_CHARGEA': 0x004131e2,
+    'BS_RFLAG': 0x006a34ac,
+    'BS_MATA': 0x01df5370,
+    'BS_IDENTA': 0x00417fb6,
+    'BS_LIGHTA': 0x01df4fb4,
+    'BS_SHADEA': 0x00567fa2,
+    'BS_NOSHADEA': 0x00568794,
+    'BS_ECBLKA': 0x0200b6b0,
+    'BS_ESTEPA': 0x00d69a40,
+    'BS_ZSHADEA': 0x00500261,
+    'BS_ZNOSHADEA': 0x0050094e,
+    'BS_WALLA': 0x00573460,
+    'BS_SPDA': 0x0205a770,
+    'BS_SCANA': 0x00518153,
+    'BS_FOUNDA': 0x00518194,
+    'BS_ZTAB0': 0x00681cd8,
+    'BS_ZTAB1': 0x00682008,
+    'BS_ZINITA': 0x00501b6f,
+    'BS_PH0A': 0x00519811,
+    'BS_ZDRAWA': 0x004ff4e2,
+    'BS_MDRAWA': 0x0056588a,
+    'BS_SCRPTR': 0x01df66e8,
+    'BS_SELSCRA': 0x006422d8,
+    'BS_SELCUR': 0x01df6738,
+    'BS_SELINVA': 0x006422b8,
+    'BS_COLSEL': 0x0084c5ec,
+    'BS_SELMDLA': ('PVRBOSS', 'selmdl'),
+    'BS_SELINFOA': 0x005c99c0,
+    'BS_FRAMEA': 0x0200a248,
+    'BS_SELMODE': 0x006ac3e0,
+    'BS_SELQINFOA': 0x005ce46c,
+    'BS_QTXTX': 0x0084c610,
+    'BS_QTXTY': 0x0084c618,
+    'BS_SELHIDEX': 0x005cd6d5,
+    'BS_PRINT1A': 0x004118b0,
+    'BS_PRINT2A': 0x004118e8,
+    'BS_TXTPOSA': 0x00410c38,
+    'BS_TCLEARA': 0x00412841,
+    'BS_TBLOCKA': 0x00412681,
+    'BS_LOGOJ': 0x00b028ae,
+    'BS_LOGOZ': 0x00b02aa4,
+    'BS_ROW': 0x00b0fcd2,
+    'BS_PLANE': 0x01fbed8a,
+    'BS_SELROWS': 0x00642098,
+    'BS_SELSWAP': 0x00642788,
+    'BS_SELSPEC': 0x006427c8,
+    'BS_SELLCAM': 0x006428a8,
+    'BS_SELAHEAD': 0x00642a38,
+    'BS_MFRAMEA': 0x01df5106,
+    'BS_SELPADS': 0x01df58f5,
+    'BS_SELFLAME': ('PVRBOSS', 'flames'),
+    'BS_SELSKY': 0x0084c604,
+    'BS_SELIN': 0x0084c5fc,
+    'BS_SELTICKS': 0x01d2cf88,
+    'BS_STATEA': 0x0200c5b0,
+    'BS_DIFF': 0x01e299c1,
+    'BS_LOSSA': 0x0200c5bc,
+    'BS_REPLOGICA': 0x00487e6f,
+    'BS_REPTEXTA': 0x00488d08,
+    'BS_REPMODELA': ('PVRBOSS', 'repmodel'),
+    'PVR_REPMODEL': 0x00488273,
+    'PVR_SCENE': 0x0058062a,
+    'UNLON': ('BOSSES', 'unl_on'),
+    'BS_REPCNT': 0x024a08c0,
+    'BS_TCLRALL': 0x00410e14,
+    'BS_TRESET': 0x004108b7,
+    'BS_PRINTBIG': 0x00412327,
+    'BS_PADEDGE': 0x01df58ec,
+    'BS_FADE': 0x0052a3c0,
+    'BS_SCNEND': 0x005801a9,
+    'BS_FWRITE': 0x005e73f0,
+    'BS_WBMODE': 0x007a800c,
+    'BS_ARTPOOL': 0x0064705c,
+    'BS_ARTPOOL2': 0x00647064,
+    'BS_ARTCOUNT': 0x00b7c914,
+    'BS_ARTEND': 0x024a1a04,
+    'BS_MALLOC': 0x005e7320,
+    'BS_FREE': 0x005f4090,
+    'BS_POLYCOL': 0x0084c6e4,
+    'BS_KEYA': 0x008a35e0,
+    'BS_COLTAB': 0x0066eca8,
+    'BS_SCNNOW': 0x00825458,
+    'BS_LOADTEX': 0x00472bd7,
+    'BS_FCBUF': 0x01db4780,
+    'BS_FLDBUF': 0x01d2d560,
+    'BS_GLOW1': 0x007f40ac,
+    'BS_GLOW2': 0x00f885a0,
+    'BS_GLOW3': 0x00f885a4,
+    'BS_MTSELMEM': 0x02470000,
+    'BS_SEGA': 0x00829e48,
+    'BS_TXTX': 0x00b7c8d0,
+    'BS_SLOTJ': 0x00825538,
+    'BS_SLOTZ': 0x0082553c,
+    'BS_SLOTR': 0x00825524,
+    'BS_LOADFILE': 0x00472bd7,     # nothing: Raiden's file is kept loaded (asm/pvrboss.asm)
+    'BS_RBNAMES': ('PVRBOSS', 'rbnames'),
+    'PVR_SELDRAW': 0x005c9ba9,
+    'PVR_TEXLOAD': 0x0057d7c0,
+    'PVR_TEXFREE': 0x0057e02e,
+    'PVR_LOADER': 0x0057f048,
+    'PVR_FREEALL': 0x0057e2a3,
+    'BOSSID': ('BOSSES', 'boss'),
+    'PVRFREEALL': ('PVRBOSS', 'freeall'),
+    'PVROWNSIDE': ('PVRBOSS', 'ownside'),
+    'RBTRY': ('BOSSES', 'sel_rbtry'),
+    'RBBUF': ('BOSSES', 'sel_rbbuf'),
+    'PVRLOADER': ('PVRBOSS', 'loader'),
+    'PVRREPSCENE': ('PVRBOSS', 'repscene'),
+    'SELCURSOR': 0x01df6738,
+    'BS_RBDIR': 0x01df4e80,
+    'BS_PATHFMT': 0x006548c0,
+    'BS_RBMODE': 0x0077e710,
+    'BS_SPRINTF': 0x005e6350,
+    'BS_FOPEN': 0x005e5e50,
+    'BS_FREAD': 0x005e6490,
+    'BS_FCLOSE': ('PVRBOSS', 'fclose'),
+    'PVR_FCLOSE': 0x005e5ba0,
+    'RBLOAD': ('BOSSES', 'sel_loadrb'),
+    'RBLOADEND': ('BOSSES', 'sel_slotsin'),
+    'BS_PALLOADA': 0x0057549b,
+    'BS_PALRAMA': 0x01e159a0,
+    'BS_SELOBJ': 0x01df5ad0,
+    'BS_SELCAM': 0x01df6728,
+    'BS_FRX': 0x00642b18,
+    'BS_HSITE': 0x005cb648,
+    'BS_MESHA': 0x00503f36,
+    'BS_POSEA': 0x00572a7b,
+    'BS_ROTYA': 0x00428bd0,
+    'BS_ROTZA': 0x00428c70,
+    'BS_CREATEF': 0x024a24a0,
+    'BS_SEEKF': 0x024a2594,
+    'BS_READF': 0x024a24b0,
+    'BS_CLOSEF': 0x024a24b4,
+    'BS_ZPARTS': 0x00681cd8,
+    'BS_ZRINGS': 0x00681d30,
+    'BS_ZCROWN': 0x00681f20,
+    'BS_ZSIDES': 0x00681f38,
+    'BS_ROTXA': 0x00428b30,
+    'BS_MSETA': 0x00503df0,
+    'BS_FXA': 0x00b85578,
+    'BS_FX2A': 0x00b85e20,
+    'BS_NAMEA': 0x00630328,
+    'BS_LDA': 0x00576555,
+    'BS_LDXA': 0x00576572,
+    'BS_DRFA': 0x005765d0,
+    'BS_DRJA': 0x0057661f,
+    'BS_DRSA': 0x00576696,
+    'BS_C2A': 0x00576746,
+    'BS_TIMEA': 0x00d697a4,
+    'BS_PHASEA': 0x00d69a24,
+    'BS_ENDA': 0x0051dc2f,
+    'BS_END1A': 0x0051dc7e,
+    'BS_ENDEA': 0x0051dcac,
+    'BS_VIEWA': 0x00417ff0,
+    'BS_SINA': 0x00428af0,
+    'BS_COSA': 0x00428b10,
+    'BS_YAW4': 0x00b804b0,
+    'BS_LIVEA': 0x004b2ab4,
+    'BS_READYA': 0x0200a254,
+    'BS_INITA': 0x00501b75,
+    'BS_FLYA': 0x005035b8,
+    'BS_FLYPA': 0x00503788,
+    'BS_FLYEA': 0x00503da5,
+    'BS_ZMODA': 0x01df5110,
+    'BS_ZTIMA': 0x00d68ac0,
+    'BS_RCOUNTA': 0x0200ccc4,
+    'BS_ARENA': 0x01df4fc4,
+    'BS_ZBOXA': 0x00501ab7,
+    'BS_FLOORA': 0x005739d0,
+    'BS_TM2': 0x0050273c,
+    'BS_TM2S': 0x00502d4d,
+    'BS_TM4': 0x005025fb,
+    'BS_TM4S': 0x005026f2,
+    'BS_CLIP0A': 0x004368cf,
+    'BS_CLIP3A': 0x004368e9,
+    'BS_CLONEA': 0x00501d51,
+    'BS_BSSA': 0x00d68910,
+    'BS_TICKA': 0x004384e2,
+    'BS_EVA': 0x01df4fe8,
+    'BS_ZEVA': 0x00d68934,
+    'BS_ZRA5': 0x005769fe,
+    'BS_ZRA1': 0x00576a21,
+    'BS_ZRAX': 0x00576bee,
+    'BS_ZGA5': 0x00576a8d,
+    'BS_ZGA1': 0x00576ab0,
+    'BS_ZDA5': 0x00576afd,
+    'BS_ZDA1': 0x00576b30,
+    'BS_ZFA5': 0x00576b8d,
+    'BS_ZFA1': 0x00576bc0,
+    'BS_WIND1': 0x00b804e0,
+    'BS_RPITCH1': 0x00b7d168,
+    'BS_RYAW1': 0x00b7d16c,
+    'BS_SCANBASE': 0x000005e0,
+    'BS_CLONEFRAME': 0x00000044,
+    'BS_AIDW': 0x0000007a,
+    'BS_AI1C': 0x000001b4,
+    'BS_AITIMER': 0x000001b0,
+    'BS_AILASER': 0x00000004,
+    'BS_AITAB': 0x00000028,
+    'BS_AITAB2': 0x000000ec,
+    'BS_AITAB3': 0x00000020,
+    'BS_AITAB4': 0x00000018,
+    'BS_HDOFF': 0x0000176d,
+}, art=RETAIL.art,
+    sites=None, annex=ANNEX_BLOBS + ('F5_PVR', 'PVRWIDE', 'PVRBOSS', 'PVRHOLD'),
+    own=('BOSSES',),
+    patches=('framerate', 'continuefix', 'dinput', 'activate', 'sound',
+             'defaults', 'nodisc', 'debugbox', 'movie', 'padxinput', 'hires',
+             'bosses', 'bossunlock', 'credits'),
+    reasons={'nocpucheck': 'the PowerVR build has no processor check',
+             'lockline': 'the PowerVR build does not need this fix'},
+    note=PVR_NOTE, exe='vonpvr.exe',
+    # Its F5 page has no Texture boxes, so nothing in the game can turn the
+    # machines' textures on; with no value they are off, and drawn black.
+    fixed_ini={'Texture': '7'},
+    cautions={'hires': PVR_WIDE_CAUTION})
+
 BUILDS = {RETAIL.md5: RETAIL, JPRE.md5: JPRE, OEM.md5: OEM,
-          JP.md5: JP}
+          JP.md5: JP, PVR.md5: PVR}
+
+
+def game_exe(folder):
+    """The game's executable in a folder, whichever build's name it has,
+    or None."""
+    for name in dict.fromkeys(b.exe for b in BUILDS.values()):
+        path = os.path.join(folder, name)
+        if os.path.exists(path):
+            return path
+    return None
+
+
+def build_blobs(build):
+    """The blobs a build's ported patches write, for a build that takes
+    only some patches; None for one that takes all. asm/build.py's link check
+    tests those. The rest keep their place in the annex, zeroed, which is all a
+    written blob needs of one it names: a gamepad stub the F11 dialog calls
+    starts with a zero byte when that patch is out, and is skipped."""
+    if build.patches is None:
+        return None
+    out = {off.sym[0] for key, _l, _t, sites in FEATURES
+           if not unsupported(build, key)
+           for off, _o, _n in sites if isinstance(off, At)}
+    if 'debugbox' in build.patches:
+        out.add('VOXT')             # linked when the template is appended
+    return out
+
+
+def fix_ini(folder, build):
+    """Set the build's fixed [Option] values in the v_on.ini in folder,
+    writing the file if there is none. Every other line is kept as it is;
+    the game fills in the rest on its first run. Returns the keys set."""
+    if not build.fixed_ini:
+        return []
+    path = os.path.join(folder, 'v_on.ini')
+    try:
+        with open(path, 'rb') as fh:
+            lines = fh.read().decode('latin-1').splitlines()
+    except FileNotFoundError:
+        lines = []
+    for key, value in build.fixed_ini.items():
+        line = '%s=%s' % (key, value)
+        at = [i for i, l in enumerate(lines)
+              if l.split('=', 1)[0].strip().lower() == key.lower()]
+        if at:
+            for i in at:
+                lines[i] = line
+            continue
+        sect = [i for i, l in enumerate(lines)
+                if l.strip().lower() == '[option]']
+        if sect:
+            lines.insert(sect[0] + 1, line)
+        else:
+            lines += ['[Option]', line]
+    with open(path, 'wb') as fh:
+        fh.write(('\r\n'.join(lines) + '\r\n').encode('latin-1'))
+    return list(build.fixed_ini)
+
+
+def build_for_exe(name):
+    """The build whose game file has this name, if only one does."""
+    found = [b for b in BUILDS.values() if b.exe == name.lower()]
+    return found[0] if len(found) == 1 else None
+
+
+def unsupported(build, key):
+    """Why this build does not take a patch, or None if it does."""
+    if build.patches is None or key in build.patches:
+        return None
+    return build.reasons.get(key, 'not ported to the %s build' % build.name)
+
 BY_STAMP = {b.stamp: b for b in BUILDS.values()}
 
-# GENERATED by tools/buildsites.py - do not edit by hand.
+# GENERATED by tools/buildsites.py - do not edit by hand. The exception is the
+# PowerVR map, which is kept by hand: the generator stops on its boss sites.
 #
 # For each build but retail: where every site the table names by retail
 # offset is in that build, and what it holds there; None for a site the
@@ -5823,6 +6691,376 @@ JP.sites = {
 }
 # SITES JP END
 
+# SITES PVR BEGIN
+PVR.sites = {
+    0x002bba60: (0x0037f3f8, '0f'),
+    0x00189546: (0x00123e36, '2256'),
+    0x00189552: (0x00123e42, '88580100'),
+    0x00058189: (0x000ba24d, '01'),
+    0x00170dc9: (0x001049cd, '01'),
+    0x0014dc42: (0x001c0f62,
+        'c745ec00000000c745e828000000a1749c00028945eca1789c00028945e8'
+    ),
+    0x002c7678: (0x002aa780, '4e'),
+    0x0000023f: (0x0000023f, '40'),
+    0x0018fc25: (0x0011cfdf, 'c70568b7000200000000'),
+    0x000d60c8: (0x0007a353,
+        'f605f558df01010f850d000000f605f658df01010f84f2010000'
+    ),
+    0x001c58e7: None,  # movie
+    0x0010acd7: (0x0016cf4d, '00000000'),
+    0x0010b088: (0x0016d2fe, '01000000'),
+    0x0010b131: None,  # defaults
+    0x0010b1b0: (0x0016d444, '00000000'),
+    0x0010b1ba: (0x0016d44e, '00000000'),
+    0x0010b1c4: (0x0016d458, '00000000'),
+    0x001c76d4: (0x00097774, '0f840a000000'),
+    0x001b0920: (0x00147f6c, '0f850f000000'),
+    0x001c4aa2: (0x00094a92, '558bec81ece0000000'),
+    0x001c5726: (0x000957af, '558bec5356'),
+    0x001c5412: (0x0009543d, 'e810040000'),
+    0x000000a8: (0x000000a8, '20771e00'),
+    0x000273c1: (0x001942f1, '833d3cccd20103'),
+    0x000275d3: (0x00194503, 'c7053cccd20103000000'),
+    0x000275e2: (0x00194512, 'c7053cccd20102000000'),
+    0x006035ac: None,  # framerate
+    0x0060c064: None,  # framerate
+    0x0010afbe: (0x0016d234, 'c705e0c36a0003000000'),
+    0x0010afeb: (0x0016d261, 'c705e0c36a0003000000'),
+    0x0010b002: (0x0016d278, 'c705e0c36a0003000000'),
+    0x001c6941: None,  # framerate
+    0x001c6950: None,  # framerate
+    0x001c6d8c: (0x00096df6, 'c705e0c36a0002000000'),
+    0x001c6d9b: (0x00096e05, 'c705e0c36a0003000000'),
+    0x001c6dfc: (0x00096e66, 'c705e0c36a0002000000'),
+    0x001c6e0b: (0x00096e75, 'c705e0c36a0003000000'),
+    0x001c8bc4: None,  # framerate
+    0x001c8bd3: None,  # framerate
+    0x001c4d42: (0x00094d99, '0f850c000000'),
+    0x001c4d4b: (0x00094da2, '65000000'),
+    0x001c4d7e: (0x00094dd5, '5f684900'),
+    0x00077f5a: (0x00009e07,
+        '8b45ecd94008d9e083ec04d91c248b45ec8b4004508b45ecd900d9e083ec04d9'
+        '1c24e86288ffff83c40c'
+    ),
+    0x00078b1c: (0x0000a9c9,
+        '8b45ecd94008d9e083ec04d91c248b45ec8b4004508b45ecd900d9e083ec04d9'
+        '1c24e8a07cffff83c40c'
+    ),
+    0x00079bb6: (0x0000ba63,
+        '8b45ecd94008d9e083ec04d91c248b45ec8b4004508b45ecd900d9e083ec04d9'
+        '1c24e8066cffff83c40c'
+    ),
+    0x00079f3f: (0x0000bdec,
+        '8b45ecd94008d9e083ec04d91c248b45ec8b4004508b45ecd900d9e083ec04d9'
+        '1c24e87d68ffff83c40c'
+    ),
+    0x0007d04a: (0x0000eef7,
+        '8b45ecd94008d9e083ec04d91c248b45ec8b4004508b45ecd900d9e083ec04d9'
+        '1c24e87237ffff83c40c'
+    ),
+    0x000bb9ea: (0x000651c7,
+        '8b45ecd94008d9e083ec04d91c248b45ec8b4004508b45ecd900d9e083ec04d9'
+        '1c24e80222fbff83c40c'
+    ),
+    0x000bc5ac: (0x00065d89,
+        '8b45ecd94008d9e083ec04d91c248b45ec8b4004508b45ecd900d9e083ec04d9'
+        '1c24e84016fbff83c40c'
+    ),
+    0x000bd646: (0x00066e23,
+        '8b45ecd94008d9e083ec04d91c248b45ec8b4004508b45ecd900d9e083ec04d9'
+        '1c24e8a605fbff83c40c'
+    ),
+    0x000bd9cf: (0x000671ac,
+        '8b45ecd94008d9e083ec04d91c248b45ec8b4004508b45ecd900d9e083ec04d9'
+        '1c24e81d02fbff83c40c'
+    ),
+    0x000c0ada: (0x0006a2b7,
+        '8b45ecd94008d9e083ec04d91c248b45ec8b4004508b45ecd900d9e083ec04d9'
+        '1c24e812d1faff83c40c'
+    ),
+    0x000970bf: (0x001264bb, '837de8210f8d2e000000'),
+    0x000970d5: (0x001264d1, '8b04c500177800'),
+    0x0009729c: (0x00126696, '8a04c504177800'),
+    0x000974ac: (0x001268a6, '837df4210f8d23000000'),
+    0x000974be: (0x001268b8, '390cc504177800'),
+    0x00095f35: (0x0012533d, '05b056d70083c008'),
+    0x0009724c: (0x00126646, '05b056d70083c008'),
+    0x0009736d: (0x00126767, '05b056d70083c008'),
+    0x00097355: (0x0012674f, '8d04408d04c5c8187800'),
+    0x00097397: (0x00126791, '05b056d70083c008'),
+    0x00097531: (0x0012692b, '05b056d70083c008'),
+    0x0009740f: (0x00126809, '8a8441b856d700'),
+    0x0026c88c: (0x0037fd40,
+        '4b6579626f617264206f6e6c79202853696d706c652074797065202d20256450'
+        '20736964652900'
+    ),
+    0x0026c400: (0x0037f8c8,
+        '11001f001e002000100012002e0022002d0013002f002100'
+    ),
+    0x0026c418: (0x0037f8e0,
+        'c700cf00d300d100d200c900520051004f004c0053005000'
+    ),
+    0x000422a8: (0x0003c15f, '07cd4300'),
+    0x001bc13b: (0x0014a85b, '03b45400'),
+    0x001c530e: (0x00095339, 'ff1588264a02'),
+    0x000971bd: (0x001265b8, '0f8558000000'),
+    0x0026c218: (0x0037f6e0,
+        '8c167800741678006016780054167800301678002016780008167800f8157800'
+    ),
+    0x000422ac: (0x0003c163, '11cd4300'),
+    0x001bc13f: (0x0014a85f, '0db45400'),
+    0x000422b0: (0x0003c167, '22cd4300'),
+    0x001bc143: (0x0014a863, '1eb45400'),
+    0x00095e46: (0x0012524e, '83c008'),
+    0x00095ec7: (0x001252cf, 'b856d700'),
+    0x00096d37: (0x00126133, '83c008'),
+    0x00096d61: (0x0012615d, '83c008'),
+    0x00096f19: (0x00126315, '83c008'),
+    0x00096c0a: (0x00126006, 'b856d700'),
+    0x00096c40: (0x0012603c, 'b856d700'),
+    0x00096c6d: (0x00126069, 'b856d700'),
+    0x00096de8: (0x001261e4, 'b856d700'),
+    0x00096e3f: (0x0012623b, 'b856d700'),
+    0x00096e9a: (0x00126296, 'b856d700'),
+    0x00096b61: (0x00125f5d, '833d0855d700010f8558000000'),
+    0x00096c8e: (0x0012608a, '6a016a00e87800000083c408'),
+    0x00094ea0: (0x00124319, 'e8da2a0000'),
+    0x00094eaf: (0x0012432b, '2a330000'),
+    0x00095217: (0x00124631, '71515200'),
+    0x00095213: (0x0012462d, '89515200'),
+    0x00096731: (0x00125b2f, 'e3665200'),
+    0x00096735: (0x00125b33, '04675200'),
+    0x00095bdc: (0x00124fe4, '305b5200'),
+    0x00095be0: (0x00124fe8, 'b15b5200'),
+    0x00096253: (0x0012565b, '2b5f5200'),
+    0x0009625b: (0x00125663, '33625200'),
+    0x00095604: (0x001249fe, 'e8562c0000'),
+    0x000958a1: (0x00124caa, '03'),
+    0x000958aa: (0x00124cb3, 'e900000000'),
+    0x0009522e: None,  # padxinput
+    0x00095248: None,  # padxinput
+    0x0009651a: (0x00125922, '8b80b056d700'),
+    0x00096784: (0x00125b82, '8b45f08b4dec'),
+    0x000959f7: (0x00124dff, '89048d40350b02'),
+    0x0060b34e: (0x00783f7a, '3100500020007300690064006500'),
+    0x0009703f: (0x0012643b, '837de81a0f8d27000000'),
+    0x00097257: (0x00126651, '837dec1a0f8d13000000'),
+    0x00097428: (0x00126822, '837df41a0f8d27000000'),
+    0x000974cb: (0x001268c5, '8345f424e905000000'),
+    0x0009753a: (0x00126934, 'e807e30b00'),
+    0x001c52ac: (0x000952c3, 'ff1584264a02'),
+    0x00285e04: (0x0024307c, '20505245535320535041434520424152'),
+    0x002c7654: (0x002aa75c,
+        '546f20526573756d652047616d652c20507265737320463300000000'
+    ),
+    0x00269b60: (0x00243750,
+        '000001000200030004000500060007000800090007000a000b000c000d000e00'
+        '0f00100011001200040004001300090004001400150004001600170007000800'
+        '180019001a001b001c0014001d001e001f002000210022002300240025002600'
+        '2700280029002a002b002c002d002e002f003000310032003300340035003600'
+        '3700380039003a003b003c003d003e00280029003f003a004000410042004300'
+        '4400450046004700480049004a004b004c004a004d004e004f00500051005200'
+        '53005400550056005700580059005a005b005c005d005e005f00600061006200'
+        '63004d004e004f006400650066006700680069006a006b006c004a00'
+    ),
+    0x001c5b79: (0x00095b81, 'e8cbfdffff'),
+    0x001c5bbb: (0x00095bc3, 'e889fdffff'),
+    0x0019f8c1: (0x001cc9b7, 'a390b60002a190b60002'),
+    0x001a0e84: (0x001cdf7a, 'a390b60002a190b60002'),
+    0x000f29a5: (0x001748b5, '86000000'),
+    0x0006018b: (0x000876ef, 'e80d000000'),
+    0x00007ae0: (0x000173b0, '558bec535657'),
+    0x0006a969: (0x0016739d, 'a1b44fdf01'),
+    0x000041b7: (0x000ff657, '813dc08ad6009a000000'),
+    0x0018a4fd: (0x00117b22, 'e8c9f8efff'),
+    0x0018fcba: (0x0011d074, 'e898bbffff'),
+    0x001b82b8: (0x00037ab5, 'e8b5940c00'),
+    0x001b830d: (0x00037b0a, 'e860940c00'),
+    0x00189e7e: (0x0011754b, '8b45f005e0050000'),
+    0x000062fc: (0x00101af6, 'e8e7cdffff'),
+    0x001b7f80: (0x00037791, 'e8f4d41200'),
+    0x001c1622: (0x000c2b3a, 'e821fd0a00'),
+    0x001a171d: (0x001ce84d, 'c705e866df01d8226400'),
+    0x0019f476: (0x001cc56c, '833c853867df0107'),
+    0x0019f48f: (0x001cc585, 'ff04853867df01'),
+    0x0019f3e9: (0x001cc4df, 'ff0c853867df01'),
+    0x001a0a6b: (0x001cdb61, 'ff04853867df01'),
+    0x001a09c5: (0x001cdabb, 'ff0c853867df01'),
+    0x001a17ec: (0x001ce91c, '8b0485b8226400'),
+    0x0019f4cc: (0x001cc5c2, '833decc5840000'),
+    0x0019bf93: (0x001c8fa3, '558bec83ec64'),
+    0x0019bff7: (0x001c8fc2, '98206400'),
+    0x0019cd94: (0x001c9f09, 'e82894f3ff'),
+    0x0019c2e7: (0x001c931d, '88276400'),
+    0x0019c850: (0x001c98d0, '88276400'),
+    0x0019c973: (0x001c9a2f, '88276400'),
+    0x0019caaa: (0x001c9ba2, '88276400'),
+    0x0019cbf3: (0x001c9d24, '88276400'),
+    0x0019c6ab: (0x001c971e, 'c8276400'),
+    0x0019fc26: (0x001ccd1c, '83e007'),
+    0x0019fc3d: (0x001ccd33, 'b0286400'),
+    0x0019fc64: (0x001ccd48, 'ac286400'),
+    0x0019fc97: (0x001ccd7a, 'b0286400'),
+    0x0019fccb: (0x001ccdaf, 'a8286400'),
+    0x0019cfeb: (0x001ca160, 'a190b60002'),
+    0x001a18a5: (0x001ce9d5, '8b04853867df01'),
+    0x0019d80b: (0x001ca969, 'dc05382a6400'),
+    0x0019ec20: (0x001cbd4e, '833c85fc66df0100'),
+    0x0019d413: (0x001ca588, 'a188cfd201'),
+    0x0023b5d4: (0x0022b1cc,
+        '522d574541504f4e00000000000000004c2d574541504f4e0000000000000000'
+        '524c2d574541504f4e00000000000000'
+    ),
+    0x0023bca4: (0x0022b89c,
+        '522d574541504f4e00000000000000004c2d574541504f4e0000000000000000'
+        '524c2d574541504f4e00000000000000'
+    ),
+    0x0023cdb4: (0x0022c9ac,
+        '522d574541504f4e00000000000000004c2d574541504f4e0000000000000000'
+        '524c2d574541504f4e000000000000005a49472d524148540000000000000000'
+    ),
+    0x0023d484: (0x0022d07c,
+        '522d574541504f4e00000000000000004c2d574541504f4e0000000000000000'
+        '524c2d574541504f4e000000000000005a49472d524148540000000000000000'
+    ),
+    0x002bb008: (0x0042d9a0,
+        '5a2d475241542020202020004a41474152414e4449202000'
+    ),
+    0x0010d6d4: (0x000abbd4, '99f7f96689150651df01'),
+    0x0010d7b5: (0x000abcb5, '99f7f96689150651df01'),
+    0x0019e241: (0x001cb36f, '3b048dd05adf01'),
+    0x0019db28: (0x001cac86, 'd91c85045bdf01'),
+    0x0019db81: (0x001cacdf, 'd91c85045bdf01'),
+    0x0019e0c2: (0x001cb1f0, 'd91c85045bdf01'),
+    0x0019e0f9: (0x001cb227, 'd91c85045bdf01'),
+    0x0019f9be: (0x001ccab4, '837dac0a0f8d17000000'),
+    0x001a0a52: (0x001cdb48, '833c853867df0107'),
+    0x001a0aa8: (0x001cdb9e, '833decc5840000'),
+    0x001a0f81: (0x001ce077, '837dac0a0f8d17000000'),
+    0x001a08eb: (0x001cd9e1, 'e886feffff'),
+    0x0019f6f4: (0x001cc7ea, 'dc25482a6400'),
+    0x0019f71e: (0x001cc814, 'dc25482a6400'),
+    0x0019f780: (0x001cc876, 'dc05482a6400'),
+    0x0019f7aa: (0x001cc8a0, 'dc05482a6400'),
+    0x000cfc2f: (0x00012f56, '37'),
+    0x000cfc31: (0x00012f58, 'd2fcb000'),
+    0x000cfc45: (0x00012f6c, '37'),
+    0x000cfc47: (0x00012f6e, 'd2fcb000'),
+    0x000cfcd1: (0x00012ff8, '37'),
+    0x000cfcd3: (0x00012ffa, 'd2fcb000'),
+    0x000cfce7: (0x0001300e, '37'),
+    0x000cfce9: (0x00013010, 'd2fcb000'),
+    0x000cfc15: (0x00012f3c, '8305d0c8b70002'),
+    0x000cfcb7: (0x00012fde, '8305d0c8b70002'),
+    0x000cfc53: (0x00012f7a, '8305d0c8b7000c'),
+    0x000cfcf5: (0x0001301c, '8305d0c8b7000c'),
+    0x000d087f: (0x00013bc2, '8d04454605fc01'),
+    0x000d08d7: (0x00013c1a, '8d04454e05fc01'),
+    0x000d094d: (0x00013c90, '8d044592edfb01'),
+    0x000d09b0: (0x00013cf3, '8d04459aedfb01'),
+    0x000d3991: (0x00016cd3, 'c745f81f000000'),
+    0x000d39d5: (0x00016d17, 'c745f81f000000'),
+    0x001beb70: (0x00148870, 'e8165b0300'),
+    0x001802cb: (0x0011f86e, 'e818eb0500'),
+    0x001a18fb: (0x001cea37, 'e84ff9faff'),
+    0x001d39b1: (0x001d76e0, '8b35e4c68400'),
+    0x001d4704: (0x001d8603, '8b35e4c68400'),
+    0x001de8c1: (0x001de220, '8b35e4c68400'),
+    0x001df654: (0x001df123, '8b35e4c68400'),
+    0x0019f317: (0x001cc40d, 'b8eb040000'),
+    0x001a08f3: (0x001cd9e9, 'b8eb040000'),
+    0x000b3bbe: (0x0013ae97, 'ff05bcc50002'),
+    0x000b3e5b: (0x0013b139, 'c705b0c500021c000000'),
+    0x0018fd0f: (0x0011d0d7, 'c705b0c5000216000000'),
+    0x000cc723: (0x0000fa98, 'e86b860700'),
+    0x001fe638: (0x00237958, '6f7e4800'),
+    0x0019f30f: (0x001cc405, 'e8b6c9ffff'),
+    0x001a1764: (0x001ce894, 'e827a5ffff'),
+    0x0019d8e5: (0x001caa43, '90226400'),
+    0x0019dc03: (0x001cad61, '90226400'),
+    0x0019dd4a: (0x001caea8, '90226400'),
+    0x0019df8a: (0x001cb0e8, '90226400'),
+    0x0019e209: (0x001cb337, '90226400'),
+    0x0019e3f8: (0x001cb526, '98226400'),
+    0x0019e590: (0x001cb6be, '98226400'),
+    0x0019e728: (0x001cb856, '98226400'),
+    0x0019e8cf: (0x001cb9fd, '98226400'),
+    0x0019eae2: (0x001cbc10, '98226400'),
+    0x0019f6a5: (0x001cc79b, '98226400'),
+    0x0019f8bd: (0x001cc9b3, '98226400'),
+    0x0019f8ec: (0x001cc9e2, '98226400'),
+    0x0019f91f: (0x001cca15, '98226400'),
+    0x0019fc2c: (0x001ccd22, '98226400'),
+    0x001a0c81: (0x001cdd77, '98226400'),
+    0x001a0e80: (0x001cdf76, '98226400'),
+    0x001a0eaf: (0x001cdfa5, '98226400'),
+    0x001a0ee2: (0x001cdfd8, '98226400'),
+    0x00061070: (0x000885d8, 'a190b600028d04408d04800528036300'),
+    0x000f39b5: (0x00175950, 'a104a30002'),
+    0x000f3a2b: (0x001759c6, '837dfc000f844f000000'),
+    0x000f3b9f: (0x00175b41, 'a104a30002'),
+    0x0018fc68: (0x0011d022, '833d249ad600000f854f000000'),
+    0x000db986: (0x0007f915, 'e8d67af9ff'),
+    0x0011297d: (0x000b1ead, '8b45f80fbf401e'),
+    0x001129f8: (0x000b1f28, '8b45f8d84840'),
+    0x00112a2c: (0x000b1f5c, '8b45f8d84840'),
+    0x00112a60: (0x000b1f90, '8b45f8d84840'),
+    0x00005775: (0x00100f6f, '558bec535657'),
+    0x000071d1: (0x001029af, '558bec83ec0c535657'),
+    0x00006335: (0x00101b2f, '833dc08ad600000f8d11060000'),
+    0x000061f4: (0x001019ee, '833dc08ad600000f8df7000000'),
+    0x001b642c: (0x00035cc3, '0fbf403085c00f851a000000'),
+    0x0000594e: (0x00101148, '558bec83ec44535657'),
+    0x001b80c8: (0x000378d9, '558bec83ec04535657'),
+    0x00006321: (0x00101b1b, 'a13489d600a3e84fdf01'),
+    0x000f3e48: (0x00175df4, '837dfc000f8423000000'),
+    0x000f3ecd: (0x00175e83, '837dfc000f8423000000'),
+    0x000f3f3d: (0x00175ef3, '837dfc000f8433000000'),
+    0x000f3fcd: (0x00175f83, '837dfc000f8433000000'),
+    0x0000593f: (0x00101139, 'c705c08ad60000000000'),
+    0x0000655f: (0x00101d3d, 'e875f1ffff'),
+    0x000066c6: (0x00101ea4, 'e80ef0ffff'),
+    0x000068b3: (0x00102091, 'e821eeffff'),
+    0x00007928: (0x00103106, '8b450833c98a883b010000'),
+    0x00102083: (0x0004c7b3, 'b980010000'),
+    0x00102593: (0x0004ccc3, 'b980010000'),
+    0x00103357: (0x0004da4d, 'b980010000'),
+    0x001033dd: (0x0004dad3, 'b980010000'),
+    0x001034cd: (0x0004dbc3, 'b980010000'),
+    0x00103553: (0x0004dc49, 'b980010000'),
+    0x0010360b: (0x0004dd01, 'b980010000'),
+    0x00103686: (0x0004dd7c, 'b980010000'),
+    0x00106baf: (0x00050dc7, 'b980010000'),
+    0x00106c39: (0x00050e51, 'b980010000'),
+    0x001072a8: (0x00051488, 'b980010000'),
+    0x001029ed: (0x0004d11d, 'b980010000'),
+    0x001d4ebb: (0x001d9005, 'a3e0358a00'),
+    0x0015c93e: (0x00077a22, '6824aea000'),
+    0x0015cb77: (0x00077c3f, '6824aea000'),
+    0x0015cdb0: (0x00077e5c, '6824aea000'),
+    0x0015ce2b: (0x00077ed7, '5f5e5bc9c3'),
+    0x000b2098: (0x00139439, '833dc4cc000200'),
+    0x000b21b1: (0x00139552, '833dc4cc000200'),
+    0x0010e939: (0x000ace1d, 'd91de004b800'),
+    0x0010ede5: (0x000ad275, 'd91de004b800'),
+    0x0010f06d: (0x000ad4c5, 'd91de004b800'),
+    0x0010f32a: (0x000ad74a, 'd91de004b800'),
+    0x0010fb12: (0x000adede, 'd91de004b800'),
+    0x0010fbf7: (0x000adfc3, 'd91de004b800'),
+    0x0010fcf6: (0x000ae0a6, 'd91de004b800'),
+    0x0010fedc: (0x000ae238, 'd91de004b800'),
+    0x00110109: (0x000ae411, 'd91de004b800'),
+    0x0010f8a1: (0x000adc89, 'c705e004b80000000c42'),
+    0x0010f8b0: (0x000adc98, 'c705e004b8000000f041'),
+    0x0010325f: (0x0004d955, 'e8969afcff'),
+    0x001c5900: (0x0009759c, 'a1909c0002'),
+    0x001fcec8: None,  # credits
+    0x001fcecc: None,  # credits
+    0x002bbb54: None,  # credits
+}
+# SITES PVR END
+
 # GENERATED - do not edit the hex by hand.
 #
 # Assembled from the sources in asm/. To change any of them: edit the source
@@ -5855,36 +7093,38 @@ BLOBS = {
         'procname': 0x2e,
     }),
     'DEBUGBOX': (bytes.fromhex(
-        '5589e553817d0c00010000753b817d107a0000007532833d0000000002742968'
-        '00000000ff1500000000680000000050ff150000000085c0740789c3e8fcffff'
-        'ff31c05b5dc210005b5de9fcffffff5589e55356578b450c3d100100007532ff'
-        '7508e8fcffffff31ff8d475250ff7508ff15000000008d14bd00000000526a00'
-        '6a0c50ff15000000004783ff0272daeb453d1101000075450fb74d108d51ae83'
-        'fa01763283f902740d83f954740881f9419c000075308b5508e8eaeaeaea85c0'
-        '74146a00516811010000ff3500000000ff1500000000b801000000eb0231c05f'
-        '5e5b5dc2100083f9517518833d0000000004750d6a1f8f0500000000e8fcffff'
-        'ffebd3ebbd'
+        '5589e553817d0c00010000754d817d107a0000007544833d0000000002743be8'
+        'fcffffff85c07432f605000000000175296800000000ff150000000068000000'
+        '0050ff150000000085c0740789c3e8fcffffff31c05b5dc210005b5de9fcffff'
+        'ff5589e55356578b450c3d100100007532ff7508e8fcffffff31ff8d475250ff'
+        '7508ff15000000008d14bd00000000526a006a0c50ff15000000004783ff0272'
+        'daeb453d1101000075450fb74d108d51ae83fa01763283f902740d83f9547408'
+        '81f9419c000075308b5508e8eaeaeaea85c074146a00516811010000ff350000'
+        '0000ff1500000000b801000000eb0231c05f5e5b5dc2100083f9517518833d00'
+        '00000004750d6a1f8f0500000000e8fcffffffebd3ebbd'
     ), (
         (0x18, 'abs', 'GAMEMODE', 0),
-        (0x20, 'abs', 'USER32', 0),
-        (0x26, 'abs', 'LOADLIB', 0),
-        (0x2b, 'abs', 'DLGBOXPROC', 0),
-        (0x32, 'abs', 'GETPROC', 0),
-        (0x3d, 'rel', 'F11WRAP', -4),
-        (0x4b, 'rel', 'ORIGWNDPROC', -4),
-        (0x63, 'rel', 'F11CHECKS', -4),
-        (0x72, 'abs', 'GETDLGITEM', 0),
-        (0x79, 'abs', 'DZSTR1', 0),
-        (0x85, 'abs', 'SENDMSG', 0),
-        (0xcc, 'abs', 'HWND', 0),
-        (0xd2, 'abs', 'POSTMSG', 0),
-        (0xed, 'abs', 'MODE', 0),
-        (0xf8, 'abs', 'SUBMODE', 0),
-        (0xfd, 'rel', 'CDSTOP', -4),
+        (0x20, 'rel', 'DLGOK', -4),
+        (0x2a, 'abs', 'DLGBUSY', 0),
+        (0x32, 'abs', 'USER32', 0),
+        (0x38, 'abs', 'LOADLIB', 0),
+        (0x3d, 'abs', 'DLGBOXPROC', 0),
+        (0x44, 'abs', 'GETPROC', 0),
+        (0x4f, 'rel', 'F11WRAP', -4),
+        (0x5d, 'rel', 'ORIGWNDPROC', -4),
+        (0x75, 'rel', 'F11CHECKS', -4),
+        (0x84, 'abs', 'GETDLGITEM', 0),
+        (0x8b, 'abs', 'DZSTR1', 0),
+        (0x97, 'abs', 'SENDMSG', 0),
+        (0xde, 'abs', 'HWND', 0),
+        (0xe4, 'abs', 'POSTMSG', 0),
+        (0xff, 'abs', 'MODE', 0),
+        (0x10a, 'abs', 'SUBMODE', 0),
+        (0x10f, 'rel', 'CDSTOP', -4),
     ), {
         'hook': 0x0,
-        'dlgproc': 0x4f,
-        'credits': 0xe6,
+        'dlgproc': 0x61,
+        'credits': 0xf8,
     }),
     'PADX': (bytes.fromhex(
         '687c030000e81a01000083c404e9fcffffff68a4030000e80801000083c404e9'
@@ -6534,534 +7774,535 @@ BLOBS = {
         'flag_b': 0xae,
     }),
     'BOSSES': (bytes.fromhex(
-        '60e8f61c0000e8681e0000e81e160000e8160d0000c705003b00000000000031'
-        'd20fb7050000000083f820720683f8307301428b0d783b00008915783b000085'
-        'c9740b85d2756be8600d0000eb6485d27460e896140000c7057c3b0000000000'
-        '00c705503c000000000000c705583c000000000000c705543c000000000000c7'
-        '05cc3a000000000000c705b641000000000000c605783a000000e88629000083'
+        '60e8f61c0000e8681e0000e81e160000e8160d0000c705283b00000000000031'
+        'd20fb7050000000083f820720683f8307301428b0da03b00008915a03b000085'
+        'c9740b85d2756be8600d0000eb6485d27460e896140000c705a43b0000000000'
+        '00c705783c000000000000c705803c000000000000c7057c3c000000000000c7'
+        '05f43a000000000000c705de41000000000000c605a03a000000e8ab29000083'
         '3d0000000007760ac70500000000000000000fb7050000000083e81083f81073'
-        '13833d0000000004770ac7057c3b000000000000833d00000000007509c605be'
-        '41000000eb52803dbe410000007549a16400000083f808740e83f809753a833d'
-        '000000005a7231c605be41000001be00000000bf74c00200b980010000fcf3a5'
-        '565751be00000000bf74c60200b900000000fcf3a5595f5e833d000000000075'
+        '13833d0000000004770ac705a43b000000000000833d00000000007509c605e6'
+        '41000000eb52803de6410000007549a16400000083f808740e83f809753a833d'
+        '000000005a7231c605e641000001be00000000bfa4c00200b980010000fcf3a5'
+        '565751be00000000bfa4c60200b900000000fcf3a5595f5e833d000000000075'
         '0e85d2740ae8650b0000e88108000061e9fcffffffb900000000833d00000000'
-        '007405b900000000ba00000000c7057c3b000000000000833d00000000007524'
-        '83f808721f890d883b00005052e8f40e0000a3803b00008915843b00005a58a3'
-        '7c3b00008902c360803d7c400000000f852e010000be00000000bf64350200b9'
-        '78000000fcf3a5beb0010000bf44370200b90c000000fcf3a5beb0010000bf74'
-        '370200b90c000000fcf3a5bee0010000bfa4370200b9a8000000fcf3a5bb4437'
-        '0200c7431010000000d9431cd8058c3b0000d9531cd8059c3b0000d95b4cd943'
-        '48d805a03b0000d95b48c7434012000000be00000000bf6c320200b930000000'
-        'fcf3a5be50000000bf34330200b904000000fcf3a5be00000000bf5c330200b9'
-        '08000000fcf3a5be00000000bffc330200b908000000fcf3a5b8ffffffffa37c'
-        '330200a380330200a31c340200a320340200be00000000bf84330200b9180000'
-        '00fcf3a5be64400000bfe4330200b903000000fcf3a5be64400000bff0330200'
-        'b903000000fcf3a5a120000000a32c330200a11c000000a330330200c6057c40'
-        '000001b800000000c7056832020000000000833d0000000000750fb864350200'
-        'c7056832020001000000a30000000061c3b80a000000833d6832020000740383'
+        '007405b900000000ba00000000c705a43b000000000000833d00000000007524'
+        '83f808721f890db03b00005052e8f40e0000a3a83b00008915ac3b00005a58a3'
+        'a43b00008902c360803da4400000000f852e010000be00000000bf94350200b9'
+        '78000000fcf3a5beb0010000bf74370200b90c000000fcf3a5beb0010000bfa4'
+        '370200b90c000000fcf3a5bee0010000bfd4370200b9a8000000fcf3a5bb7437'
+        '0200c7431010000000d9431cd805b43b0000d9531cd805c43b0000d95b4cd943'
+        '48d805c83b0000d95b48c7434012000000be00000000bf9c320200b930000000'
+        'fcf3a5be50000000bf64330200b904000000fcf3a5be00000000bf8c330200b9'
+        '08000000fcf3a5be00000000bf2c340200b908000000fcf3a5b8ffffffffa3ac'
+        '330200a3b0330200a34c340200a350340200be00000000bfb4330200b9180000'
+        '00fcf3a5be8c400000bf14340200b903000000fcf3a5be8c400000bf20340200'
+        'b903000000fcf3a5a120000000a35c330200a11c000000a360330200c605a440'
+        '000001b800000000c7059832020000000000833d0000000000750fb894350200'
+        'c7059832020001000000a30000000061c3b80a000000833d9832020000740383'
         'c0023945ac7d01c383c404e9fcffffff51b907000000833d0000000000750950'
-        'e8151f000001c158390c850000000059c3ff048500000000833c850000000008'
+        'e83a1f000001c158390c850000000059c3ff048500000000833c850000000008'
         '750ee82a0000007507ff048500000000c3ff0c8500000000833c850000000008'
-        '750ee80a0000007507ff0c8500000000c3833de739000003c383f8087210833d'
+        '750ee80a0000007507ff0c8500000000c3833d0c3a000003c383f8087210833d'
         '00000000007501c3b807000000c38b048500000000c3508b45086bc0548b8000'
-        '00000083f808730958833d0000000000c3833d00000000007441518d0c85983b'
+        '00000083f808730958833d0000000000c3833d00000000007441518d0c85c03b'
         '0000a0000000000a0501000000a820740cff097919c70140000000eb11a81074'
         '19ff018339417206c70100000000606a01e8fcffffff83c40461595839c0c383'
         '7c24040873105589e583ec30e902000000e96f0e0000833d000000000075f28b'
-        '442404e8fa1d000073e7a1e03b000085c07e063b44240475d88b442404e8990a'
+        '442404e81f1e000073e7a1083c000085c07e063b44240475d88b442404e8990a'
         '0000b805000000837c2404097505b809000000e83d0d0000e8d10d00008b4424'
-        '04e8340b0000e8d1090000837c2404097507e8b4000000eb26c6056040000001'
-        'ff742410ff742410ff742410ff742410e871ffffff83c410c6056040000000c6'
-        '05e43b000000e9da0d0000803d60400000000f84fcffffff837de8070f85fcff'
+        '04e8340b0000e8d1090000837c2404097507e8b4000000eb26c6058840000001'
+        'ff742410ff742410ff742410ff742410e871ffffff83c410c6058840000000c6'
+        '050c3c000000e9da0d0000803d88400000000f84fcffffff837de8070f85fcff'
         'ffffff742410ff742410ff742410ff742410e8fcffffff83c410e8fcffffffff'
-        '3578400000ff3574400000ff3570400000e8fcffffff83c40c6a03e8fcffffff'
+        '35a0400000ff359c400000ff3598400000e8fcffffff83c40c6a03e8fcffffff'
         '83c404e8fcffffffa1180000006a00ff7014ff7010ff700ce8fcffffff83c410'
-        'e8fcffffffe8fcffffffc360e8fcffffff833d7c3b000009754c833da8030000'
-        '0275436a00ff35483c00006a00e8fcffffff83c40c83ec04d905503c0000db1c'
-        '24e8fcffffffff35543c0000e8fcffffff83c4086a00ff354c3c00006a00e8fc'
-        'ffffff83c40cff35a43b0000ff35a43b0000ff35a43b0000e8fcffffff83c40c'
-        'e80a030000be403e000031ff833d7c3b000009754d833da8030000027544a19c'
-        '0300008d8850ffffff85c97c2083f91e7d0a8d3c09be483e0000eb1b83f93c7d'
-        '0c8d79e201ffbe503e0000eb0a0fb74e0431d2f7f189d70fb74e0439cf72038d'
-        '79ff6a006a015768e429020068182a0200ff351000000056e8fcffffff83c41c'
+        'e8fcffffffe8fcffffffc360e8fcffffff833da43b000009754c833da8030000'
+        '0275436a00ff35703c00006a00e8fcffffff83c40c83ec04d905783c0000db1c'
+        '24e8fcffffffff357c3c0000e8fcffffff83c4086a00ff35743c00006a00e8fc'
+        'ffffff83c40cff35cc3b0000ff35cc3b0000ff35cc3b0000e8fcffffff83c40c'
+        'e80a030000be683e000031ff833da43b000009754d833da8030000027544a19c'
+        '0300008d8850ffffff85c97c2083f91e7d0a8d3c09be703e0000eb1b83f93c7d'
+        '0c8d79e201ffbe783e0000eb0a0fb74e0431d2f7f189d70fb74e0439cf72038d'
+        '79ff6a006a015768142a020068482a0200ff351000000056e8fcffffff83c41c'
         '6bff1a83c7196bff14033eff7710ff770cff7708e8fcffffff83c40c0fbf4704'
         '50e8fcffffff0fbf4702890424e8fcffffff0fbf07890424e8fcffffff83c404'
-        'be803c0000833e00745681fed03c0000750ae8fcffffffe85a010000e8fcffff'
+        'bea83c0000833e00745681fef83c0000750ae8fcffffffe85a010000e8fcffff'
         'ffff760cff7608ff7604e8fcffffff83c40cff7610e8fcffffff83c404e8fcff'
         'ffff8b066a00ff7008ff7004ff30e8fcffffff83c410e8fcffffff83c614eba5'
-        'e8fcffffff833d7c3b0000090f85f8000000a19c030000833da8030000020f85'
-        'e60000003db00000000f8edb000000833d1c0000000075106a016a006aff6a03'
-        'e8fcffffff83c41031dbe8fcffffff6a00ff35703c00006a00e8fcffffff83c4'
+        'e8fcffffff833da43b0000090f85f8000000a19c030000833da8030000020f85'
+        'e60000003db00000000f8edb000000833d000000000075106a016a006aff6a03'
+        'e8fcffffff83c41031dbe8fcffffff6a00ff35983c00006a00e8fcffffff83c4'
         '0c53e8fcffffff83c404a19c0300002db000000083f8147605b814000000ff35'
-        '943b000050db0424da357c3c0000d91c24ff35943b0000e8fcffffff83c40cff'
-        '35743c0000e8fcffffff83c404ff35783c0000ff35783c0000ff35783c0000e8'
+        'bc3b000050db0424da35a43c0000d91c24ff35bc3b0000e8fcffffff83c40cff'
+        '359c3c0000e8fcffffff83c404ff35a03c0000ff35a03c0000ff35a03c0000e8'
         'fcffffff83c40ce8fcffffffa19c0300004883e0038d0440c1e00203050c0000'
         '006a00ff7008ff7004ff30e8fcffffff83c410e8fcffffff81c30040000081fb'
-        '008000000f8240ffffffe8fcffffffe8fcffffff61c38b0d583c000085c90f84'
+        '008000000f8240ffffffe8fcffffffe8fcffffff61c38b0d803c000085c90f84'
         'ba00000083ec04a10000000083e9187e4d89c2c1e20b8d1452890c24db0424d8'
-        '0d5c3c0000e895000000db1c24e8fcffffffa10000000089c2c1e20c8b0d583c'
-        '000083e918890c24db0424d80d603c0000e869000000db1c24e8fcffffffa100'
-        '00000089c2c1e20a8d1452db05583c0000d80d603c0000e843000000db1c24e8'
-        'fcffffff83c404a10000000083c00a8d14c50000000029c2c1e20a6a00db0558'
-        '3c0000d80d643c0000e81100000083ec04d91c246a00e8fcffffff83c40cc352'
-        'df0424d80d683c0000d9fedec95ac3803dec3d0000000f859a000000c605ec3d'
-        '0000016068f43d0000680000000068000000006824340200e8fcffffff83c410'
-        '6a0068800000006a036a006a0168000000806824340200ff150000000083f8ff'
-        '745389c3be003e0000833e0074406a006a00ff3653ff15000000006a0068f03d'
-        '0000ff7604ff760853ff15000000008b46043905f03d000075148b7e0c8b4608'
+        '0d843c0000e895000000db1c24e8fcffffffa10000000089c2c1e20c8b0d803c'
+        '000083e918890c24db0424d80d883c0000e869000000db1c24e8fcffffffa100'
+        '00000089c2c1e20a8d1452db05803c0000d80d883c0000e843000000db1c24e8'
+        'fcffffff83c404a10000000083c00a8d14c50000000029c2c1e20a6a00db0580'
+        '3c0000d80d8c3c0000e81100000083ec04d91c246a00e8fcffffff83c40cc352'
+        'df0424d80d903c0000d9fedec95ac3803d143e0000000f859a000000c605143e'
+        '00000160681c3e0000680000000068000000006854340200e8fcffffff83c410'
+        '6a0068800000006a036a006a0168000000806854340200ff150000000083f8ff'
+        '745389c3be283e0000833e0074406a006a00ff3653ff15000000006a0068183e'
+        '0000ff7604ff760853ff15000000008b46043905183e000075148b7e0c8b4608'
         '89078b46106689470483c614ebbb53ff150000000061c3dc0500000000837d0c'
-        '0a742d837d0c0b7533dd0500000000d825983b0000d80d8c3b0000d835983b00'
-        '00d8059c3b0000dc2500000000dec1c3d8058c3b0000d825983b0000c3833c85'
-        'c4ffffff007408833c85000000000bc3833d7c3b0000090f856e010000ba9c03'
-        '0000837a0c020f855f010000833d583c0000007406ff0d583c00008b022db000'
-        '00007f2b83f8d8751dc705583c000020000000526a14e8fcffffff6a1ce8fcff'
-        'ffff83c4085a8b4238a36c3c0000c383f801750e50526a19e8fcffffff83c404'
-        '5a5883f829750e50526a07e8fcffffff83c4045a58d905a03b000089c183f928'
-        '7605b92800000051db042459d80d143c0000dec183f828760bd9051c3c0000e8'
-        'c8000000d905183c0000d86238d9eedff17204ddd8eb498105543c0000000200'
-        '00d905283c0000e8a0000000d9c0d80d2c3c0000d905303c0000dbf17204ddd8'
-        'eb02ddd9deead825343c0000d9eedff17204ddd8eb0adcc8d80d383c0000dec1'
-        'd9c0d86234d9c9d95a34d94238d9c0d8256c3c0000d9c9d91d6c3c0000d9c1d9'
-        'f3d80d403c0000d825503c0000d80d443c0000d805503c0000d91d503c0000d8'
-        '0d3c3c000031c983b9000000000b750ed981d8ffffffd8c1d999d8ffffff83c1'
+        '0a742d837d0c0b7533dd0500000000d825c03b0000d80db43b0000d835c03b00'
+        '00d805c43b0000dc2500000000dec1c3d805b43b0000d825c03b0000c3833c85'
+        'c4ffffff007408833c85000000000bc3833da43b0000090f856e010000ba9c03'
+        '0000837a0c020f855f010000833d803c0000007406ff0d803c00008b022db000'
+        '00007f2b83f8d8751dc705803c000020000000526a14e8fcffffff6a1ce8fcff'
+        'ffff83c4085a8b4238a3943c0000c383f801750e50526a19e8fcffffff83c404'
+        '5a5883f829750e50526a07e8fcffffff83c4045a58d905c83b000089c183f928'
+        '7605b92800000051db042459d80d3c3c0000dec183f828760bd905443c0000e8'
+        'c8000000d905403c0000d86238d9eedff17204ddd8eb4981057c3c0000000200'
+        '00d905503c0000e8a0000000d9c0d80d543c0000d905583c0000dbf17204ddd8'
+        'eb02ddd9deead8255c3c0000d9eedff17204ddd8eb0adcc8d80d603c0000dec1'
+        'd9c0d86234d9c9d95a34d94238d9c0d825943c0000d9c9d91d943c0000d9c1d9'
+        'f3d80d683c0000d825783c0000d80d6c3c0000d805783c0000d91d783c0000d8'
+        '0d643c000031c983b9000000000b750ed981d8ffffffd8c1d999d8ffffff83c1'
         '5481f9a800000072deddd8c3d94238d8e1d95a3831c983b9000000000b750ed9'
         '81dcffffffd8e1d999dcffffff83c15481f9a800000072deddd8c3833d000000'
-        '00097536817dfce00000007c2dc7050000000001000000d905183c0000d82524'
+        '00097536817dfce00000007c2dc7050000000001000000d905403c0000d8254c'
         '3c0000d81dd4030000dfe0f6c401750ac7050000000000000000a100000000c3'
-        '81f9e700000074083b048d00000000c350d905183c0000d825203c0000d81c8d'
+        '81f9e700000074083b048d00000000c350d905403c0000d825483c0000d81c8d'
         '38000000dfe0f6c4017517d9eed81c8d34000000dfe0f6c401750731c083f801'
         '58c331c039c058c33de70000007408d91c8534000000c3ddd8c3528d14850000'
-        '00008b0283f8087274d905903b0000d80d983b0000d825983b000083f809754a'
-        'd905a83b0000d80d983b0000d825983b0000dec1d905ac3b0000d80d983b0000'
-        'd842ecd95aecd905b03b0000d80d983b0000d842d8d95ad8d905b43b0000d80d'
-        '983b0000d842fcd95afcd9c0d842f0d95af0d842dcd95adcb8070000005ac3a1'
-        '0000000083f8087205b803000000c3803d7c400000007461e85d000000755a8b'
-        '1de03b000083fbff744f85db740abed83b0000e9a5010000803dd03b00000075'
-        '13c605d03b00000131f6bfdc640300e8d3000000bb08000000bec03b000089d8'
-        'e83d15000073095356e86f0100005e5b83c6084383fb0976e5c3833d00000000'
-        '047407833d0000000005c3e8eaffffff754ea1e03b000085c0754231c06bc854'
-        '83b9b40000000274114083f80976eec705d43b000000000000c38b15d43b0000'
-        'c705d43b00000100000085d2751183f8087305b8ffffffffa3e03b0000eb2dc3'
-        'c705e03b000000000000c705d43b0000ffffffffeb163b05e03b000074088d34'
-        'c5803b0000c3bed83b0000c3803dd03b0000007411c605d03b000000bedc6403'
-        '00e801000000c3fcbbc03b00008b13c1e20981c20000000031c05657b9800000'
+        '00008b0283f8087274d905b83b0000d80dc03b0000d825c03b000083f809754a'
+        'd905d03b0000d80dc03b0000d825c03b0000dec1d905d43b0000d80dc03b0000'
+        'd842ecd95aecd905d83b0000d80dc03b0000d842d8d95ad8d905dc3b0000d80d'
+        'c03b0000d842fcd95afcd9c0d842f0d95af0d842dcd95adcb8070000005ac3a1'
+        '0000000083f8087205b803000000c3803da4400000007461e85d000000755a8b'
+        '1d083c000083fbff744f85db740abe003c0000e9a5010000803df83b00000075'
+        '13c605f83b00000131f6bf0c650300e8d3000000bb08000000bee83b000089d8'
+        'e86215000073095356e86f0100005e5b83c6084383fb0976e5c3833d00000000'
+        '047407833d0000000005c3e8eaffffff754ea1083c000085c0754231c06bc854'
+        '83b9b40000000274114083f80976eec705fc3b000000000000c38b15fc3b0000'
+        'c705fc3b00000100000085d2751183f8087305b8ffffffffa3083c0000eb2dc3'
+        'c705083c000000000000c705fc3b0000ffffffffeb163b05083c000074088d34'
+        'c5a83b0000c3be003c0000c3803df83b0000007411c605f83b000000be0c6503'
+        '00e801000000c3fcbbe83b00008b13c1e20981c20000000031c05657b9800000'
         '0085f6740489d7eb0289d6f3a55f5e85f6740881c600020000eb0681c7000200'
-        '0081c2004000004083f80372cd83c30481fbd03b000072b5c3fc31c089c1c1e1'
+        '0081c2004000004083f80372cd83c30481fbf83b000072b5c3fc31c089c1c1e1'
         '0e8d91800200008db1000000008b0bc1e1098dbc0e8000000089d6b920000000'
-        'f3a581c68000000081c780000000b920000000f3a54083f80372c1c3833de03b'
-        '0000007f09803dd03b000000740e6089c3e820ffffffe80200000061c35389f3'
+        'f3a581c68000000081c780000000b920000000f3a54083f80372c1c3833d083c'
+        '0000007f09803df83b000000740e6089c3e820ffffffe80200000061c35389f3'
         'e894ffffff83c304e88cffffff83eb0489de5b8b3e8b760489d8e8e701000085'
         'd27519c1e3025357e8fcffffff83c408435356e8fcffffff83c408c35631c983'
         '3d00000000007405b9020000008d34818d34b5000000008d5c12fe8b06ff3498'
         '57e8fcffffff83c4088b46045fff74980457e8fcffffff83c408c3608b0d0100'
         '00008d890500000081f9000000000f84a400000081e9000000008b54242429ca'
-        '81fa001c00000f838c000000bef03b000083f8097505bef83b00008b45086bc0'
+        '81fa001c00000f838c000000be183c000083f8097505be203c00008b45086bc0'
         '54d980000000008b450c6bc054d8a838000000d9ee8b1685d2741fd902dbf273'
-        '0fdceaddd8d805983b000083c604ebe5defad9c9d80d983b0000dec1d82d043c'
-        '0000d80d083c0000d9e8dff1761ed9050c3c0000dbf17204ddd9eb02ddd8d80d'
-        '103c0000db99641e0000eb0cddd8c781641e00000000000061c360e8d6fdffff'
-        '8b1ebfe83b0000e8140000008b5e0483c704e809000000c605e43b00000161c3'
+        '0fdceaddd8d805c03b000083c604ebe5defad9c9d80dc03b0000dec1d82d2c3c'
+        '0000d80d303c0000d9e8dff1761ed905343c0000dbf17204ddd9eb02ddd8d80d'
+        '383c0000db99641e0000eb0cddd8c781641e00000000000061c360e8d6fdffff'
+        '8b1ebf103c0000e8140000008b5e0483c704e809000000c6050c3c00000161c3'
         '69c308080800b92000000039048d00000000740c4181f90004000072ee5861c3'
-        '890fc38b3500000000803de43b0000007501c39c50518b4a040fb74106c1e806'
+        '890fc38b3500000000803d0c3c0000007501c39c50518b4a040fb74106c1e806'
         '8b0485000000003d0808080074433d28282800743c3d18181800742e3d383838'
-        '0074275231c969148dc03b00000808080039d074094183f90472eb5aeb245af7'
-        'c1010000008b4a047407a1ec3b0000eb05a1e83b0000c1e006668361063f6609'
-        '410659589dc38b0485983b000031d285c0740a48b908000000f7f142c3c350e8'
+        '0074275231c969148de83b00000808080039d074094183f90472eb5aeb245af7'
+        'c1010000008b4a047407a1143c0000eb05a1103c0000c1e006668361063f6609'
+        '410659589dc38b0485c03b000031d285c0740a48b908000000f7f142c3c350e8'
         '0401000083f808740c83f8077545e8def2ffff753e508b45086bc054d980ecff'
-        'ffffd825ac3b0000d998ecffffffd980d8ffffffd825b03b0000d998d8ffffff'
-        'd980fcffffffd825b43b0000d998fcffffff585850e8ae00000083f808740d83'
-        'f8077410d825943b000058c3d825a83b000058c3d825903b0000e872f2ffff75'
-        '06d825a83b000058c350e87900000083f809753e508b45086bc054d980ecffff'
-        'ffd805ac3b0000d998ecffffffd980d8ffffffd805b03b0000d998d8ffffffd9'
-        '80fcffffffd805b43b0000d998fcffffff585850e82f00000083f809740d83f8'
-        '08741dd805943b000058c3d805a83b0000e8fbf1ffff7506d805903b000058c3'
-        'd805903b000058c38b45086bc0548b8000000000c36089c580bd58350200000f'
-        '8587000000c6855835020001ff34ed04000000e8fcffffff83c40485c0746d89'
-        'c6ff34ed00000000680000000068000000006824340200e8fcffffff83c41068'
-        '000000006824340200e8fcffffff83c40885c0742e89c3536a01ff34ed040000'
-        '0056e8fcffffff83c4105053e8fcffffff83c4045883f80175098934ad283502'
-        '00eb0956e8fcffffff83c40461c360803d90410000007521a13c35020085c074'
-        '18ff35140000008f0592410000a314000000c6059041000001803d9141000000'
-        '7521a14c35020085c07418ff35240000008f0596410000a324000000c6059141'
-        '00000161c3803d90410000007413c6059041000000ff35924100008f05140000'
-        '00803d91410000007413c6059141000000ff35964100008f0524000000c38b44'
-        '240483f8087d1e85c00f8cfcffffff56e85d010000ba9a410000e8750100005e'
-        'e9fcffffffe8380f0000720dc7442404ffffffffe9fcffffff53568d58f86bdb'
-        '6881c3b0400000e82601000089dae8410100006a106a07e8fcffffff83c4086a'
+        'ffffd825d43b0000d998ecffffffd980d8ffffffd825d83b0000d998d8ffffff'
+        'd980fcffffffd825dc3b0000d998fcffffff585850e8ae00000083f808740d83'
+        'f8077410d825bc3b000058c3d825d03b000058c3d825b83b0000e872f2ffff75'
+        '06d825d03b000058c350e87900000083f809753e508b45086bc054d980ecffff'
+        'ffd805d43b0000d998ecffffffd980d8ffffffd805d83b0000d998d8ffffffd9'
+        '80fcffffffd805dc3b0000d998fcffffff585850e82f00000083f809740d83f8'
+        '08741dd805bc3b000058c3d805d03b0000e8fbf1ffff7506d805b83b000058c3'
+        'd805b83b000058c38b45086bc0548b8000000000c36089c580bd88350200000f'
+        '8587000000c6858835020001ff34ed04000000e8fcffffff83c40485c0746d89'
+        'c6ff34ed00000000680000000068000000006854340200e8fcffffff83c41068'
+        '000000006854340200e8fcffffff83c40885c0742e89c3536a01ff34ed040000'
+        '0056e8fcffffff83c4105053e8fcffffff83c4045883f80175098934ad583502'
+        '00eb0956e8fcffffff83c40461c360803db8410000007521a16c35020085c074'
+        '18ff35000000008f05ba410000a300000000c605b841000001803db941000000'
+        '7521a17c35020085c07418ff35000000008f05be410000a300000000c605b941'
+        '00000161c3803db8410000007413c605b841000000ff35ba4100008f05000000'
+        '00803db9410000007413c605b941000000ff35be4100008f0500000000c38b44'
+        '240483f8087d1e85c00f8cfcffffff56e85d010000bac2410000e8750100005e'
+        'e9fcffffffe85d0f0000720dc7442404ffffffffe9fcffffff53568d58f86bdb'
+        '6881c3d8400000e82601000089dae8410100006a106a07e8fcffffff83c4086a'
         '036a26e8fcffffff83c408ff7364ff7360ff735ce8fcffffff83c40c6a0e6a08'
         'e8fcffffff83c4088d435050e8fcffffff83c4045e5bc38b44240483f8087319'
-        '85c00f8cfcffffff53bb9a410000e8840000005be9fcffffffe8a40e0000720d'
-        'c7442404ffffffffe9fcffffff538d58f86bdb6881c3b04000006affe8fcffff'
+        '85c00f8cfcffffff53bbc2410000e8840000005be9fcffffffe8c90e0000720d'
+        'c7442404ffffffffe9fcffffff538d58f86bdb6881c3d84000006affe8fcffff'
         'ff83c404e84e000000a10000000083c002506a07e8fcffffff83c4086a036a26'
         'e8fcffffff83c408ff7364ff7360ff735ce8fcffffff83c40cff35000000006a'
         '08e8fcffffff83c4088d435050e8fcffffff83c4045bc3565789de31ffa10000'
-        '000001f850ff3500000000e8fcffffff83c40856e8fcffffff83c40481fe9a41'
+        '000001f850ff3500000000e8fcffffff83c40856e8fcffffff83c40481fec241'
         '0000740383c61483c70283ff0872ce5f5ec3a100000000833d00000000027502'
         'd1e8be00000000a9010000007405be00000000c35389d36a146a08e8fcffffff'
-        '83c40853ffd683c40481fb9a410000740383c3146a166a08e8fcffffff83c408'
-        '53ffd683c40481fb9a410000740383c3146a186a08e8fcffffff83c40853ffd6'
-        '83c40481fb9a410000740383c3146a1a6a08e8fcffffff83c40853ffd683c404'
-        '81fb9a410000740383c3145bc3fc31db6bf36e81c600000000668b560c69fb8a'
-        '00000081c7182e0200b937000000f366a56bf30681c67a13000031ede8130000'
+        '83c40853ffd683c40481fbc2410000740383c3146a166a08e8fcffffff83c408'
+        '53ffd683c40481fbc2410000740383c3146a186a08e8fcffffff83c40853ffd6'
+        '83c40481fbc2410000740383c3146a1a6a08e8fcffffff83c40853ffd683c404'
+        '81fbc2410000740383c3145bc3fc31db6bf36e81c600000000668b560c69fb8a'
+        '00000081c7482e0200b937000000f366a56bf30681c67a13000031ede8130000'
         '0081c68000000045e8070000004383fb0872bdc36689d066abb906000000833d'
-        '000000000075128d4508e8f30c0000730889f066ab40e2fbc36689d0f366abc3'
-        '31c0833d00000000007518e8ea0c000085c0740f83f801b8040000007405b807'
+        '000000000075128d4508e8180d0000730889f066ab40e2fbc36689d0f366abc3'
+        '31c0833d00000000007518e80f0d000085c0740f83f801b8040000007405b807'
         '000000c350e8d6fffffff7d883c00201050000000058c350e8c3ffffff83c00c'
         '01050000000058c3518d8c00bc170000e8abffffff01c029c189c859c3518d8c'
         '00c4170000e896ffffff01c029c189c859c3518d8c0008000000e881ffffff01'
         'c029c189c859c3518d8c0010000000e86cffffff01c029c189c859c350e85eff'
         'ffff01c02945fcd1e883c01f8945f858c3b8eb040000833d0000000000750e83'
-        '3de739000000740505b0040000c3e82dffffffc1e00350db042483c404dd0580'
-        '410000d8e1dd1d00000000dd0588410000dee1dd1d08000000c3ba00000000e8'
+        '3d0c3a000000740505b0040000c3e82dffffffc1e00350db042483c404dd05a8'
+        '410000d8e1dd1d00000000dd05b0410000dee1dd1d08000000c3ba00000000e8'
         '1900000085c00f84fcffffff50ff7508e8fcffffff83c408e9fcffffff31c08b'
-        '4d0c89cbc1eb023b1d7c3b00007539bb00000000f6c1027405bb000000003b1d'
-        '883b000075228b1d843b000085db74184b83e103a1803b00008d04818b048283'
-        'e1018d0c598b0488c339c87c038d41ff66a300000000c3833df7390000007510'
+        '4d0c89cbc1eb023b1da43b00007539bb00000000f6c1027405bb000000003b1d'
+        'b03b000075228b1dac3b000085db74184b83e103a1a83b00008d04818b048283'
+        'e1018d0c598b0488c339c87c038d41ff66a300000000c3833d1c3a0000007510'
         '837c2404080f844b030000e9a40100008b44240483f8087305e9fcffffff60be'
-        '00000000bf74ba0200b980010000fcf3a5565751be00000000bf8cc80200b900'
-        '000000fcf3a5595f5ebe00000000bf783d0400b9d8000000fcf3a5be00000000'
-        'bfd8400400b950010000fcf3a53905d8ca0200752abe74ca0200bf00000000b9'
-        '80010000fcf3a5565751be74d00200bf00000000b900000000fcf3a5595f5eff'
+        '00000000bfa4ba0200b980010000fcf3a5565751be00000000bfbcc80200b900'
+        '000000fcf3a5595f5ebe00000000bfa83d0400b9d8000000fcf3a5be00000000'
+        'bf08410400b950010000fcf3a5390508cb0200752abea4ca0200bf00000000b9'
+        '80010000fcf3a5565751bea4d00200bf00000000b900000000fcf3a5595f5eff'
         '3500000000ff3500000000ff3500000000c7050000000001000000e8fcffffff'
-        'be2b3a0000833d64000000097505be373a0000ff36ff36ff36e8fcffffff83c4'
-        '0ca100000000d94024d84608d95824568b3500000000bf5cc80200b90c000000'
-        'fcf3a55ec605ba41000001bb0000000031c08943088943108b460489430c5383'
+        'be543a0000833d64000000097505be603a0000ff36ff36ff36e8fcffffff83c4'
+        '0ca100000000d94024d84608d95824568b3500000000bf8cc80200b90c000000'
+        'fcf3a55ec605e241000001bb0000000031c08943088943108b460489430c5383'
         '7b6409751966c7433400008b436c85c07405a300000000e8be030000eb05e8f2'
-        '03000083c404c605ba41000000e8fcffffff8f05000000008f05000000008f05'
-        '00000000bed8400400bf00000000b950010000fcf3a5be783d0400bf00000000'
-        'b9d8000000fcf3a5565751be8cc80200bf00000000b900000000fcf3a5595f5e'
-        'be74ba0200bf00000000b980010000fcf3a561c38b44240483f8087305e9fcff'
-        'ffff60be00000000bf74ba0200b980010000fcf3a5565751be00000000bf8cc8'
-        '0200b900000000fcf3a5595f5ebe00000000bf783d0400b9d8000000fcf3a5be'
-        '00000000bfd8400400b950010000fcf3a53905d8c00200752abe74c00200bf00'
-        '000000b980010000fcf3a5565751be74c60200bf00000000b900000000fcf3a5'
+        '03000083c404c605e241000000e8fcffffff8f05000000008f05000000008f05'
+        '00000000be08410400bf00000000b950010000fcf3a5bea83d0400bf00000000'
+        'b9d8000000fcf3a5565751bebcc80200bf00000000b900000000fcf3a5595f5e'
+        'bea4ba0200bf00000000b980010000fcf3a561c38b44240483f8087305e9fcff'
+        'ffff60be00000000bfa4ba0200b980010000fcf3a5565751be00000000bfbcc8'
+        '0200b900000000fcf3a5595f5ebe00000000bfa83d0400b9d8000000fcf3a5be'
+        '00000000bf08410400b950010000fcf3a5390508c10200752abea4c00200bf00'
+        '000000b980010000fcf3a5565751bea4c60200bf00000000b900000000fcf3a5'
         '595f5eff3500000000ff3500000000ff3500000000c7050000000001000000e8'
-        'fcffffffbedc3a0000833d64000000097505bee83a0000ff36ff36ff36e8fcff'
-        'ffff83c40ca100000000d94024d84608d95824568b3500000000bf5cc80200b9'
-        '0c000000fcf3a55ec605ba41000001bb0000000031c08943088943108b460489'
+        'fcffffffbe043b0000833d64000000097505be103b0000ff36ff36ff36e8fcff'
+        'ffff83c40ca100000000d94024d84608d95824568b3500000000bf8cc80200b9'
+        '0c000000fcf3a55ec605e241000001bb0000000031c08943088943108b460489'
         '430c53837b6409751966c7433400008b436c85c07405a300000000e8fcffffff'
-        'eb03ff530483c404c605ba41000000e8fcffffff8f05000000008f0500000000'
-        '8f0500000000bed8400400bf00000000b950010000fcf3a5be783d0400bf0000'
-        '0000b9d8000000fcf3a5565751be8cc80200bf00000000b900000000fcf3a559'
-        '5f5ebe74ba0200bf00000000b980010000fcf3a561c38b44240483f8087305e9'
-        'fcffffff60be00000000bf74ba0200b980010000fcf3a5565751be00000000bf'
-        '8cc80200b900000000fcf3a5595f5ebe00000000bf783d0400b9d8000000fcf3'
-        'a5be00000000bfd8400400b950010000fcf3a53905d8c00200752abe74c00200'
-        'bf00000000b980010000fcf3a5565751be74c60200bf00000000b900000000fc'
+        'eb03ff530483c404c605e241000000e8fcffffff8f05000000008f0500000000'
+        '8f0500000000be08410400bf00000000b950010000fcf3a5bea83d0400bf0000'
+        '0000b9d8000000fcf3a5565751bebcc80200bf00000000b900000000fcf3a559'
+        '5f5ebea4ba0200bf00000000b980010000fcf3a561c38b44240483f8087305e9'
+        'fcffffff60be00000000bfa4ba0200b980010000fcf3a5565751be00000000bf'
+        'bcc80200b900000000fcf3a5595f5ebe00000000bfa83d0400b9d8000000fcf3'
+        'a5be00000000bf08410400b950010000fcf3a5390508c10200752abea4c00200'
+        'bf00000000b980010000fcf3a5565751bea4c60200bf00000000b900000000fc'
         'f3a5595f5eff3500000000ff3500000000ff3500000000c70500000000010000'
-        '00e8fcffffffbef43a0000833d64000000097505bee83a0000ff36ff36ff36e8'
-        'fcffffff83c40ca100000000d94024d84608d95824568b3500000000bf5cc802'
-        '00b90c000000fcf3a55ec605ba41000001bb0000000031c08943088943108b46'
+        '00e8fcffffffbe1c3b0000833d64000000097505be103b0000ff36ff36ff36e8'
+        'fcffffff83c40ca100000000d94024d84608d95824568b3500000000bf8cc802'
+        '00b90c000000fcf3a55ec605e241000001bb0000000031c08943088943108b46'
         '0489430c53837b6409751966c7433400008b436c85c07405a300000000e8fcff'
-        'ffffeb05e8ac00000083c404c605ba41000000e8fcffffff8f05000000008f05'
-        '000000008f0500000000bed8400400bf00000000b950010000fcf3a5be783d04'
-        '00bf00000000b9d8000000fcf3a5565751be8cc80200bf00000000b900000000'
-        'fcf3a5595f5ebe74ba0200bf00000000b980010000fcf3a561c3538b5c2408b8'
+        'ffffeb05e8ac00000083c404c605e241000000e8fcffffff8f05000000008f05'
+        '000000008f0500000000be08410400bf00000000b950010000fcf3a5bea83d04'
+        '00bf00000000b9d8000000fcf3a5565751bebcc80200bf00000000b900000000'
+        'fcf3a5595f5ebea4ba0200bf00000000b980010000fcf3a561c3538b5c2408b8'
         '09000000e8ccf5ffffe860f6ffffe8fcffffffff7310ff730cff7308e8fcffff'
-        'ff83c40ce842e9ffffe8fcffffffe892f6ffff5bc3833df73900000974bc538b'
+        'ff83c40ce842e9ffffe8fcffffffe892f6ffff5bc3833d1c3a00000974bc538b'
         '5c2408b805000000e888f5ffffe81cf6ffffe8fcffffffff7310ff730cff7308'
-        'e8fcffffff83c40cc60560400000016a006a006a006a08e8cae7ffff83c410c6'
-        '056040000000e8fcffffffe835f6ffff5bc3803dba41000000750b5589e55356'
-        '57e9fcffffff565751be5cc802008b3d00000000b90c000000fcf3a5595f5ec3'
-        '803dba41000000750aa100000000e9fcffffffe9fcffffff803dba4100000075'
+        'e8fcffffff83c40cc60588400000016a006a006a006a08e8cae7ffff83c410c6'
+        '058840000000e8fcffffffe835f6ffff5bc3803de241000000750b5589e55356'
+        '57e9fcffffff565751be8cc802008b3d00000000b90c000000fcf3a5595f5ec3'
+        '803de241000000750aa100000000e9fcffffffe9fcffffff803de24100000075'
         '0f813d000000009a000000e9fcffffffe9fcffffffa10000000083f808741183'
-        'f80974128d04408d04800500000000c3b895390000c3b8a3390000c3803deb39'
-        '000000754f60c605eb39000001680000000068ae390000e8fcffffff83c40885'
-        'c0743089c3536a016a0468e7390000e8fcffffff83c41053e8fcffffff83c404'
-        '833de739000003760ac705e73900000000000061c360680000000068ae390000'
-        'e8fcffffff83c40885c0741d89c3536a016a0468e7390000e8fcffffff83c410'
-        '53e8fcffffff83c40461c30fb705080100008705103b0000833d00000000050f'
+        'f80974128d04408d04800500000000c3b8ba390000c3b8c8390000c3803d103a'
+        '000000754f60c605103a000001680000000068d3390000e8fcffffff83c40885'
+        'c0743089c3536a016a04680c3a0000e8fcffffff83c41053e8fcffffff83c404'
+        '833d0c3a000003760ac7050c3a00000000000061c360680000000068d3390000'
+        'e8fcffffff83c40885c0741d89c3536a016a04680c3a0000e8fcffffff83c410'
+        '53e8fcffffff83c40461c30fb705080100008705383b0000833d00000000050f'
         '8cc3000000833d0000000009740d833d00000000000f8dad000000b900000000'
-        '833db6410000007405b94442020083b900000000007c0bc705143b0000000000'
-        '00c33d06020000741566813d080100000602750ac705143b000001000000833d'
-        '143b0000007460d90508000000d82508000000d90510000000d82510000000d9'
-        'f3d835683c0000db1d183b0000a1183b0000662b0584010000983d000200007e'
-        '07b800020000eb183d00feffff7d07b800feffffeb0ac705143b000000000000'
-        '66010584010000c3c705143b000000000000c360a1000000004883f8017714c7'
-        '05ef39000001000000c705f339000000000000803d00000000027509833d0000'
-        '000000740ac705ef39000000000000833d000000001f7513833d000000000975'
-        '0ac705f339000001000000a10000000083f804751d0fb70d0000000083e92083'
+        '833dde410000007405b97442020083b900000000007c0bc7053c3b0000000000'
+        '00c33d06020000741566813d080100000602750ac7053c3b000001000000833d'
+        '3c3b0000007460d90508000000d82508000000d90510000000d82510000000d9'
+        'f3d835903c0000db1d403b0000a1403b0000662b0584010000983d000200007e'
+        '07b800020000eb183d00feffff7d07b800feffffeb0ac7053c3b000000000000'
+        '66010584010000c3c7053c3b000000000000c360a1000000004883f8017714c7'
+        '05143a000001000000c705183a000000000000803d00000000027509833d0000'
+        '000000740ac705143a000000000000833d000000001f7513833d000000000975'
+        '0ac705183a000001000000a10000000083f804751d0fb70d0000000083e92083'
         'f9100f8392000000e8ec000000e98800000083f80a740583f80b757e833d0000'
-        '0000007509c6054b3a000000eb52803d4b3a0000007549a16400000083f80874'
-        '0e83f809753a833d000000005a7231c6054b3a000001be00000000bf74ca0200'
-        'b980010000fcf3a5565751be00000000bf74d00200b900000000fcf3a5595f5e'
-        '833d7c3b0000097511e81dfeffff66a18401000066a31a00000061c38db40000'
+        '0000007509c605743a000000eb52803d743a0000007549a16400000083f80874'
+        '0e83f809753a833d000000005a7231c605743a000001be00000000bfa4ca0200'
+        'b980010000fcf3a5565751be00000000bfa4d00200b900000000fcf3a5595f5e'
+        '833da43b0000097511e81dfeffff66a18401000066a31a00000061c38db40000'
         '00000083f84472078db40078ffffff0fb70e31f6f7c1ff3f0000743c89cef7c1'
         '00400000741181e6ff3f0000c1e607033500000000eb0f81e6ff7f0000c1e607'
         '03350000000081fe80ffffff770881fe00104000730231f6c360fc31db89d8e8'
-        '98ffffff85f6741289dfc1e70781c75cd20200b920000000f3a54381fb920000'
-        '0072dac605073a00000161c360fc803d073a0000000f84aa000000803d0b3a00'
-        '0000755dbf5c1b0300a10000000029f883e07f01c789fd2b2d000000000f8282'
-        '000000c1ed078d85920000003d004000007372be5cd20200b940120000f3a589'
-        '2d0f3a00008b0d00000000890d133a000039c87605a300000000c6050b3a0000'
-        '018b2d0f3a000031dbba44000000833df739000008740abb44000000ba920000'
-        '00bfdc3c040089d8e8cffeffff31c0f7c1ff3f000074048d441d0066ab4339d3'
-        '72e461f8c361f9c3803d0b3a000000741350a1133a0000a300000000c6050b3a'
-        '00000058c3803dc241000000751b60fcbe00000000bfdc7c0300b900300000f3'
-        'a5c605c24100000161c3803dc241000000741b60fcbedc7c0300bf00000000b9'
-        '00300000f3a5c605c24100000061c360fc833dca4100000075166804380f00e8'
-        'fcffffff83c404a3ca41000085c074598b3dca410000be00000000b980010100'
-        'f3a5be00000000b910190200f3a5be00000000b971b30000f3a5a100000000a3'
-        'de410000a100000000a3d2410000a100000000a3d6410000a100000000a3da41'
-        '0000c605ce4100000161c3803dce41000000746660fc8b35ca410000bf000000'
-        '00b980010100f3a5bf00000000b910190200f3a5bf00000000b971b30000f3a5'
-        'a1de410000a300000000a1d2410000a300000000a1d6410000a300000000a1da'
-        '410000a300000000a1c6410000a300000000c605ce4100000061c3837c240801'
-        '750b508b442408a3e641000058e9fcffffff0001030200010202010102020302'
-        '020350518b0de73900000fb6893222000083e8080fa3c15958c3a1e73900000f'
-        'b68036220000c3833d00000000007510803d00000000027507833def39000001'
-        'c3ff0500000000c705ef39000000000000c3c705000000001c000000e8c6ffff'
-        'ff754350b808000000e894ffffff587235833d6400000008752c50a1e7390000'
-        '0fb6803a220000a3e739000058e883faffffc705f739000008000000c705fb39'
-        '000000000000c3833df339000000746bc705f339000000000000e868ffffff75'
-        '5ab809000000e837ffffff724ea1e73900000fb6803e220000a3e7390000e832'
-        'faffffa100000000a3c6410000a1e6410000a3e2410000e8f3fdffffc705f739'
-        '000009000000c705fb39000000000000c705000000001c000000c3c705000000'
-        '0016000000c3833df7390000007505e9fcffffffc3833df7390000007505e9fc'
-        'ffffff60833dfb390000000f859a000000681a100000e8fcffffff83c404c705'
-        'ff39000090010100c605033a000000e831fdffff8b1df7390000c1e3028d0350'
-        '6a01e8fcffffff83c4088d4301506a03e8fcffffff83c4088d4302506a05e8fc'
-        'ffffff83c4088d4303506a07e8fcffffff83c408a1f73900008d3cc5803b0000'
-        '8d0350ff37e8fcffffff83c4088d430150ff7704e8fcffffff83c4086a00e8fc'
-        'ffffff83c404e8fcffffff833dfb3900001e75306a00e8fcffffff83c404e8fc'
-        'ffffffff351b3a0000ff35173a0000e8fcffffff83c40868b9390000e8fcffff'
-        'ff83c404833dfb3900003c7541e89afbffff723a8b1df739000083eb08ff3527'
-        '3a0000ff349d1f3a0000e8fcffffff83c4086bdb6881c3b0400000ff7364ff73'
-        '6068dc3c0400e8fcffffff83c40c803d033a0000007543db05fb390000d80ddf'
-        '390000d905e3390000dbf1dbc1ddd983ec04d91c24ff3500000000a1f7390000'
-        'a300000000ff742404e8fcffffff83c4048f050000000083c404a1fb3900002d'
-        '2c0100000f828f000000a91f000000753989c3ff35473a0000ff35433a0000e8'
-        'fcffffff83c408f7c320000000750f68c6390000e8fcffffff83c404eb0c6a02'
-        '6a34e8fcffffff83c408a10000000025100101008a0d000000000a0d00000000'
-        '81e18000000009c8803d033a00000075248b0dff390000a3ff390000f7d185c8'
-        '7417c605033a0000016a12e8fcffffff83c404eb0485c07408ff05fb39000061'
-        'c36a00e8fcffffff83c404e8fcffffffe813fbffffe850fbffff6a00e8fcffff'
-        'ff83c404c70500000000ffffffff6a016aff6a0ae8fcffffff83c40cc705fb39'
-        '000000000000a1f7390000c705f739000000000000c705000000001c00000083'
-        'f8087432e8a2fbffff6a01ff35e2410000e8fcffffff83c40866c70500000000'
-        '9100c7050000000081000000c705000000001600000061c3a10000000083f808'
-        '0f83fcffffffe9fcffffff833d00000000080f83fcffffff837df4000f84fcff'
-        'ffffe9fcffffffa10000000083f8080f83fcffffffe9fcffffffa10000000083'
-        'e80883f801762a813d0000000000000000741e813d0000000000000000741283'
-        '3d00000000000f85fcffffffe9fcffffffa10000000083f8087205a3cc3a0000'
-        '833d0000000000750fc7050000000003000000e9fcffffffa1cc3a000085c074'
-        '05a300000000833d00000000020f82fcffffff0f84fcffffffe9fcffffff833d'
-        '00000000097405e9fcffffff813d000000009e0200007510ff0500000000c705'
-        '0000000001000000813d00000000b00500007506ff050000000050b800000000'
-        '833db6410000007405b8444202000500000000833d00000000010f843d010000'
-        '833d00000000020f8277020000c7050000000007000000813804010000751f81'
-        '3d00000000e0000000731366833d78010000707c0966c705780100007000813d'
-        '00000000e60000007377803db43a000000752fc605b43a000001c705c03a0000'
-        '00000000ff35000000008f05bc3a0000d90500000000d80dc43a0000d91d0000'
-        '0000ff05c83a0000833dc83a0000037235c705c83a00000000000051528d0d00'
-        '020000ba200000008039cb750af6410380750466ff490483c1204a75eb5a59eb'
-        '05e8ff0100008b0d0000000081e93f0200007d0658e9fcffffffe858090000c6'
-        '05d03a000000c705743a000000000000c705a03a00000000000058ff350c0000'
-        '00ff3510000000d9050c000000d8057c3a0000d91d0c000000d90510000000d8'
-        '05803a0000d91d10000000e8fcffffff8f05100000008f050c000000c3833da0'
-        '3a00001f732a813d00000000ff000000751eff05a03a000050a1a03a00000500'
-        '020000a30000000058c605ae41000001803dd03a0000007551833d743a000000'
-        '752bc705743a00000100000066c70570010000060066c7057c010000000066c7'
-        '05780100000000c700000000008138020100000f8cb0000000c605d03a000001'
-        'c705743a000000000000c70002010000ff05743a00005860beb0000000bf1042'
-        '0000b914000000fcf3a566a17801000066a36042000066a1a401000066a36242'
-        '000066c70578010000ff7fe8fcffffff66a16042000066a37801000066a16242'
-        '000066a3a4010000be10420000bfb0000000b914000000fcf3a561813d743a00'
-        '00f00000007221c605d03a000000c705743a000000000000ff0500000000c705'
-        '0000000002000000c358c7050000000000000000e8fcffffffc7050000000001'
-        '000000c3c605783a000000e835000000c605d03a000000c705743a0000000000'
-        '00c705a03a00000000000058e9fcffffff803db43a0000000f84fcffffffd905'
-        'b83a0000c3803db43a0000007418c605b43a0000005051a1c03a00008b0dbc3a'
-        '000089085958c3833d0000000009740d8b45f00500000000e9fcffffffa10000'
-        '000083e802a3b03a0000db05b03a0000d80da43a0000d80510000000d805ac3a'
-        '0000d91d08420000d9050c000000d805a83a0000d91d04420000a108000000a3'
-        '00420000c745e4f0410000e9fcffffff833d00000000087305e9fcffffff56be'
-        '643a0000833d00000000097521813d000000003f0200007d10833d0000000002'
-        '7d0cbe683a0000eb05be6c3a0000d906813d000000003a0200007d3ad9442408'
-        'd80524000000dcc8d944240cd80528000000dcc8dec1d9442410d8052c000000'
-        'dcc8dec1d9fad83d703a0000d8c9dbf17302d9c9ddd8d9442408d80524000000'
-        'd8c9d82524000000d95c2408d944240cd80528000000d8c9d82528000000d95c'
-        '240cd9442410d8052c000000d8c9d8252c000000d95c2410ddd8b83a0200002b'
-        '05000000007e4583f8407605b840000000a3d83a0000db05d83a0000d80dd43a'
-        '0000d9052c000000d8442410d8c9d90524000000d8442408d8cad8442410d95c'
-        '2410d86c2408d95c2408ddd85ee9fcffffff833d7c3b000009c3e8f3ffffff0f'
-        '85fcffffff0fbf0d0000000051e8fcffffff83c404d80d503a0000d8442404d9'
-        '5c24040fbf0d0000000051e8fcffffff83c404d80d503a0000d86c240cd95c24'
-        '0ce9fcffffff833d7c3b00000872308b4dfcd9413cd81d5c3a0000dfe0f6c401'
-        '7408a15c3a000089413ce883ffffff750e6681791e000c7d0666c7411e000c8b'
-        '45fc0fbf401ee9fcffffff8b45fcd94040833d7c3b0000087508d80d583a0000'
-        'eb24833d7c3b000009751bd80d543a0000d815603a0000dfe0f6c4017408ddd8'
-        'd905603a0000dec9c3833d7c3b0000097513833d0000000009750a817c240400'
-        '000000740b5589e5535657e9fcffffffc3833d7c3b0000097513833d00000000'
-        '09750a817c240400000000740e5589e583ec0c535657e9fcffffff5589e583ec'
-        '0c5356578b4508833d00000000057d39c68037010000ff66c7800e0100000000'
-        '66c78072010000000066c780860100000000c780c4010000000000008b406ca3'
-        '00000000e9fcffffff8b406ca300000000e9fcffffffc7050000000000000000'
-        'c705143b000000000000833d7c3b000009753f50518b45083d0000000075318b'
-        '0d0000000083f90a73268b0c8d1c3b0000890d0000000083e9787d0231c969c9'
-        '80000000f7d981c100400000668948345958c3833d0000000000753a833d7c3b'
-        '0000097532833d00000000097429833d00000000007c20813d0c3b0000580200'
-        '007314ff050c3b0000c705000000000100000083fc00c3c7050c3b0000000000'
-        '00833d0000000000c38b450831c93d00000000751b833d7c3b00000975128a88'
-        '4301000080f9ff740d8a8842010000c38a883b010000c38b4424043d00000000'
-        '0f85fcffffff833d00000000090f84fcffffff5589e583ec0cff7514ff7510ff'
-        '750cff7508e8fcffffff83c410d955fcd81d443b0000dfe0f6c4010f848c0000'
-        '008b45088d4df451ff7010ff700850e8fcffffff83c410d955f8d81d443b0000'
-        'dfe0f6c401745ed945fcd865f8d815483b0000dfe0f6c44175438b45088b88c8'
-        '0100008b90cc01000089c825ffffff7f5281e2ffffff7f39d05ab80040000072'
-        '0b85c97912b800c00000eb0b31c085d27805b8008000008b4d146689018b4508'
-        'd8400ceb0b8b4508d9400ceb03d945fcc9c3833d7c3b0000097509817d080000'
-        '00007412833d00000000000f8dfcffffffe9fcffffff833d00000000050f8dfc'
-        'ffffffe9fcffffff833d7c3b0000097509817d08000000007412833d00000000'
-        '000f8dfcffffffe9fcffffff833d00000000050f8dfcffffffe9fcffffff833d'
-        '7c3b000009751e833d000000000975153d000000000f84fcffffff837864090f'
-        '84fcffffff0fbf403085c00f85fcffffffe9fcffffff5589e581ec0000000053'
-        '5657833d7c3b0000090f85fcffffff833d00000000090f85fcffffff8b45083d'
-        '000000007405e9fcffffff8b486c85c90f84fcffffff81f9443a02000f84fcff'
-        'ffff81f9000000000f85fcffffff833db241000000751989cebf443a0200b900'
-        '020000fcf3a5c705b2410000010000008b706c8b787029f7c7406c443a02008d'
-        'bf443a0200897870e9fcffffff833d7c3b0000097513833d0000000009750a81'
-        '7c240400000000740e5589e583ec04535657e9fcffffff833db641000000757e'
-        '565751be00000000bf44420200b900000000fcf3a5595f5eba44420200c78200'
-        '000000ffffffffc78200000000ffffffffc78200000000ffffffffc705b64100'
-        '0001000000508b44240883786800b8000000007405b800000000898200000000'
-        '83c05889820000000005f001000089820000000083c018898200000000585657'
-        '51be00000000bf2c440200b900000000fcf3a5595f5e565751be44420200bf00'
-        '000000b900000000fcf3a5595f5eff742404e832ffffff83c404565751be0000'
-        '0000bf44420200b900000000fcf3a5595f5e565751be2c440200bf00000000b9'
-        '00000000fcf3a5595f5ec3c705b641000000000000ff742404e8fcffffff83c4'
-        '048b4424043d000000007401c366c780700100000000c381f9fb0000007e05b9'
-        'fb000000c605783a00000183f9357d48b83500000029c8a3883a0000db05883a'
-        '0000dcc8d80d8c3a0000d82d903a0000d91d7c3a0000c705803a000000000000'
-        '69c080000000f7d805001800007d0231c066a3843a0000c3a1903a0000a37c3a'
-        '000083e93583f9507d2b890d883a0000db05883a0000d80d943a0000d9e0d91d'
-        '803a0000c1e10781c10018000066890d843a0000c383e950890d883a0000db05'
-        '883a0000d80d983a0000d8059c3a0000d9e0d91d803a000066c705843a000000'
-        '40c38b442404803dd03a00000175073d000000007415803d783a00000074073d'
-        '000000007413e9fcffffffe84900000050e8fcffffff58eb40ff700cff7010ff'
-        '7034d9400cd8057c3a0000d9580cd94010d805803a0000d95810668b0d843a00'
-        '0066f7d96689483450e8fcffffff588f40348f40108f400cc3515231c98b9408'
-        'b0000000879110420000899408b000000083c10483f95072e4668b9078010000'
-        '6687156042000066899078010000668b90a401000066871562420000668990a4'
-        '0100005a59c38b44240483786408750d8078300575073d000000007405e9fcff'
-        'ffffffb0c000000066c780c2000000000050e8fcffffff588f80c0000000c3a1'
-        '00000000a300000000c605ae41000000817d08000000007401c3c605ae410000'
-        '01c3803dae410000007415813d883b0000000000000f84fcffffffe9fcffffff'
-        '837df4000f84fcffffffe9fcffffff803dae4100000074488b1d7c3b000085db'
-        '7505bb09000000c1e302be01000000813d883b000000000000750883cb02be05'
-        '0000005356e8fcffffff83c4084383c6025356e8fcffffff83c408e9fcffffff'
-        '837df4000f84fcffffffe9fcffffff803dae410000000f85fcffffff837df400'
-        '0f84fcffffffe9fcffffff803dae410000000f85fcffffff837df4000f84fcff'
-        'ffffe9fcffffffb9800100006089c2c1ea0969d2e003000081c214460200fc81'
-        'ff00000000754389d6bf00000000b900000000f3a58db2e8010000bf44420200'
-        'b97a000000f3a58b82d0030000a3b64100008b82d4030000a3143b00008b82d8'
-        '030000a3103b000061c389d7be00000000b900000000f3a58dbae8010000be44'
-        '420200b97a000000f3a5a1b64100008982d0030000a1143b00008982d4030000'
-        'a1103b00008982d803000061c3528b55102b15140000003b152c00000073168b'
-        '55108b52fcc1ea1283e21f83fa0075052d008000005aa300000000c3837dfc00'
-        '0f8406010000833d7c3b0000090f85f9000000817d08000000000f85ec000000'
-        'e8ec000000d80d75370000d91d5cba0200e89e010000e8fcffffffe8fcffffff'
-        '680000803f68f6285cbe68898888bde8fcffffff83c40cb86f12033b833d64ba'
-        '0200007405b8a69bc43b680000803f50680e74da3ae8fcffffff83c40c680000'
-        '803fff356cba0200ff355cba0200e8fcffffff83c40c6a006a00680000803fe8'
-        'fcffffff83c40ce8fcffffff6a016800000000ff3558ba02006a00e8fcffffff'
-        '83c410e8fcffffff6a236a1ae8fcffffff83c408833d60ba020000740c6a01e8'
-        'fcffffff83c404eb236a00e8fcffffff83c4046a276a1ae8fcffffff83c40868'
-        '85370000e8fcffffff83c4045f5e5bc9c3b900000000833db6410000007405b9'
-        '444202008b8900000000c70558ba020000000000c7056cba02000000a040c705'
-        '70ba02000000000083f9007c7081f9040100007c2e81f9090200007d6081e903'
-        '0100006bc96431d289c8b905010000f7f1a354ba0200db0554ba0200d8357937'
-        '0000c3c70558ba020000000000a100000000c1e00c50e8fcffffff83c404d80d'
-        '7d370000d80581370000d91d6cba0200c70570ba020001000000d9e8c3c70570'
-        'ba020001000000c70558ba020000000000d9e8c3c70560ba020000000000833d'
-        '70ba0200007559833d64ba0200007406ff0d64ba02008b450880b84201000000'
-        '744880b84301000000743fc70560ba020001000000c70564ba02001e00000083'
-        '3d68ba020000752cc70568ba020001000000688e000000e8fcffffff83c404c3'
-        'c70564ba020000000000c70568ba020000000000c3000020420000c842000040'
-        '400000c04043414e4e4f4e00596800000000833d7c3b000009751a8b45083d00'
-        '000000751080b838010000007407c7042400000000ffe1596800000000833d7c'
-        '3b000009751a8b45083d00000000751080b839010000007407c7042400000000'
-        'ffe1596800000000833d7c3b000009751a8b45083d00000000751080b83a0100'
-        '00007407c7042400000000ffe1508b45088b406483f809741383f808753ad905'
-        '503b0000d905543b0000eb0cd9054c3b0000d905583b0000d80d5c3b0000d9c9'
-        'd9e8dee9d80d5c3b0000d9e8dec1decadbf17602d9c9ddd858c3c7055c3b0000'
-        '0000803fe8a4ffffffd91d00000000c3ff05003b000050a1003b0000c1e80983'
-        'f8047322a3043b0000db05043b0000d82d083b0000d835083b0000d91d5c3b00'
-        '00e867ffffff58d91d00000000c3d905603b0000c7055c3b00000000803fe84a'
-        'ffffffd91d00000000c3d905643b0000c7055c3b00000000803fe82effffffd9'
-        '1d00000000c3a10000000083f809741083f8080f85fcffffffa16c3b0000eb05'
-        'a1683b0000a3703b00000fbf0d0000000051e8fcffffff83c404d80d703b0000'
-        'd91d743b00000fbf0d0000000051e8fcffffff83c404d80d743b0000d86c2404'
-        'd95c24040fbf0d0000000051e8fcffffff83c404d80d743b0000d844240cd95c'
-        '240c0fbf0d0000000051e8fcffffff83c404d80d703b0000d9e4dfe0f6c40174'
-        '07ddd8e9fcffffffd86c2408d95c2408e9fcffffff56522e4a4147554152414e'
-        '44490056522e5a2d475241445400626f737365732e62696e00594f5520554e4c'
-        '4f434b454400505245535320425554544f4e20544f20434f4e54494e5545000a'
-        'd7a33c6666663f00000000000000000000000000000000000000000000000000'
-        '0000000000000000000000000000000000000000000000290000001300000024'
-        '00000028000000160000009a99593f000020410000e0403333b33e0000104200'
-        '00e040090000002e00000000000000900000a043000020400000c03f00006042'
-        '0000344300002040000080400000004100004842000000000000000000000000'
-        '000000000000000000000000cdcccc3c00008c429a9999400000a0410000c043'
-        '00000000000040410000f041000020420000000000000000286b6ece00000000'
-        '00000000000040400000000000000000000000009a99993b000000009a99193f'
-        '00008040000000006666e63e000020410000a0c09a99593f0000e04000008040'
-        '0000000000000000000080400000000000000000000000000000000064000000'
-        'c7000000640000003c00000064000000c7000000640000006400000064000000'
-        'c700000000007a4400008040000080400000004000007a43000000000000803f'
-        '00000c420000f0410000f0420000a04200000000000000000000000000000000'
-        '0000000000000000000000000000f0410000c03f0000803f0000a0410000c442'
-        '0000b0410000803f9a9959409a991940a470dd3f666646400000000000000000'
-        '15000000190000001d0000000f00000000000000ffffffff0100000003000000'
-        '000000000000000000000000000000008c3b0000000000009c3b00008c3b0000'
-        '00000000a470e341abaaaa3d0000803700008047cdcc4c3e0000bec30000c040'
-        '00001643000070c20000a041cdcc4c3d000020420000fa446f1283393333333f'
-        '83f922469a99193e0000a0410000a0c100000000000000000000000000000041'
-        '000080408fc2f53cdb0fc93800000000000070c1c0d6ffff0000804014000000'
-        '0000000000000000000050c10000d84100000000000000000000d8c1000050c1'
-        '00000000004000000000000000000000000050c10000d8c10080000000000000'
-        '0000d841000050c10000000000c000000c00000000000000000070c10000f040'
-        '0000000000000000000000000000404100000000000000000000000000000000'
-        '0000404100000000000000001800000000000000000040410000000000000000'
-        '0000000066661ec20000a0400000000000000000000000009a9901c20000a040'
-        '00000000000000000000000066661e420000a040000000000000000000000000'
-        '9a9901420000a040000000000000000024000000000030c10000a04000000000'
-        '000000003c000000cdccacc100003041000000000000000048000000cdccacc1'
-        '00007841000000000000000030000000000030410000a0400000000000000000'
-        '3c000000cdccac4100003041000000000000000048000000cdccac4100007841'
-        '00000000000000000000000000000000000000006d745f7a69672e62696e0090'
-        'e0791100c0f3000064420000403e00007800000018491000e079000024360100'
-        '483e00003c000000f8ff1000e079000004b00100503e00003c00000000000000'
-        '583e000001001a00583e000001001a00583e000001001a00b71bff1f06000000'
-        'f5dbd0c1a7797c41e5d0d041c41b01e00700000036cdd041696f7c4186dad041'
-        'c11b0060f5ff00006eb4d0c1c4427c41aec7d0c1bb1b01a0f8ff0000ccddd041'
-        '787a7c4101cdd0c1f5ff00a0000000007ce1aec12d210341ebe2ae41420eff1f'
-        '03000000431c50c10000c841ac1c50413f0eff1f000000001a5186c1f30eb141'
-        'd94e8641faffff5ff9ff0000e5e1ae416f12034148e1ae413e0e00e006000000'
-        '711b50413400c841431c5041410e00e000000000234a8641ea04b1416a4d8641'
-        'fdff01e000000000b1bfaec11ff40241c1caaec13b0e0060f8ff0000d20050c1'
-        '3400c8412eff4fc13e0e006000000000583986c191feb041713d86c1faff0020'
-        '0000000066e6ae41ce19034154e3aec1340e01a0faff0000091b50416900c841'
-        '711b50c1420e01a0000000009f4d86412506b141ba4986c103000000fdff0000'
-        '17b751b93400e04117b75139fdffff7ffdff00006f12833b85eb7f4163ee6fc1'
-        '03000000fdff00004b59863ba60a80419d117041943ffc3f69c000009eef6fc1'
-        'b3ea7f4104e78c3b6bc0fdbf68c00000621070410f0b804127a0893bfdffff7f'
-        'fdff00000ad7233b3400a2413480373b03000000fdff00000ad7233b3400a241'
-        '3480373b943ffc3f69c000000ad7233b3400a2413480373b68c0fdbf64c00000'
-        '0ad7233b3400a2413480373b000000000000000017b751b93400e04117b75139'
-        '000000009a99993e8fc2f53cc0ff00000000000014ae07400ad7a3bc00000000'
-        '0000000000000442000000000400000005000000020000000100000007000000'
-        '0600000003000000080000000900000042415a4f4f4b41202020202020202020'
-        '000000005452415020424f4d4220202020202020000000003130204c41534552'
-        '2020202020202020000000002020202020202020202020202020202000000000'
-        '5655562d39382d562020000000000000220000000200000052494e4720424541'
-        '4d20202020202020000000005048414c414e5820202020202020202000000000'
-        '464c4f4154494e47204d494e45202020000000004c415345522043414e4e4f4e'
-        '20202020000000005a55562d39392d5a20200000000000001a00000003000000'
-        '0000000000c055c000000000002061c000000000000000000000202020202020'
-        '2020202020202020202000000000000000000000000000000000000000000000'
+        '98ffffff85f6741289dfc1e70781c78cd20200b920000000f3a54381fb920000'
+        '0072dac6052c3a00000161c350bf8c1b030029f883e07f01c789fd5829c57212'
+        'c1ed078d85920000003d004000007302f8c3f9c360fc803d2c3a0000000f84a2'
+        '000000803d303a0000007555a100000000e8b6ffffffbb000000007317a10000'
+        '0000e8a5ffffff727cbbfcffffff81cd00400000be8cd20200b940120000f3a5'
+        '892d343a0000891d3c3a00008b0b890d383a000039c876028903c605303a0000'
+        '018b2d343a000031dbba44000000833d1c3a000008740abb44000000ba920000'
+        '00bf0c3d040089d8e8affeffff31c0f7c1ff3f000074048d441d0066ab4339d3'
+        '72e461f8c361f9c3803d303a000000741850538b1d3c3a0000a1383a00008903'
+        'c605303a0000005b58c3803dea41000000751b60fcbe00000000bf0c7d0300b9'
+        '00300000f3a5c605ea4100000161c3803dea41000000741b60fcbe0c7d0300bf'
+        '00000000b900300000f3a5c605ea4100000061c360fc833df241000000751668'
+        '04380f00e8fcffffff83c404a3f241000085c074598b3df2410000be00000000'
+        'b980010100f3a5be00000000b910190200f3a5be00000000b971b30000f3a5a1'
+        '00000000a306420000a100000000a3fa410000a100000000a3fe410000a10000'
+        '0000a302420000c605f64100000161c3803df641000000746660fc8b35f24100'
+        '00bf00000000b980010100f3a5bf00000000b910190200f3a5bf00000000b971'
+        'b30000f3a5a106420000a300000000a1fa410000a300000000a1fe410000a300'
+        '000000a102420000a300000000a1ee410000a300000000c605f64100000061c3'
+        '837c240801750b508b442408a30e42000058e9fcffffff000103020001020201'
+        '0102020302020350518b0d0c3a00000fb6895722000083e8080fa3c15958c3a1'
+        '0c3a00000fb6805b220000c3833d00000000007510803d00000000027507833d'
+        '143a000001c3ff0500000000c705143a000000000000c3c705000000001c0000'
+        '00e8c6ffffff754350b808000000e894ffffff587235833d6400000008752c50'
+        'a10c3a00000fb6805f220000a30c3a000058e85efaffffc7051c3a0000080000'
+        '00c705203a000000000000c3833d183a000000746bc705183a000000000000e8'
+        '68ffffff755ab809000000e837ffffff724ea10c3a00000fb68063220000a30c'
+        '3a0000e80dfaffffa100000000a3ee410000a10e420000a30a420000e8f3fdff'
+        'ffc7051c3a000009000000c705203a000000000000c705000000001c000000c3'
+        'c7050000000016000000c3833d1c3a0000007505e9fcffffffc3833d1c3a0000'
+        '007505e9fcffffff60833d203a0000000f859a000000681a100000e8fcffffff'
+        '83c404c705243a000090010100c605283a000000e831fdffff8b1d1c3a0000c1'
+        'e3028d03506a01e8fcffffff83c4088d4301506a03e8fcffffff83c4088d4302'
+        '506a05e8fcffffff83c4088d4303506a07e8fcffffff83c408a11c3a00008d3c'
+        'c5a83b00008d0350ff37e8fcffffff83c4088d430150ff7704e8fcffffff83c4'
+        '086a00e8fcffffff83c404e8fcffffff833d203a00001e75306a00e8fcffffff'
+        '83c404e8fcffffffff35443a0000ff35403a0000e8fcffffff83c40868de3900'
+        '00e8fcffffff83c404833d203a00003c7541e89dfbffff723a8b1d1c3a000083'
+        'eb08ff35503a0000ff349d483a0000e8fcffffff83c4086bdb6881c3d8400000'
+        'ff7364ff7360680c3d0400e8fcffffff83c40c803d283a0000007543db05203a'
+        '0000d80d043a0000d905083a0000dbf1dbc1ddd983ec04d91c24ff3500000000'
+        'a11c3a0000a300000000ff742404e8fcffffff83c4048f050000000083c404a1'
+        '203a00002d2c0100000f828f000000a91f000000753989c3ff35703a0000ff35'
+        '6c3a0000e8fcffffff83c408f7c320000000750f68eb390000e8fcffffff83c4'
+        '04eb0c6a026a34e8fcffffff83c408a10000000025100101008a0d000000000a'
+        '0d0000000081e18000000009c8803d283a00000075248b0d243a0000a3243a00'
+        '00f7d185c87417c605283a0000016a12e8fcffffff83c404eb0485c07408ff05'
+        '203a000061c36a00e8fcffffff83c404e8fcffffffe80efbffffe850fbffff6a'
+        '00e8fcffffff83c404c70500000000ffffffff6a016aff6a0ae8fcffffff83c4'
+        '0cc705203a000000000000a11c3a0000c7051c3a000000000000c70500000000'
+        '1c00000083f8087432e8a2fbffff6a01ff350a420000e8fcffffff83c40866c7'
+        '05000000009100c7050000000081000000c705000000001600000061c3a10000'
+        '000083f8080f83fcffffffe9fcffffff833d00000000080f83fcffffff837df4'
+        '000f84fcffffffe9fcffffffa10000000083f8080f83fcffffffe9fcffffffa1'
+        '0000000083e80883f801762a813d0000000000000000741e813d000000000000'
+        '00007412833d00000000000f85fcffffffe9fcffffffa10000000083f8087205'
+        'a3f43a0000833d0000000000750fc7050000000003000000e9fcffffffa1f43a'
+        '000085c07405a300000000833d00000000020f82fcffffff0f84fcffffffe9fc'
+        'ffffff833d00000000097405e9fcffffff813d000000009e0200007510ff0500'
+        '000000c7050000000001000000813d00000000b00500007506ff050000000050'
+        'b800000000833dde410000007405b8744202000500000000833d00000000010f'
+        '843d010000833d00000000020f8277020000c705000000000700000081380401'
+        '0000751f813d00000000e0000000731366833d78010000707c0966c705780100'
+        '007000813d00000000e60000007377803ddc3a000000752fc605dc3a000001c7'
+        '05e83a000000000000ff35000000008f05e43a0000d90500000000d80dec3a00'
+        '00d91d00000000ff05f03a0000833df03a0000037235c705f03a000000000000'
+        '51528d0d00020000ba200000008039cb750af6410380750466ff490483c1204a'
+        '75eb5a59eb05e8ff0100008b0d0000000081e93f0200007d0658e9fcffffffe8'
+        '58090000c605f83a000000c7059c3a000000000000c705c83a00000000000058'
+        'ff350c000000ff3510000000d9050c000000d805a43a0000d91d0c000000d905'
+        '10000000d805a83a0000d91d10000000e8fcffffff8f05100000008f050c0000'
+        '00c3833dc83a00001f732a813d00000000ff000000751eff05c83a000050a1c8'
+        '3a00000500020000a30000000058c605d641000001803df83a0000007551833d'
+        '9c3a000000752bc7059c3a00000100000066c70570010000060066c7057c0100'
+        '00000066c705780100000000c700000000008138020100000f8cb0000000c605'
+        'f83a000001c7059c3a000000000000c70002010000ff059c3a00005860beb000'
+        '0000bf40420000b914000000fcf3a566a17801000066a39042000066a1a40100'
+        '0066a39242000066c70578010000ff7fe8fcffffff66a19042000066a3780100'
+        '0066a19242000066a3a4010000be40420000bfb0000000b914000000fcf3a561'
+        '813d9c3a0000f00000007221c605f83a000000c7059c3a000000000000ff0500'
+        '000000c7050000000002000000c358c7050000000000000000e8fcffffffc705'
+        '0000000001000000c3c605a03a000000e835000000c605f83a000000c7059c3a'
+        '000000000000c705c83a00000000000058e9fcffffff803ddc3a0000000f84fc'
+        'ffffffd905e03a0000c3803ddc3a0000007418c605dc3a0000005051a1e83a00'
+        '008b0de43a000089085958c3833d0000000009740d8b45f00500000000e9fcff'
+        'ffffa10000000083e802a3d83a0000db05d83a0000d80dcc3a0000d805100000'
+        '00d805d43a0000d91d38420000d9050c000000d805d03a0000d91d34420000a1'
+        '08000000a330420000c745e420420000e9fcffffff833d00000000087305e9fc'
+        'ffffff56be8c3a0000833d00000000097521813d000000003f0200007d10833d'
+        '00000000027d0cbe903a0000eb05be943a0000d906813d000000003a0200007d'
+        '3ad9442408d80524000000dcc8d944240cd80528000000dcc8dec1d9442410d8'
+        '052c000000dcc8dec1d9fad83d983a0000d8c9dbf17302d9c9ddd8d9442408d8'
+        '0524000000d8c9d82524000000d95c2408d944240cd80528000000d8c9d82528'
+        '000000d95c240cd9442410d8052c000000d8c9d8252c000000d95c2410ddd8b8'
+        '3a0200002b05000000007e4583f8407605b840000000a3003b0000db05003b00'
+        '00d80dfc3a0000d9052c000000d8442410d8c9d90524000000d8442408d8cad8'
+        '442410d95c2410d86c2408d95c2408ddd85ee9fcffffff833da43b000009c3e8'
+        'f3ffffff0f85fcffffff0fbf0d0000000051e8fcffffff83c404d80d783a0000'
+        'd8442404d95c24040fbf0d0000000051e8fcffffff83c404d80d783a0000d86c'
+        '240cd95c240ce9fcffffff833da43b00000872308b4dfcd9413cd81d843a0000'
+        'dfe0f6c4017408a1843a000089413ce883ffffff750e6681791e000c7d0666c7'
+        '411e000c8b45fc0fbf401ee9fcffffff8b45fcd94040833da43b0000087508d8'
+        '0d803a0000eb24833da43b000009751bd80d7c3a0000d815883a0000dfe0f6c4'
+        '017408ddd8d905883a0000dec9c3833da43b0000097513833d0000000009750a'
+        '817c240400000000740b5589e5535657e9fcffffffc3833da43b000009751383'
+        '3d0000000009750a817c240400000000740e5589e583ec0c535657e9fcffffff'
+        '5589e583ec0c5356578b4508833d00000000057d39c68037010000ff66c7800e'
+        '010000000066c78072010000000066c780860100000000c780c4010000000000'
+        '008b406ca300000000e9fcffffff8b406ca300000000e9fcffffffc705000000'
+        '0000000000c7053c3b000000000000833da43b000009753f50518b45083d0000'
+        '000075318b0d0000000083f90a73268b0c8d443b0000890d0000000083e9787d'
+        '0231c969c980000000f7d981c100400000668948345958c3833d000000000075'
+        '3a833da43b0000097532833d00000000097429833d00000000007c20813d343b'
+        '0000580200007314ff05343b0000c705000000000100000083fc00c3c705343b'
+        '000000000000833d0000000000c38b450831c93d00000000751b833da43b0000'
+        '0975128a884301000080f9ff740d8a8842010000c38a883b010000c38b442404'
+        '3d000000000f85fcffffff833d00000000090f84fcffffff5589e583ec0cff75'
+        '14ff7510ff750cff7508e8fcffffff83c410d955fcd81d6c3b0000dfe0f6c401'
+        '0f848c0000008b45088d4df451ff7010ff700850e8fcffffff83c410d955f8d8'
+        '1d6c3b0000dfe0f6c401745ed945fcd865f8d815703b0000dfe0f6c44175438b'
+        '45088b88c80100008b90cc01000089c825ffffff7f5281e2ffffff7f39d05ab8'
+        '00400000720b85c97912b800c00000eb0b31c085d27805b8008000008b4d1466'
+        '89018b4508d8400ceb0b8b4508d9400ceb03d945fcc9c3833da43b0000097509'
+        '817d08000000007412833d00000000000f8dfcffffffe9fcffffff833d000000'
+        '00050f8dfcffffffe9fcffffff833da43b0000097509817d0800000000741283'
+        '3d00000000000f8dfcffffffe9fcffffff833d00000000050f8dfcffffffe9fc'
+        'ffffff833da43b000009751e833d000000000975153d000000000f84fcffffff'
+        '837864090f84fcffffff0fbf403085c00f85fcffffffe9fcffffff5589e581ec'
+        '00000000535657833da43b0000090f85fcffffff833d00000000090f85fcffff'
+        'ff8b45083d000000007405e9fcffffff8b486c85c90f84fcffffff81f9743a02'
+        '000f84fcffffff81f9000000000f85fcffffff833dda41000000751989cebf74'
+        '3a0200b900020000fcf3a5c705da410000010000008b706c8b787029f7c7406c'
+        '743a02008dbf743a0200897870e9fcffffff833da43b0000097513833d000000'
+        '0009750a817c240400000000740e5589e583ec04535657e9fcffffff833dde41'
+        '000000757e565751be00000000bf74420200b900000000fcf3a5595f5eba7442'
+        '0200c78200000000ffffffffc78200000000ffffffffc78200000000ffffffff'
+        'c705de41000001000000508b44240883786800b8000000007405b80000000089'
+        '820000000083c05889820000000005f001000089820000000083c01889820000'
+        '000058565751be00000000bf5c440200b900000000fcf3a5595f5e565751be74'
+        '420200bf00000000b900000000fcf3a5595f5eff742404e832ffffff83c40456'
+        '5751be00000000bf74420200b900000000fcf3a5595f5e565751be5c440200bf'
+        '00000000b900000000fcf3a5595f5ec3c705de41000000000000ff742404e8fc'
+        'ffffff83c4048b4424043d000000007401c366c780700100000000c381f9fb00'
+        '00007e05b9fb000000c605a03a00000183f9357d48b83500000029c8a3b03a00'
+        '00db05b03a0000dcc8d80db43a0000d82db83a0000d91da43a0000c705a83a00'
+        '000000000069c080000000f7d805001800007d0231c066a3ac3a0000c3a1b83a'
+        '0000a3a43a000083e93583f9507d2b890db03a0000db05b03a0000d80dbc3a00'
+        '00d9e0d91da83a0000c1e10781c10018000066890dac3a0000c383e950890db0'
+        '3a0000db05b03a0000d80dc03a0000d805c43a0000d9e0d91da83a000066c705'
+        'ac3a00000040c38b442404803df83a00000175073d000000007415803da03a00'
+        '000074073d000000007413e9fcffffffe84900000050e8fcffffff58eb40ff70'
+        '0cff7010ff7034d9400cd805a43a0000d9580cd94010d805a83a0000d9581066'
+        '8b0dac3a000066f7d96689483450e8fcffffff588f40348f40108f400cc35152'
+        '31c98b9408b0000000879140420000899408b000000083c10483f95072e4668b'
+        '90780100006687159042000066899078010000668b90a4010000668715924200'
+        '00668990a40100005a59c38b44240483786408750d8078300575073d00000000'
+        '7405e9fcffffffffb0c000000066c780c2000000000050e8fcffffff588f80c0'
+        '000000c3a100000000a300000000c605d641000000817d08000000007401c3c6'
+        '05d641000001c3803dd6410000007415813db03b0000000000000f84fcffffff'
+        'e9fcffffff837df4000f84fcffffffe9fcffffff803dd64100000074488b1da4'
+        '3b000085db7505bb09000000c1e302be01000000813db03b0000000000007508'
+        '83cb02be050000005356e8fcffffff83c4084383c6025356e8fcffffff83c408'
+        'e9fcffffff837df4000f84fcffffffe9fcffffff803dd6410000000f85fcffff'
+        'ff837df4000f84fcffffffe9fcffffff803dd6410000000f85fcffffff837df4'
+        '000f84fcffffffe9fcffffffb9800100006089c2c1ea0969d2e003000081c244'
+        '460200fc81ff00000000754389d6bf00000000b900000000f3a58db2e8010000'
+        'bf74420200b97a000000f3a58b82d0030000a3de4100008b82d4030000a33c3b'
+        '00008b82d8030000a3383b000061c389d7be00000000b900000000f3a58dbae8'
+        '010000be74420200b97a000000f3a5a1de4100008982d0030000a13c3b000089'
+        '82d4030000a1383b00008982d803000061c3528b55102b15000000003b152c00'
+        '000073168b55108b52fcc1ea1283e21f83fa0075052d008000005aa300000000'
+        'c3837dfc000f8406010000833da43b0000090f85f9000000817d08000000000f'
+        '85ec000000e8ec000000d80d9a370000d91d8cba0200e89e010000e8fcffffff'
+        'e8fcffffff680000803f68f6285cbe68898888bde8fcffffff83c40cb86f1203'
+        '3b833d94ba0200007405b8a69bc43b680000803f50680e74da3ae8fcffffff83'
+        'c40c680000803fff359cba0200ff358cba0200e8fcffffff83c40c6a006a0068'
+        '0000803fe8fcffffff83c40ce8fcffffff6a016800000000ff3588ba02006a00'
+        'e8fcffffff83c410e8fcffffff6a236a1ae8fcffffff83c408833d90ba020000'
+        '740c6a01e8fcffffff83c404eb236a00e8fcffffff83c4046a276a1ae8fcffff'
+        'ff83c40868aa370000e8fcffffff83c4045f5e5bc9c3b900000000833dde4100'
+        '00007405b9744202008b8900000000c70588ba020000000000c7059cba020000'
+        '00a040c705a0ba02000000000083f9007c7081f9040100007c2e81f909020000'
+        '7d6081e9030100006bc96431d289c8b905010000f7f1a384ba0200db0584ba02'
+        '00d8359e370000c3c70588ba020000000000a100000000c1e00c50e8fcffffff'
+        '83c404d80da2370000d805a6370000d91d9cba0200c705a0ba020001000000d9'
+        'e8c3c705a0ba020001000000c70588ba020000000000d9e8c3c70590ba020000'
+        '000000833da0ba0200007559833d94ba0200007406ff0d94ba02008b450880b8'
+        '4201000000744880b84301000000743fc70590ba020001000000c70594ba0200'
+        '1e000000833d98ba020000752cc70598ba020001000000688e000000e8fcffff'
+        'ff83c404c3c70594ba020000000000c70598ba020000000000c3000020420000'
+        'c842000040400000c04043414e4e4f4e00596800000000833da43b000009751a'
+        '8b45083d00000000751080b838010000007407c7042400000000ffe159680000'
+        '0000833da43b000009751a8b45083d00000000751080b839010000007407c704'
+        '2400000000ffe1596800000000833da43b000009751a8b45083d000000007510'
+        '80b83a010000007407c7042400000000ffe1508b45088b406483f809741383f8'
+        '08753ad905783b0000d9057c3b0000eb0cd905743b0000d905803b0000d80d84'
+        '3b0000d9c9d9e8dee9d80d843b0000d9e8dec1decadbf17602d9c9ddd858c3c7'
+        '05843b00000000803fe8a4ffffffd91d00000000c3ff05283b000050a1283b00'
+        '00c1e80983f8047322a32c3b0000db052c3b0000d82d303b0000d835303b0000'
+        'd91d843b0000e867ffffff58d91d00000000c3d905883b0000c705843b000000'
+        '00803fe84affffffd91d00000000c3d9058c3b0000c705843b00000000803fe8'
+        '2effffffd91d00000000c3a10000000083f809741083f8080f85fcffffffa194'
+        '3b0000eb05a1903b0000a3983b00000fbf0d0000000051e8fcffffff83c404d8'
+        '0d983b0000d91d9c3b00000fbf0d0000000051e8fcffffff83c404d80d9c3b00'
+        '00d86c2404d95c24040fbf0d0000000051e8fcffffff83c404d80d9c3b0000d8'
+        '44240cd95c240c0fbf0d0000000051e8fcffffff83c404d80d983b0000d9e4df'
+        'e0f6c4017407ddd8e9fcffffffd86c2408d95c2408e9fcffffff56522e4a4147'
+        '554152414e44490056522e5a2d475241445400626f737365732e62696e00594f'
+        '5520554e4c4f434b454400505245535320425554544f4e20544f20434f4e5449'
+        '4e5545000ad7a33c6666663f0000000000000000000000000000000000000000'
+        '0000000000000000000000000000000000000000000000000000000000000000'
+        '29000000130000002400000028000000160000009a99593f000020410000e040'
+        '3333b33e000010420000e040090000002e000000000000000000a04300002040'
+        '0000c03f00006042000034430000204000008040000000410000484200000000'
+        '0000000000000000000000000000000000000000cdcccc3c00008c429a999940'
+        '0000a0410000c04300000000000040410000f041000020420000000000000000'
+        '286b6ece0000000000000000000040400000000000000000000000009a99993b'
+        '000000009a99193f00008040000000006666e63e000020410000a0c09a99593f'
+        '0000e04000008040000000000000000000008040000000000000000000000000'
+        '0000000064000000c7000000640000003c00000064000000c700000064000000'
+        '6400000064000000c700000000007a4400008040000080400000004000007a43'
+        '000000000000803f00000c420000f0410000f0420000a0420000000000000000'
+        '00000000000000000000000000000000000000000000f0410000c03f0000803f'
+        '0000a0410000c4420000b0410000803f9a9959409a991940a470dd3f66664640'
+        '000000000000000015000000190000001d0000000f00000000000000ffffffff'
+        '010000000300000000000000000000000000000000000000b43b000000000000'
+        'c43b0000b43b000000000000a470e341abaaaa3d0000803700008047cdcc4c3e'
+        '0000bec30000c04000001643000070c20000a041cdcc4c3d000020420000fa44'
+        '6f1283393333333f83f922469a99193e0000a0410000a0c10000000000000000'
+        '0000000000000041000080408fc2f53cdb0fc93800000000000070c1c0d6ffff'
+        '00008040140000000000000000000000000050c10000d8410000000000000000'
+        '0000d8c1000050c100000000004000000000000000000000000050c10000d8c1'
+        '00800000000000000000d841000050c10000000000c000000c00000000000000'
+        '000070c10000f040000000000000000000000000000040410000000000000000'
+        '0000000000000000000040410000000000000000180000000000000000004041'
+        '00000000000000000000000066661ec20000a040000000000000000000000000'
+        '9a9901c20000a04000000000000000000000000066661e420000a04000000000'
+        '00000000000000009a9901420000a040000000000000000024000000000030c1'
+        '0000a04000000000000000003c000000cdccacc1000030410000000000000000'
+        '48000000cdccacc100007841000000000000000030000000000030410000a040'
+        '00000000000000003c000000cdccac4100003041000000000000000048000000'
+        'cdccac410000784100000000000000000000000000000000000000006d745f7a'
+        '69672e62696e0090e0791100c0f3000094420000683e00007800000018491000'
+        'e079000054360100703e00003c000000f8ff1000e079000034b00100783e0000'
+        '3c00000000000000803e000001001a00803e000001001a00803e000001001a00'
+        'b71bff1f06000000f5dbd0c1a7797c41e5d0d041c41b01e00700000036cdd041'
+        '696f7c4186dad041c11b0060f5ff00006eb4d0c1c4427c41aec7d0c1bb1b01a0'
+        'f8ff0000ccddd041787a7c4101cdd0c1f5ff00a0000000007ce1aec12d210341'
+        'ebe2ae41420eff1f03000000431c50c10000c841ac1c50413f0eff1f00000000'
+        '1a5186c1f30eb141d94e8641faffff5ff9ff0000e5e1ae416f12034148e1ae41'
+        '3e0e00e006000000711b50413400c841431c5041410e00e000000000234a8641'
+        'ea04b1416a4d8641fdff01e000000000b1bfaec11ff40241c1caaec13b0e0060'
+        'f8ff0000d20050c13400c8412eff4fc13e0e006000000000583986c191feb041'
+        '713d86c1faff00200000000066e6ae41ce19034154e3aec1340e01a0faff0000'
+        '091b50416900c841711b50c1420e01a0000000009f4d86412506b141ba4986c1'
+        '03000000fdff000017b751b93400e04117b75139fdffff7ffdff00006f12833b'
+        '85eb7f4163ee6fc103000000fdff00004b59863ba60a80419d117041943ffc3f'
+        '69c000009eef6fc1b3ea7f4104e78c3b6bc0fdbf68c00000621070410f0b8041'
+        '27a0893bfdffff7ffdff00000ad7233b3400a2413480373b03000000fdff0000'
+        '0ad7233b3400a2413480373b943ffc3f69c000000ad7233b3400a2413480373b'
+        '68c0fdbf64c000000ad7233b3400a2413480373b000000000000000017b751b9'
+        '3400e04117b75139000000009a99993e8fc2f53cc0ff00000000000014ae0740'
+        '0ad7a3bc00000000000000000000044200000000040000000500000002000000'
+        '01000000070000000600000003000000080000000900000042415a4f4f4b4120'
+        '2020202020202020000000005452415020424f4d422020202020202000000000'
+        '3130204c41534552202020202020202000000000202020202020202020202020'
+        '20202020000000005655562d39382d5620200000000000002200000002000000'
+        '52494e47204245414d20202020202020000000005048414c414e582020202020'
+        '2020202000000000464c4f4154494e47204d494e45202020000000004c415345'
+        '522043414e4e4f4e20202020000000005a55562d39392d5a2020000000000000'
+        '1a000000030000000000000000c055c000000000002061c00000000000000000'
+        '0000202020202020202020202020202020200000000000000000000000000000'
         '0000000000000000000000000000000000000000000000000000000000000000'
-        '0000040000000400000000000000000000000000000000000000000000000000'
+        '0000000000000000000004000000040000000000000000000000000000000000'
         '0000000000000000000000000000000000000000000000000000000000000000'
         '0000000000000000000000000000000000000000000000000000000000000000'
         '0000000000000000000000000000000000000000000000000000000000000000'
@@ -15286,34 +16527,35 @@ BLOBS = {
         '0000000000000000000000000000000000000000000000000000000000000000'
         '0000000000000000000000000000000000000000000000000000000000000000'
         '0000000000000000000000000000000000000000000000000000000000000000'
-        '000000000000000000000000000000000000000000000000'
+        '0000000000000000000000000000000000000000000000000000000000000000'
+        '0000000000000000'
     ), (
-        (0x17, 'abs', '.', 15104),
+        (0x17, 'abs', '.', 15144),
         (0x24, 'abs', 'BS_SCENEA', 0),
-        (0x35, 'abs', '.', 15224),
-        (0x3b, 'abs', '.', 15224),
-        (0x59, 'abs', '.', 15228),
-        (0x63, 'abs', '.', 15440),
-        (0x6d, 'abs', '.', 15448),
-        (0x77, 'abs', '.', 15444),
-        (0x81, 'abs', '.', 15052),
-        (0x8b, 'abs', '.', 16822),
-        (0x95, 'abs', '.', 14968),
+        (0x35, 'abs', '.', 15264),
+        (0x3b, 'abs', '.', 15264),
+        (0x59, 'abs', '.', 15268),
+        (0x63, 'abs', '.', 15480),
+        (0x6d, 'abs', '.', 15488),
+        (0x77, 'abs', '.', 15484),
+        (0x81, 'abs', '.', 15092),
+        (0x8b, 'abs', '.', 16862),
+        (0x95, 'abs', '.', 15008),
         (0xa1, 'abs', 'BS_G1PA', 0),
         (0xaa, 'abs', 'BS_G1PA', 0),
         (0xb5, 'abs', 'BS_SCENEA', 0),
         (0xc3, 'abs', 'BS_STATEA', 0),
-        (0xcc, 'abs', '.', 15228),
+        (0xcc, 'abs', '.', 15268),
         (0xd6, 'abs', 'BS_READYA', 0),
-        (0xdf, 'abs', '.', 16830),
-        (0xe8, 'abs', '.', 16830),
+        (0xdf, 'abs', '.', 16870),
+        (0xe8, 'abs', '.', 16870),
         (0xf0, 'abs', 'BS_OBJA', 100),
         (0x100, 'abs', 'BS_READYA', 0),
-        (0x109, 'abs', '.', 16830),
+        (0x109, 'abs', '.', 16870),
         (0x10f, 'abs', 'BS_OBJA', 0),
-        (0x114, 'abs', '.', 180340),
+        (0x114, 'abs', '.', 180388),
         (0x124, 'abs', 'BS_BSSA', 0),
-        (0x129, 'abs', '.', 181876),
+        (0x129, 'abs', '.', 181924),
         (0x12e, 'abs', 'BS_AIDW', 0),
         (0x13a, 'abs', 'GAMEMODE', 0),
         (0x151, 'rel', 'BS_IDLE', -4),
@@ -15321,55 +16563,55 @@ BLOBS = {
         (0x15c, 'abs', 'BS_MODEA', 0),
         (0x164, 'abs', 'BS_COL1', 0),
         (0x169, 'abs', 'BS_G1PA', 0),
-        (0x16f, 'abs', '.', 15228),
+        (0x16f, 'abs', '.', 15268),
         (0x179, 'abs', 'GAMEMODE', 0),
-        (0x187, 'abs', '.', 15240),
-        (0x193, 'abs', '.', 15232),
-        (0x199, 'abs', '.', 15236),
-        (0x1a0, 'abs', '.', 15228),
-        (0x1aa, 'abs', '.', 16508),
+        (0x187, 'abs', '.', 15280),
+        (0x193, 'abs', '.', 15272),
+        (0x199, 'abs', '.', 15276),
+        (0x1a0, 'abs', '.', 15268),
+        (0x1aa, 'abs', '.', 16548),
         (0x1b6, 'abs', 'BS_SELSCRA', 0),
-        (0x1bb, 'abs', '.', 144740),
+        (0x1bb, 'abs', '.', 144788),
         (0x1c8, 'abs', 'BS_SELSCRA', 432),
-        (0x1cd, 'abs', '.', 145220),
+        (0x1cd, 'abs', '.', 145268),
         (0x1da, 'abs', 'BS_SELSCRA', 432),
-        (0x1df, 'abs', '.', 145268),
+        (0x1df, 'abs', '.', 145316),
         (0x1ec, 'abs', 'BS_SELSCRA', 480),
-        (0x1f1, 'abs', '.', 145316),
-        (0x1fe, 'abs', '.', 145220),
-        (0x20e, 'abs', '.', 15244),
-        (0x217, 'abs', '.', 15260),
-        (0x223, 'abs', '.', 15264),
+        (0x1f1, 'abs', '.', 145364),
+        (0x1fe, 'abs', '.', 145268),
+        (0x20e, 'abs', '.', 15284),
+        (0x217, 'abs', '.', 15300),
+        (0x223, 'abs', '.', 15304),
         (0x232, 'abs', 'BS_SELROWS', 0),
-        (0x237, 'abs', '.', 143980),
+        (0x237, 'abs', '.', 144028),
         (0x244, 'abs', 'BS_SELROWS', 80),
-        (0x249, 'abs', '.', 144180),
+        (0x249, 'abs', '.', 144228),
         (0x256, 'abs', 'BS_SELSWAP', 0),
-        (0x25b, 'abs', '.', 144220),
+        (0x25b, 'abs', '.', 144268),
         (0x268, 'abs', 'BS_SELSPEC', 0),
-        (0x26d, 'abs', '.', 144380),
-        (0x27f, 'abs', '.', 144252),
-        (0x284, 'abs', '.', 144256),
-        (0x289, 'abs', '.', 144412),
-        (0x28e, 'abs', '.', 144416),
+        (0x26d, 'abs', '.', 144428),
+        (0x27f, 'abs', '.', 144300),
+        (0x284, 'abs', '.', 144304),
+        (0x289, 'abs', '.', 144460),
+        (0x28e, 'abs', '.', 144464),
         (0x293, 'abs', 'BS_SELLCAM', 0),
-        (0x298, 'abs', '.', 144260),
-        (0x2a5, 'abs', '.', 16484),
-        (0x2aa, 'abs', '.', 144356),
-        (0x2b7, 'abs', '.', 16484),
-        (0x2bc, 'abs', '.', 144368),
+        (0x298, 'abs', '.', 144308),
+        (0x2a5, 'abs', '.', 16524),
+        (0x2aa, 'abs', '.', 144404),
+        (0x2b7, 'abs', '.', 16524),
+        (0x2bc, 'abs', '.', 144416),
         (0x2c9, 'abs', 'BS_JAGA', 32),
-        (0x2ce, 'abs', '.', 144172),
+        (0x2ce, 'abs', '.', 144220),
         (0x2d3, 'abs', 'BS_JAGA', 28),
-        (0x2d8, 'abs', '.', 144176),
-        (0x2de, 'abs', '.', 16508),
+        (0x2d8, 'abs', '.', 144224),
+        (0x2de, 'abs', '.', 16548),
         (0x2e4, 'abs', 'BS_SELSCRA', 0),
-        (0x2ea, 'abs', '.', 143976),
+        (0x2ea, 'abs', '.', 144024),
         (0x2f4, 'abs', 'GAMEMODE', 0),
-        (0x2fc, 'abs', '.', 144740),
-        (0x302, 'abs', '.', 143976),
+        (0x2fc, 'abs', '.', 144788),
+        (0x302, 'abs', '.', 144024),
         (0x30b, 'abs', 'BS_SCRPTR', 0),
-        (0x318, 'abs', '.', 143976),
+        (0x318, 'abs', '.', 144024),
         (0x32c, 'rel', 'BS_SELHIDEX', -4),
         (0x338, 'abs', 'GAMEMODE', 0),
         (0x34b, 'abs', 'BS_SELCUR', 0),
@@ -15379,30 +16621,31 @@ BLOBS = {
         (0x374, 'abs', 'BS_SELCUR', 0),
         (0x37b, 'abs', 'BS_SELCUR', 0),
         (0x38c, 'abs', 'BS_SELCUR', 0),
-        (0x393, 'abs', '.', 14823),
+        (0x393, 'abs', '.', 14860),
         (0x3a0, 'abs', 'GAMEMODE', 0),
         (0x3b1, 'abs', 'BS_SELINVA', 0),
         (0x3bf, 'abs', 'BS_SELCUR', 0),
         (0x3cb, 'abs', 'BS_COLSEL', 0),
         (0x3d3, 'abs', 'BS_COLSEL', 0),
-        (0x3de, 'abs', '.', 15256),
+        (0x3de, 'abs', '.', 15296),
         (0x3e3, 'abs', 'BS_SELPADS', 0),
         (0x3e9, 'abs', 'BS_SELPADS', 1),
         (0x412, 'rel', 'BS_SFX', -4),
         (0x42d, 'rel', 'BS_SELMDLA', 2),
         (0x438, 'abs', 'GAMEMODE', 0),
-        (0x44b, 'abs', '.', 15328),
-        (0x49b, 'abs', '.', 16480),
-        (0x4ba, 'abs', '.', 16480),
-        (0x4c1, 'abs', '.', 15332),
-        (0x4cd, 'abs', '.', 16480),
+        (0x44b, 'abs', '.', 15368),
+        (0x49b, 'abs', '.', 16520),
+        (0x4ba, 'abs', '.', 16520),
+        (0x4c1, 'abs', '.', 15372),
+        (0x4cd, 'abs', '.', 16520),
         (0x4d4, 'rel', 'BS_MESHA', -4),
+        (0x4da, 'abs8', 'SEL_BONE', 0),
         (0x4de, 'rel', 'BS_MESHA', -4),
         (0x4f3, 'rel', 'BS_MESHA', -4),
         (0x4fb, 'rel', 'BS_MPUSHA', -4),
-        (0x501, 'abs', '.', 16504),
-        (0x507, 'abs', '.', 16500),
-        (0x50d, 'abs', '.', 16496),
+        (0x501, 'abs', '.', 16544),
+        (0x507, 'abs', '.', 16540),
+        (0x50d, 'abs', '.', 16536),
         (0x512, 'rel', 'BS_VIEWA', -4),
         (0x51c, 'rel', 'BS_ROTXA', -4),
         (0x524, 'rel', 'BS_MSETA', -4),
@@ -15411,36 +16654,36 @@ BLOBS = {
         (0x541, 'rel', 'BS_MPOPA', -4),
         (0x546, 'rel', 'BS_MSETA', -4),
         (0x54d, 'rel', 'BS_MPUSHA', -4),
-        (0x553, 'abs', '.', 15228),
+        (0x553, 'abs', '.', 15268),
         (0x55c, 'abs', 'BS_SELOBJ', 936),
-        (0x567, 'abs', '.', 15432),
+        (0x567, 'abs', '.', 15472),
         (0x56e, 'rel', 'BS_VIEWA', -4),
-        (0x57a, 'abs', '.', 15440),
+        (0x57a, 'abs', '.', 15480),
         (0x582, 'rel', 'BS_ROTXA', -4),
-        (0x588, 'abs', '.', 15444),
+        (0x588, 'abs', '.', 15484),
         (0x58d, 'rel', 'BS_ROTYA', -4),
-        (0x598, 'abs', '.', 15436),
+        (0x598, 'abs', '.', 15476),
         (0x59f, 'rel', 'BS_VIEWA', -4),
-        (0x5a8, 'abs', '.', 15268),
-        (0x5ae, 'abs', '.', 15268),
-        (0x5b4, 'abs', '.', 15268),
+        (0x5a8, 'abs', '.', 15308),
+        (0x5ae, 'abs', '.', 15308),
+        (0x5b4, 'abs', '.', 15308),
         (0x5b9, 'rel', 'BS_MSCALEA', -4),
-        (0x5c6, 'abs', '.', 15936),
-        (0x5ce, 'abs', '.', 15228),
+        (0x5c6, 'abs', '.', 15976),
+        (0x5ce, 'abs', '.', 15268),
         (0x5d7, 'abs', 'BS_SELOBJ', 936),
         (0x5df, 'abs', 'BS_SELOBJ', 924),
-        (0x5f6, 'abs', '.', 15944),
-        (0x607, 'abs', '.', 15952),
-        (0x628, 'abs', '.', 141796),
-        (0x62d, 'abs', '.', 141848),
+        (0x5f6, 'abs', '.', 15984),
+        (0x607, 'abs', '.', 15992),
+        (0x628, 'abs', '.', 141844),
+        (0x62d, 'abs', '.', 141896),
         (0x633, 'abs', 'BS_ZGA', 16),
         (0x639, 'rel', 'BS_POSEA', -4),
         (0x655, 'rel', 'BS_VIEWA', -4),
         (0x662, 'rel', 'BS_ROTZA', -4),
         (0x66e, 'rel', 'BS_ROTYA', -4),
         (0x679, 'rel', 'BS_ROTXA', -4),
-        (0x681, 'abs', '.', 15488),
-        (0x68c, 'abs', '.', 15568),
+        (0x681, 'abs', '.', 15528),
+        (0x68c, 'abs', '.', 15608),
         (0x693, 'rel', 'BS_MPUSHA', -4),
         (0x69d, 'rel', 'BS_MPUSHA', -4),
         (0x6ab, 'rel', 'BS_VIEWA', -4),
@@ -15449,25 +16692,25 @@ BLOBS = {
         (0x6cf, 'rel', 'BS_MESHA', -4),
         (0x6d7, 'rel', 'BS_MPOPA', -4),
         (0x6e1, 'rel', 'BS_MPOPA', -4),
-        (0x6e7, 'abs', '.', 15228),
+        (0x6e7, 'abs', '.', 15268),
         (0x6f3, 'abs', 'BS_SELOBJ', 924),
         (0x6f9, 'abs', 'BS_SELOBJ', 936),
-        (0x711, 'abs', 'BS_SLOTS', 28),
+        (0x711, 'abs', 'BS_SLOTR', 0),
         (0x721, 'rel', 'BS_LOADFILE', -4),
         (0x72b, 'rel', 'BS_MPUSHA', -4),
-        (0x733, 'abs', '.', 15472),
+        (0x733, 'abs', '.', 15512),
         (0x73a, 'rel', 'BS_VIEWA', -4),
         (0x743, 'rel', 'BS_ROTYA', -4),
         (0x74b, 'abs', 'BS_SELOBJ', 924),
-        (0x760, 'abs', '.', 15252),
-        (0x76a, 'abs', '.', 15484),
-        (0x773, 'abs', '.', 15252),
+        (0x760, 'abs', '.', 15292),
+        (0x76a, 'abs', '.', 15524),
+        (0x773, 'abs', '.', 15292),
         (0x778, 'rel', 'BS_MSCALEA', -4),
-        (0x781, 'abs', '.', 15476),
+        (0x781, 'abs', '.', 15516),
         (0x786, 'rel', 'BS_ROTXA', -4),
-        (0x78f, 'abs', '.', 15480),
-        (0x795, 'abs', '.', 15480),
-        (0x79b, 'abs', '.', 15480),
+        (0x78f, 'abs', '.', 15520),
+        (0x795, 'abs', '.', 15520),
+        (0x79b, 'abs', '.', 15520),
         (0x7a0, 'rel', 'BS_MSCALEA', -4),
         (0x7a8, 'rel', 'BS_MSETA', -4),
         (0x7ad, 'abs', 'BS_SELOBJ', 924),
@@ -15476,77 +16719,77 @@ BLOBS = {
         (0x7d4, 'rel', 'BS_MPOPA', -4),
         (0x7eb, 'rel', 'BS_MPOPA', -4),
         (0x7f0, 'rel', 'BS_MSETA', -4),
-        (0x7f8, 'abs', '.', 15448),
+        (0x7f8, 'abs', '.', 15488),
         (0x808, 'abs', 'BS_FRAMEA', 0),
-        (0x821, 'abs', '.', 15452),
+        (0x821, 'abs', '.', 15492),
         (0x82e, 'rel', 'BS_ROTZA', -4),
         (0x833, 'abs', 'BS_FRAMEA', 0),
-        (0x83e, 'abs', '.', 15448),
-        (0x84d, 'abs', '.', 15456),
+        (0x83e, 'abs', '.', 15488),
+        (0x84d, 'abs', '.', 15496),
         (0x85a, 'rel', 'BS_ROTYA', -4),
         (0x85f, 'abs', 'BS_FRAMEA', 0),
-        (0x86d, 'abs', '.', 15448),
-        (0x873, 'abs', '.', 15456),
+        (0x86d, 'abs', '.', 15488),
+        (0x873, 'abs', '.', 15496),
         (0x880, 'rel', 'BS_ROTXA', -4),
         (0x888, 'abs', 'BS_FRAMEA', 0),
-        (0x89f, 'abs', '.', 15448),
-        (0x8a5, 'abs', '.', 15460),
+        (0x89f, 'abs', '.', 15488),
+        (0x8a5, 'abs', '.', 15500),
         (0x8b7, 'rel', 'BS_VIEWA', -4),
-        (0x8c5, 'abs', '.', 15464),
-        (0x8d1, 'abs', '.', 15852),
-        (0x8de, 'abs', '.', 15852),
-        (0x8e5, 'abs', '.', 15860),
+        (0x8c5, 'abs', '.', 15504),
+        (0x8d1, 'abs', '.', 15892),
+        (0x8de, 'abs', '.', 15892),
+        (0x8e5, 'abs', '.', 15900),
         (0x8ea, 'abs', 'BS_RBDIR', 0),
         (0x8ef, 'abs', 'BS_PATHFMT', 0),
-        (0x8f4, 'abs', '.', 144420),
+        (0x8f4, 'abs', '.', 144468),
         (0x8f9, 'rel', 'BS_SPRINTF', -4),
-        (0x913, 'abs', '.', 144420),
+        (0x913, 'abs', '.', 144468),
         (0x919, 'abs', 'BS_CREATEF', 0),
-        (0x925, 'abs', '.', 15872),
+        (0x925, 'abs', '.', 15912),
         (0x937, 'abs', 'BS_SEEKF', 0),
-        (0x93e, 'abs', '.', 15856),
+        (0x93e, 'abs', '.', 15896),
         (0x94b, 'abs', 'BS_READF', 0),
-        (0x954, 'abs', '.', 15856),
+        (0x954, 'abs', '.', 15896),
         (0x971, 'abs', 'BS_CLOSEF', 0),
         (0x979, 'abs', 'BS_SELAHEAD', 0),
         (0x98b, 'abs', 'BS_SELAHEAD', 0),
-        (0x991, 'abs', '.', 15256),
-        (0x997, 'abs', '.', 15244),
-        (0x99d, 'abs', '.', 15256),
-        (0x9a3, 'abs', '.', 15260),
+        (0x991, 'abs', '.', 15296),
+        (0x997, 'abs', '.', 15284),
+        (0x99d, 'abs', '.', 15296),
+        (0x9a3, 'abs', '.', 15300),
         (0x9a9, 'abs', 'BS_SELAHEAD', 0),
-        (0x9b2, 'abs', '.', 15244),
-        (0x9b8, 'abs', '.', 15256),
+        (0x9b2, 'abs', '.', 15284),
+        (0x9b8, 'abs', '.', 15296),
         (0x9c0, 'abs', 'BS_SELCUR', -60),
         (0x9ca, 'abs', 'BS_SELCUR', 0),
-        (0x9d2, 'abs', '.', 15228),
+        (0x9d2, 'abs', '.', 15268),
         (0x9de, 'abs', 'BS_SELOBJ', 924),
-        (0x9ee, 'abs', '.', 15448),
-        (0x9f7, 'abs', '.', 15448),
-        (0xa0b, 'abs', '.', 15448),
+        (0x9ee, 'abs', '.', 15488),
+        (0x9f7, 'abs', '.', 15488),
+        (0xa0b, 'abs', '.', 15488),
         (0xa17, 'rel', 'BS_SFX', -4),
         (0xa1e, 'rel', 'BS_SFX', -4),
-        (0xa2a, 'abs', '.', 15468),
+        (0xa2a, 'abs', '.', 15508),
         (0xa39, 'rel', 'BS_SFX', -4),
         (0xa4c, 'rel', 'BS_SFX', -4),
-        (0xa57, 'abs', '.', 15264),
-        (0xa6e, 'abs', '.', 15380),
-        (0xa7b, 'abs', '.', 15388),
-        (0xa86, 'abs', '.', 15384),
-        (0xa99, 'abs', '.', 15444),
-        (0xaa3, 'abs', '.', 15400),
-        (0xab0, 'abs', '.', 15404),
-        (0xab6, 'abs', '.', 15408),
-        (0xac8, 'abs', '.', 15412),
-        (0xada, 'abs', '.', 15416),
-        (0xaf1, 'abs', '.', 15468),
-        (0xaf9, 'abs', '.', 15468),
-        (0xb03, 'abs', '.', 15424),
-        (0xb09, 'abs', '.', 15440),
-        (0xb0f, 'abs', '.', 15428),
-        (0xb15, 'abs', '.', 15440),
-        (0xb1b, 'abs', '.', 15440),
-        (0xb21, 'abs', '.', 15420),
+        (0xa57, 'abs', '.', 15304),
+        (0xa6e, 'abs', '.', 15420),
+        (0xa7b, 'abs', '.', 15428),
+        (0xa86, 'abs', '.', 15424),
+        (0xa99, 'abs', '.', 15484),
+        (0xaa3, 'abs', '.', 15440),
+        (0xab0, 'abs', '.', 15444),
+        (0xab6, 'abs', '.', 15448),
+        (0xac8, 'abs', '.', 15452),
+        (0xada, 'abs', '.', 15456),
+        (0xaf1, 'abs', '.', 15508),
+        (0xaf9, 'abs', '.', 15508),
+        (0xb03, 'abs', '.', 15464),
+        (0xb09, 'abs', '.', 15480),
+        (0xb0f, 'abs', '.', 15468),
+        (0xb15, 'abs', '.', 15480),
+        (0xb1b, 'abs', '.', 15480),
+        (0xb21, 'abs', '.', 15460),
         (0xb29, 'abs', 'BS_SELCUR', 0),
         (0xb32, 'abs', 'BS_SELCUR', -40),
         (0xb3a, 'abs', 'BS_SELCUR', -40),
@@ -15555,61 +16798,61 @@ BLOBS = {
         (0xb69, 'abs', 'BS_SELCUR', -36),
         (0xb7d, 'abs', 'BS_G1PA', 0),
         (0xb8f, 'abs', 'BS_SELSKY', 0),
-        (0xb99, 'abs', '.', 15384),
-        (0xb9f, 'abs', '.', 15396),
+        (0xb99, 'abs', '.', 15424),
+        (0xb9f, 'abs', '.', 15436),
         (0xba5, 'abs', 'BS_SELOBJ', 980),
         (0xbb2, 'abs', 'BS_SELIN', 0),
         (0xbbb, 'abs', 'BS_SELTICKS', 0),
         (0xbcb, 'abs', 'BS_SELOBJ', 0),
-        (0xbd3, 'abs', '.', 15384),
-        (0xbd9, 'abs', '.', 15392),
+        (0xbd3, 'abs', '.', 15424),
+        (0xbd9, 'abs', '.', 15432),
         (0xbe0, 'abs', 'BS_SELOBJ', 56),
         (0xbf0, 'abs', 'BS_SELOBJ', 52),
         (0xc12, 'abs', 'BS_SELOBJ', 52),
         (0xc1e, 'abs', 'BS_SELCUR', 0),
-        (0xc2b, 'abs', '.', 15248),
-        (0xc31, 'abs', '.', 15256),
-        (0xc37, 'abs', '.', 15256),
-        (0xc42, 'abs', '.', 15272),
-        (0xc48, 'abs', '.', 15256),
-        (0xc4e, 'abs', '.', 15256),
-        (0xc56, 'abs', '.', 15276),
-        (0xc5c, 'abs', '.', 15256),
-        (0xc68, 'abs', '.', 15280),
-        (0xc6e, 'abs', '.', 15256),
-        (0xc7a, 'abs', '.', 15284),
-        (0xc80, 'abs', '.', 15256),
+        (0xc2b, 'abs', '.', 15288),
+        (0xc31, 'abs', '.', 15296),
+        (0xc37, 'abs', '.', 15296),
+        (0xc42, 'abs', '.', 15312),
+        (0xc48, 'abs', '.', 15296),
+        (0xc4e, 'abs', '.', 15296),
+        (0xc56, 'abs', '.', 15316),
+        (0xc5c, 'abs', '.', 15296),
+        (0xc68, 'abs', '.', 15320),
+        (0xc6e, 'abs', '.', 15296),
+        (0xc7a, 'abs', '.', 15324),
+        (0xc80, 'abs', '.', 15296),
         (0xca0, 'abs', 'BS_G1PA', 0),
-        (0xcb1, 'abs', '.', 16508),
-        (0xcc1, 'abs', '.', 15328),
-        (0xccf, 'abs', '.', 15320),
-        (0xcda, 'abs', '.', 15312),
-        (0xce3, 'abs', '.', 15312),
-        (0xceb, 'abs', '.', 222428),
-        (0xcfa, 'abs', '.', 15296),
+        (0xcb1, 'abs', '.', 16548),
+        (0xcc1, 'abs', '.', 15368),
+        (0xccf, 'abs', '.', 15360),
+        (0xcda, 'abs', '.', 15352),
+        (0xce3, 'abs', '.', 15352),
+        (0xceb, 'abs', '.', 222476),
+        (0xcfa, 'abs', '.', 15336),
         (0xd1c, 'abs', 'BS_STATEA', 0),
         (0xd25, 'abs', 'BS_STATEA', 0),
-        (0xd33, 'abs', '.', 15328),
+        (0xd33, 'abs', '.', 15368),
         (0xd42, 'abs', 'BS_SELOBJ', 180),
-        (0xd51, 'abs', '.', 15316),
-        (0xd5c, 'abs', '.', 15316),
-        (0xd62, 'abs', '.', 15316),
-        (0xd79, 'abs', '.', 15328),
-        (0xd82, 'abs', '.', 15328),
-        (0xd8c, 'abs', '.', 15316),
-        (0xd98, 'abs', '.', 15328),
-        (0xda1, 'abs', '.', 15232),
-        (0xda7, 'abs', '.', 15320),
-        (0xdae, 'abs', '.', 15312),
-        (0xdb7, 'abs', '.', 15312),
-        (0xdbd, 'abs', '.', 222428),
-        (0xdc9, 'abs', '.', 15296),
+        (0xd51, 'abs', '.', 15356),
+        (0xd5c, 'abs', '.', 15356),
+        (0xd62, 'abs', '.', 15356),
+        (0xd79, 'abs', '.', 15368),
+        (0xd82, 'abs', '.', 15368),
+        (0xd8c, 'abs', '.', 15356),
+        (0xd98, 'abs', '.', 15368),
+        (0xda1, 'abs', '.', 15272),
+        (0xda7, 'abs', '.', 15360),
+        (0xdae, 'abs', '.', 15352),
+        (0xdb7, 'abs', '.', 15352),
+        (0xdbd, 'abs', '.', 222476),
+        (0xdc9, 'abs', '.', 15336),
         (0xdd4, 'abs', 'BS_PALRAMA', 0),
-        (0xe12, 'abs', '.', 15312),
+        (0xe12, 'abs', '.', 15352),
         (0xe23, 'abs', 'BS_PALRAMA', 640),
         (0xe29, 'abs', 'BS_PALRAMA', 0),
-        (0xe5e, 'abs', '.', 15328),
-        (0xe67, 'abs', '.', 15312),
+        (0xe5e, 'abs', '.', 15368),
+        (0xe67, 'abs', '.', 15352),
         (0xea9, 'rel', 'BS_PALLOADA', -4),
         (0xeb4, 'rel', 'BS_PALLOADA', -4),
         (0xec1, 'abs', 'BS_MODEA', 0),
@@ -15620,105 +16863,105 @@ BLOBS = {
         (0xf04, 'abs', 'BS_HSITE', 5),
         (0xf0a, 'abs', 'BS_SELMDLA', 0),
         (0xf16, 'abs', 'BS_HDOFF', 0),
-        (0xf2d, 'abs', '.', 15344),
-        (0xf37, 'abs', '.', 15352),
+        (0xf2d, 'abs', '.', 15384),
+        (0xf37, 'abs', '.', 15392),
         (0xf43, 'abs', 'BS_SELCAM', 0),
         (0xf4f, 'abs', 'BS_SELOBJ', 56),
-        (0xf67, 'abs', '.', 15256),
-        (0xf76, 'abs', '.', 15256),
-        (0xf7e, 'abs', '.', 15364),
-        (0xf84, 'abs', '.', 15368),
-        (0xf90, 'abs', '.', 15372),
-        (0xfa0, 'abs', '.', 15376),
-        (0xfc3, 'abs', '.', 15336),
-        (0xfd9, 'abs', '.', 15332),
+        (0xf67, 'abs', '.', 15296),
+        (0xf76, 'abs', '.', 15296),
+        (0xf7e, 'abs', '.', 15404),
+        (0xf84, 'abs', '.', 15408),
+        (0xf90, 'abs', '.', 15412),
+        (0xfa0, 'abs', '.', 15416),
+        (0xfc3, 'abs', '.', 15376),
+        (0xfd9, 'abs', '.', 15372),
         (0xfee, 'abs', 'BS_COLTAB', 0),
         (0x1005, 'abs', 'BS_POLYCOL', 0),
-        (0x100b, 'abs', '.', 15332),
+        (0x100b, 'abs', '.', 15372),
         (0x1023, 'abs', 'BS_COLTAB', 0),
-        (0x1049, 'abs', '.', 15296),
-        (0x106b, 'abs', '.', 15340),
-        (0x1072, 'abs', '.', 15336),
-        (0x1089, 'abs', '.', 15256),
+        (0x1049, 'abs', '.', 15336),
+        (0x106b, 'abs', '.', 15380),
+        (0x1072, 'abs', '.', 15376),
+        (0x1089, 'abs', '.', 15296),
         (0x10be, 'abs', 'BS_SELCUR', -20),
-        (0x10c4, 'abs', '.', 15276),
+        (0x10c4, 'abs', '.', 15316),
         (0x10ca, 'abs', 'BS_SELCUR', -20),
         (0x10d0, 'abs', 'BS_SELCUR', -40),
-        (0x10d6, 'abs', '.', 15280),
+        (0x10d6, 'abs', '.', 15320),
         (0x10dc, 'abs', 'BS_SELCUR', -40),
         (0x10e2, 'abs', 'BS_SELCUR', -4),
-        (0x10e8, 'abs', '.', 15284),
+        (0x10e8, 'abs', '.', 15324),
         (0x10ee, 'abs', 'BS_SELCUR', -4),
-        (0x1106, 'abs', '.', 15252),
-        (0x110e, 'abs', '.', 15272),
-        (0x1116, 'abs', '.', 15248),
-        (0x1123, 'abs', '.', 15272),
+        (0x1106, 'abs', '.', 15292),
+        (0x110e, 'abs', '.', 15312),
+        (0x1116, 'abs', '.', 15288),
+        (0x1123, 'abs', '.', 15312),
         (0x113d, 'abs', 'BS_SELCUR', -20),
-        (0x1143, 'abs', '.', 15276),
+        (0x1143, 'abs', '.', 15316),
         (0x1149, 'abs', 'BS_SELCUR', -20),
         (0x114f, 'abs', 'BS_SELCUR', -40),
-        (0x1155, 'abs', '.', 15280),
+        (0x1155, 'abs', '.', 15320),
         (0x115b, 'abs', 'BS_SELCUR', -40),
         (0x1161, 'abs', 'BS_SELCUR', -4),
-        (0x1167, 'abs', '.', 15284),
+        (0x1167, 'abs', '.', 15324),
         (0x116d, 'abs', 'BS_SELCUR', -4),
-        (0x1185, 'abs', '.', 15252),
-        (0x118d, 'abs', '.', 15272),
-        (0x119a, 'abs', '.', 15248),
-        (0x11a2, 'abs', '.', 15248),
+        (0x1185, 'abs', '.', 15292),
+        (0x118d, 'abs', '.', 15312),
+        (0x119a, 'abs', '.', 15288),
+        (0x11a2, 'abs', '.', 15288),
         (0x11b0, 'abs', 'BS_SELCUR', 0),
-        (0x11ba, 'abs', '.', 144728),
-        (0x11c7, 'abs', '.', 144728),
+        (0x11ba, 'abs', '.', 144776),
+        (0x11c7, 'abs', '.', 144776),
         (0x11cf, 'abs', 'BS_RBNAMES', 4),
         (0x11d4, 'rel', 'BS_MALLOC', -4),
         (0x11e4, 'abs', 'BS_RBNAMES', 0),
         (0x11e9, 'abs', 'BS_RBDIR', 0),
         (0x11ee, 'abs', 'BS_PATHFMT', 0),
-        (0x11f3, 'abs', '.', 144420),
+        (0x11f3, 'abs', '.', 144468),
         (0x11f8, 'rel', 'BS_SPRINTF', -4),
         (0x1200, 'abs', 'BS_RBMODE', 0),
-        (0x1205, 'abs', '.', 144420),
+        (0x1205, 'abs', '.', 144468),
         (0x120a, 'rel', 'BS_FOPEN', -4),
         (0x121d, 'abs', 'BS_RBNAMES', 4),
         (0x1223, 'rel', 'BS_FREAD', -4),
         (0x122d, 'rel', 'BS_FCLOSE', -4),
-        (0x123d, 'abs', '.', 144680),
+        (0x123d, 'abs', '.', 144728),
         (0x1245, 'rel', 'BS_FREE', -4),
-        (0x1251, 'abs', '.', 16784),
-        (0x1259, 'abs', '.', 144700),
-        (0x1263, 'abs', 'BS_SLOTS', 20),
-        (0x1269, 'abs', '.', 16786),
-        (0x126e, 'abs', 'BS_SLOTS', 20),
-        (0x1274, 'abs', '.', 16784),
-        (0x127b, 'abs', '.', 16785),
-        (0x1283, 'abs', '.', 144716),
-        (0x128d, 'abs', 'BS_SLOTS', 36),
-        (0x1293, 'abs', '.', 16790),
-        (0x1298, 'abs', 'BS_SLOTS', 36),
-        (0x129e, 'abs', '.', 16785),
-        (0x12a7, 'abs', '.', 16784),
-        (0x12b0, 'abs', '.', 16784),
-        (0x12b7, 'abs', '.', 16786),
-        (0x12bd, 'abs', 'BS_SLOTS', 20),
-        (0x12c3, 'abs', '.', 16785),
-        (0x12cc, 'abs', '.', 16785),
-        (0x12d3, 'abs', '.', 16790),
-        (0x12d9, 'abs', 'BS_SLOTS', 36),
+        (0x1251, 'abs', '.', 16824),
+        (0x1259, 'abs', '.', 144748),
+        (0x1263, 'abs', 'BS_SLOTJ', 0),
+        (0x1269, 'abs', '.', 16826),
+        (0x126e, 'abs', 'BS_SLOTJ', 0),
+        (0x1274, 'abs', '.', 16824),
+        (0x127b, 'abs', '.', 16825),
+        (0x1283, 'abs', '.', 144764),
+        (0x128d, 'abs', 'BS_SLOTZ', 0),
+        (0x1293, 'abs', '.', 16830),
+        (0x1298, 'abs', 'BS_SLOTZ', 0),
+        (0x129e, 'abs', '.', 16825),
+        (0x12a7, 'abs', '.', 16824),
+        (0x12b0, 'abs', '.', 16824),
+        (0x12b7, 'abs', '.', 16826),
+        (0x12bd, 'abs', 'BS_SLOTJ', 0),
+        (0x12c3, 'abs', '.', 16825),
+        (0x12cc, 'abs', '.', 16825),
+        (0x12d3, 'abs', '.', 16830),
+        (0x12d9, 'abs', 'BS_SLOTZ', 0),
         (0x12eb, 'rel', 'BS_SELINFOA', -4),
-        (0x12f6, 'abs', '.', 16794),
+        (0x12f6, 'abs', '.', 16834),
         (0x1301, 'rel', 'BS_SELINFOA', -4),
         (0x1315, 'rel', 'BS_SELINFOA', -4),
-        (0x1323, 'abs', '.', 16560),
+        (0x1323, 'abs', '.', 16600),
         (0x1338, 'rel', 'BS_TXTPOSA', -4),
         (0x1344, 'rel', 'BS_TCLEARA', -4),
         (0x1355, 'rel', 'BS_TBLOCKA', -4),
         (0x1361, 'rel', 'BS_TXTPOSA', -4),
         (0x136d, 'rel', 'BS_PRINT2A', -4),
         (0x1384, 'rel', 'BS_SELQINFOA', -4),
-        (0x138a, 'abs', '.', 16794),
+        (0x138a, 'abs', '.', 16834),
         (0x1395, 'rel', 'BS_SELQINFOA', -4),
         (0x13a9, 'rel', 'BS_SELQINFOA', -4),
-        (0x13b6, 'abs', '.', 16560),
+        (0x13b6, 'abs', '.', 16600),
         (0x13bd, 'rel', 'BS_SELQINFOA', -4),
         (0x13ca, 'abs', 'BS_QTXTY', 0),
         (0x13d5, 'rel', 'BS_TXTPOSA', -4),
@@ -15731,21 +16974,21 @@ BLOBS = {
         (0x1427, 'abs', 'BS_QTXTX', 0),
         (0x142c, 'rel', 'BS_TXTPOSA', -4),
         (0x1435, 'rel', 'BS_PRINT2A', -4),
-        (0x143e, 'abs', '.', 16794),
+        (0x143e, 'abs', '.', 16834),
         (0x1453, 'abs', 'BS_FRAMEA', 0),
         (0x1459, 'abs', 'BS_SELMODE', 0),
         (0x1463, 'abs', 'BS_PRINT2A', 0),
         (0x146f, 'abs', 'BS_PRINT1A', 0),
         (0x147c, 'rel', 'BS_TXTPOSA', -4),
-        (0x148b, 'abs', '.', 16794),
+        (0x148b, 'abs', '.', 16834),
         (0x1499, 'rel', 'BS_TXTPOSA', -4),
-        (0x14a8, 'abs', '.', 16794),
+        (0x14a8, 'abs', '.', 16834),
         (0x14b6, 'rel', 'BS_TXTPOSA', -4),
-        (0x14c5, 'abs', '.', 16794),
+        (0x14c5, 'abs', '.', 16834),
         (0x14d3, 'rel', 'BS_TXTPOSA', -4),
-        (0x14e2, 'abs', '.', 16794),
+        (0x14e2, 'abs', '.', 16834),
         (0x14f5, 'abs', 'BS_ROW', 0),
-        (0x1505, 'abs', '.', 142872),
+        (0x1505, 'abs', '.', 142920),
         (0x1540, 'abs', 'GAMEMODE', 0),
         (0x1564, 'abs', 'GAMEMODE', 0),
         (0x1591, 'abs', 'BS_TXTX', 0),
@@ -15755,37 +16998,37 @@ BLOBS = {
         (0x15d6, 'abs', 'BS_PLANE', 8),
         (0x15eb, 'abs', 'BS_PLANE', 16),
         (0x1618, 'abs', 'GAMEMODE', 0),
-        (0x1621, 'abs', '.', 14823),
-        (0x163f, 'abs', '.', 16768),
+        (0x1621, 'abs', '.', 14860),
+        (0x163f, 'abs', '.', 16808),
         (0x1647, 'abs', 'BS_FRX', 0),
-        (0x164d, 'abs', '.', 16776),
+        (0x164d, 'abs', '.', 16816),
         (0x1655, 'abs', 'BS_FRX', 8),
         (0x165b, 'abs', 'BS_PALA', 0),
         (0x1668, 'rel', 'BS_PALFIXA', -4),
         (0x1671, 'rel', 'BS_PALSETA', -4),
         (0x1679, 'rel', 'BS_PALRETA', -4),
-        (0x1689, 'abs', '.', 15228),
+        (0x1689, 'abs', '.', 15268),
         (0x1690, 'abs', 'BS_COL0', 0),
         (0x169a, 'abs', 'BS_COL1', 0),
-        (0x16a0, 'abs', '.', 15240),
-        (0x16a8, 'abs', '.', 15236),
-        (0x16b5, 'abs', '.', 15232),
+        (0x16a0, 'abs', '.', 15280),
+        (0x16a8, 'abs', '.', 15276),
+        (0x16b5, 'abs', '.', 15272),
         (0x16d2, 'abs', 'BS_MFRAMEA', 0),
-        (0x16d9, 'abs', '.', 14839),
+        (0x16d9, 'abs', '.', 14876),
         (0x16fa, 'rel', 'BS_RPARTA', -4),
         (0x1700, 'abs', 'BS_CPUA', 0),
-        (0x1705, 'abs', '.', 178804),
+        (0x1705, 'abs', '.', 178852),
         (0x1715, 'abs', 'BS_BSSA', 0),
-        (0x171a, 'abs', '.', 182412),
+        (0x171a, 'abs', '.', 182460),
         (0x171f, 'abs', 'BS_AIDW', 0),
         (0x172a, 'abs', 'BS_FXA', 0),
-        (0x172f, 'abs', '.', 277880),
+        (0x172f, 'abs', '.', 277928),
         (0x173c, 'abs', 'BS_FX2A', 0),
-        (0x1741, 'abs', '.', 278744),
-        (0x174f, 'abs', '.', 183000),
-        (0x1756, 'abs', '.', 182900),
+        (0x1741, 'abs', '.', 278792),
+        (0x174f, 'abs', '.', 183048),
+        (0x1756, 'abs', '.', 182948),
         (0x175b, 'abs', 'BS_CPUA', 0),
-        (0x176b, 'abs', '.', 184436),
+        (0x176b, 'abs', '.', 184484),
         (0x1770, 'abs', 'BS_BSSA', 0),
         (0x1775, 'abs', 'BS_AIDW', 0),
         (0x1781, 'abs', 'BS_RFLAG', 0),
@@ -15793,44 +17036,44 @@ BLOBS = {
         (0x178d, 'abs', 'BS_ZMODA', 0),
         (0x1793, 'abs', 'SEMUTE', 0),
         (0x179c, 'rel', 'BS_MPUSHA', -4),
-        (0x17a1, 'abs', '.', 14891),
+        (0x17a1, 'abs', '.', 14932),
         (0x17a7, 'abs', 'BS_CPUA', 100),
-        (0x17af, 'abs', '.', 14903),
+        (0x17af, 'abs', '.', 14944),
         (0x17ba, 'rel', 'BS_MSCALEA', -4),
         (0x17c2, 'abs', 'BS_MATA', 0),
         (0x17d2, 'abs', 'BS_MATA', 0),
-        (0x17d7, 'abs', '.', 182364),
-        (0x17e6, 'abs', '.', 16826),
+        (0x17d7, 'abs', '.', 182412),
+        (0x17e6, 'abs', '.', 16866),
         (0x17ec, 'abs', 'BS_CPUA', 0),
         (0x1813, 'abs', 'BS_ZMODA', 0),
-        (0x1828, 'abs', '.', 16826),
+        (0x1828, 'abs', '.', 16866),
         (0x182e, 'rel', 'BS_MPOPA', -4),
         (0x1834, 'abs', 'BS_ZMODA', 0),
         (0x183a, 'abs', 'SEMUTE', 0),
         (0x1840, 'abs', 'BS_RFLAG', 0),
-        (0x1845, 'abs', '.', 278744),
+        (0x1845, 'abs', '.', 278792),
         (0x184a, 'abs', 'BS_FX2A', 0),
-        (0x1857, 'abs', '.', 277880),
+        (0x1857, 'abs', '.', 277928),
         (0x185c, 'abs', 'BS_FXA', 0),
-        (0x186c, 'abs', '.', 182412),
+        (0x186c, 'abs', '.', 182460),
         (0x1871, 'abs', 'BS_BSSA', 0),
         (0x1876, 'abs', 'BS_AIDW', 0),
-        (0x1881, 'abs', '.', 178804),
+        (0x1881, 'abs', '.', 178852),
         (0x1886, 'abs', 'BS_CPUA', 0),
         (0x189e, 'rel', 'BS_RPARTA', -4),
         (0x18a4, 'abs', 'BS_OBJA', 0),
-        (0x18a9, 'abs', '.', 178804),
+        (0x18a9, 'abs', '.', 178852),
         (0x18b9, 'abs', 'BS_BSSA', 0),
-        (0x18be, 'abs', '.', 182412),
+        (0x18be, 'abs', '.', 182460),
         (0x18c3, 'abs', 'BS_AIDW', 0),
         (0x18ce, 'abs', 'BS_FXA', 0),
-        (0x18d3, 'abs', '.', 277880),
+        (0x18d3, 'abs', '.', 277928),
         (0x18e0, 'abs', 'BS_FX2A', 0),
-        (0x18e5, 'abs', '.', 278744),
-        (0x18f3, 'abs', '.', 180440),
-        (0x18fa, 'abs', '.', 180340),
+        (0x18e5, 'abs', '.', 278792),
+        (0x18f3, 'abs', '.', 180488),
+        (0x18fa, 'abs', '.', 180388),
         (0x18ff, 'abs', 'BS_OBJA', 0),
-        (0x190f, 'abs', '.', 181876),
+        (0x190f, 'abs', '.', 181924),
         (0x1914, 'abs', 'BS_BSSA', 0),
         (0x1919, 'abs', 'BS_AIDW', 0),
         (0x1925, 'abs', 'BS_RFLAG', 0),
@@ -15838,45 +17081,45 @@ BLOBS = {
         (0x1931, 'abs', 'BS_ZMODA', 0),
         (0x1937, 'abs', 'SEMUTE', 0),
         (0x1940, 'rel', 'BS_MPUSHA', -4),
-        (0x1945, 'abs', '.', 15068),
+        (0x1945, 'abs', '.', 15108),
         (0x194b, 'abs', 'BS_OBJA', 100),
-        (0x1953, 'abs', '.', 15080),
+        (0x1953, 'abs', '.', 15120),
         (0x195e, 'rel', 'BS_MSCALEA', -4),
         (0x1966, 'abs', 'BS_MATA', 0),
         (0x1976, 'abs', 'BS_MATA', 0),
-        (0x197b, 'abs', '.', 182364),
-        (0x198a, 'abs', '.', 16826),
+        (0x197b, 'abs', '.', 182412),
+        (0x198a, 'abs', '.', 16866),
         (0x1990, 'abs', 'BS_OBJA', 0),
         (0x19b7, 'abs', 'BS_ZMODA', 0),
         (0x19bc, 'rel', 'BS_ZDRAWA', -4),
-        (0x19ca, 'abs', '.', 16826),
+        (0x19ca, 'abs', '.', 16866),
         (0x19d0, 'rel', 'BS_MPOPA', -4),
         (0x19d6, 'abs', 'BS_ZMODA', 0),
         (0x19dc, 'abs', 'SEMUTE', 0),
         (0x19e2, 'abs', 'BS_RFLAG', 0),
-        (0x19e7, 'abs', '.', 278744),
+        (0x19e7, 'abs', '.', 278792),
         (0x19ec, 'abs', 'BS_FX2A', 0),
-        (0x19f9, 'abs', '.', 277880),
+        (0x19f9, 'abs', '.', 277928),
         (0x19fe, 'abs', 'BS_FXA', 0),
-        (0x1a0e, 'abs', '.', 182412),
+        (0x1a0e, 'abs', '.', 182460),
         (0x1a13, 'abs', 'BS_BSSA', 0),
         (0x1a18, 'abs', 'BS_AIDW', 0),
-        (0x1a23, 'abs', '.', 178804),
+        (0x1a23, 'abs', '.', 178852),
         (0x1a28, 'abs', 'BS_OBJA', 0),
         (0x1a40, 'rel', 'BS_RPARTA', -4),
         (0x1a46, 'abs', 'BS_OBJA', 0),
-        (0x1a4b, 'abs', '.', 178804),
+        (0x1a4b, 'abs', '.', 178852),
         (0x1a5b, 'abs', 'BS_BSSA', 0),
-        (0x1a60, 'abs', '.', 182412),
+        (0x1a60, 'abs', '.', 182460),
         (0x1a65, 'abs', 'BS_AIDW', 0),
         (0x1a70, 'abs', 'BS_FXA', 0),
-        (0x1a75, 'abs', '.', 277880),
+        (0x1a75, 'abs', '.', 277928),
         (0x1a82, 'abs', 'BS_FX2A', 0),
-        (0x1a87, 'abs', '.', 278744),
-        (0x1a95, 'abs', '.', 180440),
-        (0x1a9c, 'abs', '.', 180340),
+        (0x1a87, 'abs', '.', 278792),
+        (0x1a95, 'abs', '.', 180488),
+        (0x1a9c, 'abs', '.', 180388),
         (0x1aa1, 'abs', 'BS_OBJA', 0),
-        (0x1ab1, 'abs', '.', 181876),
+        (0x1ab1, 'abs', '.', 181924),
         (0x1ab6, 'abs', 'BS_BSSA', 0),
         (0x1abb, 'abs', 'BS_AIDW', 0),
         (0x1ac7, 'abs', 'BS_RFLAG', 0),
@@ -15884,119 +17127,119 @@ BLOBS = {
         (0x1ad3, 'abs', 'BS_ZMODA', 0),
         (0x1ad9, 'abs', 'SEMUTE', 0),
         (0x1ae2, 'rel', 'BS_MPUSHA', -4),
-        (0x1ae7, 'abs', '.', 15092),
+        (0x1ae7, 'abs', '.', 15132),
         (0x1aed, 'abs', 'BS_OBJA', 100),
-        (0x1af5, 'abs', '.', 15080),
+        (0x1af5, 'abs', '.', 15120),
         (0x1b00, 'rel', 'BS_MSCALEA', -4),
         (0x1b08, 'abs', 'BS_MATA', 0),
         (0x1b18, 'abs', 'BS_MATA', 0),
-        (0x1b1d, 'abs', '.', 182364),
-        (0x1b2c, 'abs', '.', 16826),
+        (0x1b1d, 'abs', '.', 182412),
+        (0x1b2c, 'abs', '.', 16866),
         (0x1b32, 'abs', 'BS_OBJA', 0),
         (0x1b59, 'abs', 'BS_ZMODA', 0),
         (0x1b5e, 'rel', 'BS_ZDRAWA', -4),
-        (0x1b6e, 'abs', '.', 16826),
+        (0x1b6e, 'abs', '.', 16866),
         (0x1b74, 'rel', 'BS_MPOPA', -4),
         (0x1b7a, 'abs', 'BS_ZMODA', 0),
         (0x1b80, 'abs', 'SEMUTE', 0),
         (0x1b86, 'abs', 'BS_RFLAG', 0),
-        (0x1b8b, 'abs', '.', 278744),
+        (0x1b8b, 'abs', '.', 278792),
         (0x1b90, 'abs', 'BS_FX2A', 0),
-        (0x1b9d, 'abs', '.', 277880),
+        (0x1b9d, 'abs', '.', 277928),
         (0x1ba2, 'abs', 'BS_FXA', 0),
-        (0x1bb2, 'abs', '.', 182412),
+        (0x1bb2, 'abs', '.', 182460),
         (0x1bb7, 'abs', 'BS_BSSA', 0),
         (0x1bbc, 'abs', 'BS_AIDW', 0),
-        (0x1bc7, 'abs', '.', 178804),
+        (0x1bc7, 'abs', '.', 178852),
         (0x1bcc, 'abs', 'BS_OBJA', 0),
         (0x1bef, 'rel', 'BS_MPUSHA', -4),
         (0x1bfd, 'rel', 'BS_VIEWA', -4),
         (0x1c0a, 'rel', 'BS_MPOPA', -4),
-        (0x1c17, 'abs', '.', 14839),
+        (0x1c17, 'abs', '.', 14876),
         (0x1c33, 'rel', 'BS_MPUSHA', -4),
         (0x1c41, 'rel', 'BS_VIEWA', -4),
-        (0x1c4a, 'abs', '.', 16480),
-        (0x1c61, 'abs', '.', 16480),
+        (0x1c4a, 'abs', '.', 16520),
+        (0x1c61, 'abs', '.', 16520),
         (0x1c67, 'rel', 'BS_MPOPA', -4),
-        (0x1c74, 'abs', '.', 16826),
+        (0x1c74, 'abs', '.', 16866),
         (0x1c82, 'rel', 'BS_IDENTA', -4),
-        (0x1c8a, 'abs', '.', 182364),
+        (0x1c8a, 'abs', '.', 182412),
         (0x1c90, 'abs', 'BS_MATA', 0),
-        (0x1ca2, 'abs', '.', 16826),
+        (0x1ca2, 'abs', '.', 16866),
         (0x1caa, 'abs', 'BS_LIGHTA', 0),
         (0x1caf, 'rel', 'BS_SHADEA', -4),
         (0x1cb4, 'rel', 'BS_NOSHADEA', -4),
-        (0x1cba, 'abs', '.', 16826),
+        (0x1cba, 'abs', '.', 16866),
         (0x1cc3, 'abs', 'BS_ZTIMA', 0),
         (0x1ccc, 'rel', 'BS_ZSHADEA', -4),
         (0x1cd1, 'rel', 'BS_ZNOSHADEA', -4),
         (0x1cd6, 'abs', 'BS_G1PA', 0),
         (0x1ceb, 'abs', 'BS_NAMEA', 0),
-        (0x1cf1, 'abs', '.', 14741),
-        (0x1cf7, 'abs', '.', 14755),
-        (0x1cfe, 'abs', '.', 14827),
-        (0x1d08, 'abs', '.', 14827),
+        (0x1cf1, 'abs', '.', 14778),
+        (0x1cf7, 'abs', '.', 14792),
+        (0x1cfe, 'abs', '.', 14864),
+        (0x1d08, 'abs', '.', 14864),
         (0x1d0e, 'abs', 'BS_RBMODE', 0),
-        (0x1d13, 'abs', '.', 14766),
+        (0x1d13, 'abs', '.', 14803),
         (0x1d18, 'rel', 'BS_FOPEN', -4),
-        (0x1d2b, 'abs', '.', 14823),
+        (0x1d2b, 'abs', '.', 14860),
         (0x1d30, 'rel', 'BS_FREAD', -4),
         (0x1d39, 'rel', 'BS_FCLOSE', -4),
-        (0x1d42, 'abs', '.', 14823),
-        (0x1d4b, 'abs', '.', 14823),
+        (0x1d42, 'abs', '.', 14860),
+        (0x1d4b, 'abs', '.', 14860),
         (0x1d57, 'abs', 'BS_WBMODE', 0),
-        (0x1d5c, 'abs', '.', 14766),
+        (0x1d5c, 'abs', '.', 14803),
         (0x1d61, 'rel', 'BS_FOPEN', -4),
-        (0x1d74, 'abs', '.', 14823),
+        (0x1d74, 'abs', '.', 14860),
         (0x1d79, 'rel', 'BS_FWRITE', -4),
         (0x1d82, 'rel', 'BS_FCLOSE', -4),
         (0x1d8e, 'abs', 'BS_OBJA', 264),
-        (0x1d94, 'abs', '.', 15120),
+        (0x1d94, 'abs', '.', 15160),
         (0x1d9a, 'abs', 'BS_READYA', 0),
         (0x1da7, 'abs', 'BS_STAGEA', 0),
         (0x1db0, 'abs', 'BS_ZTIMA', 0),
         (0x1dbc, 'abs', 'BS_BSSA', 0),
-        (0x1dc2, 'abs', '.', 16822),
-        (0x1dca, 'abs', '.', 148036),
+        (0x1dc2, 'abs', '.', 16862),
+        (0x1dca, 'abs', '.', 148084),
         (0x1dd0, 'abs', 'BS_AILASER', 0),
-        (0x1dd9, 'abs', '.', 15124),
+        (0x1dd9, 'abs', '.', 15164),
         (0x1dec, 'abs', 'BS_OBJA', 264),
-        (0x1df6, 'abs', '.', 15124),
-        (0x1e00, 'abs', '.', 15124),
+        (0x1df6, 'abs', '.', 15164),
+        (0x1e00, 'abs', '.', 15164),
         (0x1e09, 'abs', 'BS_OBJA', 8),
         (0x1e0f, 'abs', 'BS_CPUA', 8),
         (0x1e15, 'abs', 'BS_CPUA', 16),
         (0x1e1b, 'abs', 'BS_OBJA', 16),
-        (0x1e23, 'abs', '.', 15464),
-        (0x1e29, 'abs', '.', 15128),
-        (0x1e2e, 'abs', '.', 15128),
+        (0x1e23, 'abs', '.', 15504),
+        (0x1e29, 'abs', '.', 15168),
+        (0x1e2e, 'abs', '.', 15168),
         (0x1e35, 'abs', 'BS_OBJA', 388),
-        (0x1e58, 'abs', '.', 15124),
+        (0x1e58, 'abs', '.', 15164),
         (0x1e63, 'abs', 'BS_OBJA', 388),
-        (0x1e6a, 'abs', '.', 15124),
+        (0x1e6a, 'abs', '.', 15164),
         (0x1e75, 'abs', 'BS_STATEA', 0),
-        (0x1e81, 'abs', '.', 14831),
-        (0x1e8b, 'abs', '.', 14835),
+        (0x1e81, 'abs', '.', 14868),
+        (0x1e8b, 'abs', '.', 14872),
         (0x1e95, 'abs', 'BS_DIFF', 0),
         (0x1e9e, 'abs', 'GAMEMODE', 0),
-        (0x1ea7, 'abs', '.', 14831),
+        (0x1ea7, 'abs', '.', 14868),
         (0x1eb1, 'abs', 'BS_STATEA', 0),
         (0x1eba, 'abs', 'BS_STAGEA', 0),
-        (0x1ec3, 'abs', '.', 14835),
+        (0x1ec3, 'abs', '.', 14872),
         (0x1ecc, 'abs', 'BS_STATEA', 0),
         (0x1ed8, 'abs', 'BS_SCENEA', 0),
         (0x1efe, 'abs', 'BS_READYA', 0),
-        (0x1f07, 'abs', '.', 14923),
-        (0x1f10, 'abs', '.', 14923),
+        (0x1f07, 'abs', '.', 14964),
+        (0x1f10, 'abs', '.', 14964),
         (0x1f18, 'abs', 'BS_CPUA', 100),
         (0x1f28, 'abs', 'BS_READYA', 0),
-        (0x1f31, 'abs', '.', 14923),
+        (0x1f31, 'abs', '.', 14964),
         (0x1f37, 'abs', 'BS_CPUA', 0),
-        (0x1f3c, 'abs', '.', 182900),
+        (0x1f3c, 'abs', '.', 182948),
         (0x1f4c, 'abs', 'BS_BSSA', 0),
-        (0x1f51, 'abs', '.', 184436),
+        (0x1f51, 'abs', '.', 184484),
         (0x1f56, 'abs', 'BS_AIDW', 0),
-        (0x1f62, 'abs', '.', 15228),
+        (0x1f62, 'abs', '.', 15268),
         (0x1f70, 'abs', 'BS_OBJA', 388),
         (0x1f76, 'abs', 'BS_ECBLKA', 26),
         (0x1f7f, 'abs', 'BS_LOGOJ', 0),
@@ -16004,709 +17247,710 @@ BLOBS = {
         (0x1fb1, 'abs', 'BS_ARTPOOL2', 0),
         (0x1fc2, 'abs', 'BS_ARTPOOL', 0),
         (0x1fc8, 'abs', 'BS_ARTEND', -128),
-        (0x1fef, 'abs', '.', 184924),
-        (0x2005, 'abs', '.', 14855),
-        (0x2010, 'abs', '.', 14855),
-        (0x201d, 'abs', '.', 14859),
-        (0x2025, 'abs', '.', 203612),
-        (0x202a, 'abs', 'BS_ARTPOOL', 0),
-        (0x2039, 'abs', 'BS_ARTPOOL', 0),
-        (0x2054, 'abs', '.', 184924),
-        (0x2061, 'abs', '.', 14863),
-        (0x2067, 'abs', 'BS_ARTCOUNT', 0),
-        (0x206d, 'abs', '.', 14867),
-        (0x2076, 'abs', 'BS_ARTCOUNT', 0),
-        (0x207c, 'abs', '.', 14859),
-        (0x2083, 'abs', '.', 14863),
-        (0x2090, 'abs', '.', 14839),
-        (0x20a2, 'abs', '.', 277724),
-        (0x20ca, 'abs', '.', 14859),
-        (0x20d3, 'abs', '.', 14867),
-        (0x20d8, 'abs', 'BS_ARTCOUNT', 0),
-        (0x20de, 'abs', '.', 14859),
-        (0x20e7, 'abs', '.', 16834),
-        (0x20f1, 'abs', 'BS_PALRAMA', 0),
-        (0x20f6, 'abs', '.', 228572),
-        (0x2103, 'abs', '.', 16834),
-        (0x210c, 'abs', '.', 16834),
-        (0x2116, 'abs', '.', 228572),
-        (0x211b, 'abs', 'BS_PALRAMA', 0),
-        (0x2128, 'abs', '.', 16834),
-        (0x2133, 'abs', '.', 16842),
-        (0x2140, 'rel', 'BS_MALLOC', -4),
-        (0x2148, 'abs', '.', 16842),
-        (0x2152, 'abs', '.', 16842),
-        (0x2157, 'abs', 'BS_FCBUF', 0),
-        (0x2163, 'abs', 'BS_FLDBUF', 0),
-        (0x216f, 'abs', 'BS_MTSELMEM', 0),
-        (0x217b, 'abs', 'BS_SEGA', 0),
-        (0x2180, 'abs', '.', 16862),
-        (0x2185, 'abs', 'BS_GLOW1', 0),
-        (0x218a, 'abs', '.', 16850),
-        (0x218f, 'abs', 'BS_GLOW2', 0),
-        (0x2194, 'abs', '.', 16854),
-        (0x2199, 'abs', 'BS_GLOW3', 0),
-        (0x219e, 'abs', '.', 16858),
-        (0x21a4, 'abs', '.', 16846),
-        (0x21ad, 'abs', '.', 16846),
-        (0x21b8, 'abs', '.', 16842),
-        (0x21bd, 'abs', 'BS_FCBUF', 0),
-        (0x21c9, 'abs', 'BS_FLDBUF', 0),
-        (0x21d5, 'abs', 'BS_MTSELMEM', 0),
-        (0x21e1, 'abs', '.', 16862),
-        (0x21e6, 'abs', 'BS_SEGA', 0),
-        (0x21eb, 'abs', '.', 16850),
-        (0x21f0, 'abs', 'BS_GLOW1', 0),
-        (0x21f5, 'abs', '.', 16854),
-        (0x21fa, 'abs', 'BS_GLOW2', 0),
-        (0x21ff, 'abs', '.', 16858),
-        (0x2204, 'abs', 'BS_GLOW3', 0),
-        (0x2209, 'abs', '.', 16838),
-        (0x220e, 'abs', 'BS_SCNNOW', 0),
-        (0x2214, 'abs', '.', 16846),
-        (0x2228, 'abs', '.', 16870),
-        (0x222e, 'rel', 'BS_LOADTEX', -4),
-        (0x2246, 'abs', '.', 14823),
-        (0x224d, 'abs', '.', 8754),
-        (0x225b, 'abs', '.', 14823),
-        (0x2262, 'abs', '.', 8758),
-        (0x2269, 'abs', 'GAMEMODE', 0),
-        (0x2272, 'abs', 'BS_DIFF', 0),
-        (0x227b, 'abs', '.', 14831),
-        (0x2283, 'abs', 'BS_LOSSA', 0),
-        (0x2289, 'abs', '.', 14831),
-        (0x2294, 'abs', 'BS_STATEA', 0),
-        (0x22b3, 'abs', 'BS_CPUA', 100),
-        (0x22bc, 'abs', '.', 14823),
-        (0x22c3, 'abs', '.', 8762),
-        (0x22c8, 'abs', '.', 14823),
-        (0x22d4, 'abs', '.', 14839),
-        (0x22de, 'abs', '.', 14843),
-        (0x22e9, 'abs', '.', 14835),
-        (0x22f2, 'abs', '.', 14835),
-        (0x230e, 'abs', '.', 14823),
-        (0x2315, 'abs', '.', 8766),
-        (0x231a, 'abs', '.', 14823),
-        (0x2324, 'abs', 'BS_SCNNOW', 0),
-        (0x2329, 'abs', '.', 16838),
-        (0x232e, 'abs', '.', 16870),
-        (0x2333, 'abs', '.', 16866),
-        (0x233e, 'abs', '.', 14839),
-        (0x2348, 'abs', '.', 14843),
-        (0x2352, 'abs', 'BS_STATEA', 0),
-        (0x235d, 'abs', 'BS_STATEA', 0),
-        (0x2368, 'abs', '.', 14839),
-        (0x2370, 'rel', 'BS_REPTEXTA', -4),
-        (0x2377, 'abs', '.', 14839),
-        (0x237f, 'rel', 'BS_REPLOGICA', -4),
-        (0x2386, 'abs', '.', 14843),
-        (0x2397, 'rel', 'BS_SFX', -4),
-        (0x23a0, 'abs', '.', 14847),
-        (0x23aa, 'abs', '.', 14851),
-        (0x23b6, 'abs', '.', 14839),
-        (0x23c3, 'rel', 'BS_PALLOADA', -4),
-        (0x23d1, 'rel', 'BS_PALLOADA', -4),
-        (0x23df, 'rel', 'BS_PALLOADA', -4),
-        (0x23ed, 'rel', 'BS_PALLOADA', -4),
-        (0x23f5, 'abs', '.', 14839),
-        (0x23fc, 'abs', '.', 15232),
-        (0x2406, 'rel', 'BS_PALLOADA', -4),
-        (0x2415, 'rel', 'BS_PALLOADA', -4),
-        (0x241f, 'rel', 'BS_TCLRALL', -4),
-        (0x2427, 'rel', 'BS_TRESET', -4),
-        (0x242d, 'abs', '.', 14843),
-        (0x2437, 'rel', 'BS_TCLRALL', -4),
-        (0x243f, 'rel', 'BS_TRESET', -4),
-        (0x2445, 'abs', '.', 14875),
-        (0x244b, 'abs', '.', 14871),
-        (0x2450, 'rel', 'BS_TXTPOSA', -4),
-        (0x2458, 'abs', '.', 14777),
-        (0x245d, 'rel', 'BS_PRINTBIG', -4),
-        (0x2466, 'abs', '.', 14843),
-        (0x2476, 'abs', '.', 14839),
-        (0x247f, 'abs', '.', 14887),
-        (0x2486, 'abs', '.', 14879),
-        (0x248b, 'rel', 'BS_TXTPOSA', -4),
-        (0x2497, 'abs', '.', 16560),
-        (0x24a2, 'abs', '.', 277724),
-        (0x24a7, 'rel', 'BS_TBLOCKA', -4),
-        (0x24b0, 'abs', '.', 14851),
-        (0x24b9, 'abs', '.', 14843),
-        (0x24bf, 'abs', '.', 14815),
-        (0x24c5, 'abs', '.', 14819),
-        (0x24d7, 'abs', 'BS_G1PA', 0),
-        (0x24dc, 'abs', '.', 14839),
-        (0x24e1, 'abs', 'BS_G1PA', 0),
-        (0x24ea, 'rel', 'BS_REPMODELA', -4),
-        (0x24f3, 'abs', 'BS_G1PA', 0),
-        (0x24fb, 'abs', '.', 14843),
-        (0x2515, 'abs', '.', 14919),
-        (0x251b, 'abs', '.', 14915),
-        (0x2520, 'rel', 'BS_TXTPOSA', -4),
-        (0x2530, 'abs', '.', 14790),
-        (0x2535, 'rel', 'BS_PRINTBIG', -4),
-        (0x2543, 'rel', 'BS_TCLEARA', -4),
-        (0x254b, 'abs', 'BS_PADEDGE', 0),
-        (0x2556, 'abs', 'ACCEPT1', 0),
-        (0x255c, 'abs', 'CAMERA1', 0),
-        (0x256a, 'abs', '.', 14851),
-        (0x2573, 'abs', '.', 14847),
-        (0x2578, 'abs', '.', 14847),
-        (0x2584, 'abs', '.', 14851),
-        (0x258c, 'rel', 'BS_SFX', -4),
-        (0x259b, 'abs', '.', 14843),
-        (0x25a4, 'rel', 'BS_TCLRALL', -4),
-        (0x25ac, 'rel', 'BS_TRESET', -4),
-        (0x25bd, 'rel', 'BS_FADE', -4),
-        (0x25c6, 'abs', 'BS_REPCNT', 0),
-        (0x25d5, 'rel', 'BS_SCNEND', -4),
-        (0x25de, 'abs', '.', 14843),
-        (0x25e7, 'abs', '.', 14839),
-        (0x25ed, 'abs', '.', 14839),
-        (0x25f7, 'abs', 'BS_STATEA', 0),
-        (0x260d, 'abs', '.', 16866),
-        (0x2612, 'rel', 'BS_LOADTEX', -4),
-        (0x261c, 'abs', 'BS_SCENEA', 0),
-        (0x2624, 'abs', 'BS_EVA', 0),
-        (0x262e, 'abs', 'BS_STATEA', 0),
-        (0x2639, 'abs', 'BS_IDA', 0),
-        (0x2642, 'rel', 'BS_LDXA', -4),
-        (0x2647, 'rel', 'BS_LDA', -4),
-        (0x264d, 'abs', 'BS_IDA', 0),
-        (0x2654, 'rel', 'BS_DRSA', -4),
-        (0x265a, 'abs8', 'DR_FLAG', 0),
-        (0x265e, 'rel', 'BS_DRJA', -4),
-        (0x2663, 'rel', 'BS_DRFA', -4),
-        (0x2668, 'abs', 'BS_IDA', 0),
-        (0x2671, 'rel', 'BS_LDXA', -4),
-        (0x2676, 'rel', 'BS_C2A', -4),
-        (0x267b, 'abs', 'BS_IDA', 0),
-        (0x2689, 'abs', 'BS_MDLA', 0),
-        (0x268d, 'abs', 'BS_JAGA', 0),
-        (0x2695, 'abs', 'BS_MDLA', 0),
-        (0x2699, 'abs', 'BS_ZGA', 0),
-        (0x26a1, 'abs', 'BS_PHASEA', 0),
-        (0x26a8, 'rel', 'BS_END1A', -4),
-        (0x26ad, 'rel', 'BS_ENDA', -4),
-        (0x26b2, 'abs', 'BS_G1PA', 0),
-        (0x26bc, 'abs', '.', 15052),
-        (0x26c2, 'abs', 'BS_PHASEA', 0),
-        (0x26cb, 'abs', 'BS_G1PA', 0),
-        (0x26d4, 'rel', 'BS_ENDA', -4),
-        (0x26d9, 'abs', '.', 15052),
-        (0x26e2, 'abs', 'BS_G1PA', 0),
-        (0x26e8, 'abs', 'BS_PHASEA', 0),
-        (0x26ef, 'rel', 'BS_END1A', -4),
-        (0x26f5, 'rel', 'BS_ENDEA', -4),
-        (0x26fa, 'rel', 'BS_ENDEA', -4),
-        (0x2700, 'abs', 'BS_IDA', 0),
-        (0x2708, 'rel', 'BS_PH0A', -4),
-        (0x270e, 'abs', 'BS_ESTEPA', 0),
-        (0x271a, 'abs', 'BS_ESTEPA', 0),
-        (0x2720, 'abs', 'BS_TIMEA', 0),
-        (0x272a, 'abs', 'BS_ESTEPA', 0),
-        (0x2736, 'abs', 'BS_ESTEPA', 0),
-        (0x273c, 'abs', 'BS_BSSA', 0),
-        (0x2742, 'abs', '.', 16822),
-        (0x274a, 'abs', '.', 148036),
-        (0x274f, 'abs', 'BS_AILASER', 0),
-        (0x2755, 'abs', 'BS_TIMEA', 0),
-        (0x2762, 'abs', 'BS_TIMEA', 0),
-        (0x276f, 'abs', 'BS_G1PA', 0),
-        (0x2781, 'abs', 'BS_TIMEA', 0),
-        (0x278e, 'abs', 'BS_OBJA', 376),
-        (0x2798, 'abs', 'BS_OBJA', 376),
-        (0x27a0, 'abs', 'BS_TIMEA', 0),
-        (0x27ac, 'abs', '.', 15028),
-        (0x27b5, 'abs', '.', 15028),
-        (0x27bc, 'abs', '.', 15040),
-        (0x27c0, 'abs', 'BS_SPDA', 0),
-        (0x27c6, 'abs', 'BS_SPDA', 0),
-        (0x27cc, 'abs', '.', 15036),
-        (0x27d2, 'abs', 'BS_SPDA', 0),
-        (0x27d8, 'abs', '.', 15044),
-        (0x27de, 'abs', 'BS_SPDA', 0),
-        (0x27e4, 'abs', '.', 15048),
-        (0x27ea, 'abs', '.', 15048),
-        (0x27f3, 'abs', '.', 15048),
-        (0x27ff, 'abs', 'BS_OBJA', 512),
-        (0x2828, 'abs', 'BS_TIMEA', 0),
-        (0x2836, 'rel', 'BS_PH0A', -4),
-        (0x2841, 'abs', '.', 15056),
-        (0x2848, 'abs', '.', 14964),
-        (0x2852, 'abs', '.', 15008),
-        (0x285d, 'abs', 'BS_OBJA', 12),
-        (0x2863, 'abs', 'BS_OBJA', 16),
-        (0x2869, 'abs', 'BS_OBJA', 12),
-        (0x286f, 'abs', '.', 14972),
-        (0x2875, 'abs', 'BS_OBJA', 12),
-        (0x287b, 'abs', 'BS_OBJA', 16),
-        (0x2881, 'abs', '.', 14976),
-        (0x2887, 'abs', 'BS_OBJA', 16),
-        (0x288c, 'rel', 'BS_PH0A', -4),
-        (0x2892, 'abs', 'BS_OBJA', 16),
-        (0x2898, 'abs', 'BS_OBJA', 12),
-        (0x289f, 'abs', '.', 15008),
-        (0x28a8, 'abs', 'BS_EVA', 0),
-        (0x28b4, 'abs', '.', 15008),
-        (0x28ba, 'abs', '.', 15008),
-        (0x28c4, 'abs', 'BS_EVA', 0),
-        (0x28cb, 'abs', '.', 16814),
-        (0x28d2, 'abs', '.', 15056),
-        (0x28db, 'abs', '.', 14964),
-        (0x28e4, 'abs', '.', 14964),
-        (0x28ef, 'abs', 'BS_OBJA', 368),
-        (0x28f8, 'abs', 'BS_OBJA', 380),
-        (0x2901, 'abs', 'BS_OBJA', 376),
-        (0x291b, 'abs', '.', 15056),
-        (0x2922, 'abs', '.', 14964),
-        (0x2932, 'abs', '.', 14964),
-        (0x2939, 'abs', 'BS_OBJA', 176),
-        (0x293e, 'abs', '.', 16912),
-        (0x294c, 'abs', 'BS_OBJA', 376),
-        (0x2952, 'abs', '.', 16992),
-        (0x2958, 'abs', 'BS_OBJA', 420),
-        (0x295e, 'abs', '.', 16994),
-        (0x2965, 'abs', 'BS_OBJA', 376),
-        (0x296c, 'rel', 'BS_PH0A', -4),
-        (0x2972, 'abs', '.', 16992),
-        (0x2978, 'abs', 'BS_OBJA', 376),
-        (0x297e, 'abs', '.', 16994),
-        (0x2984, 'abs', 'BS_OBJA', 420),
-        (0x2989, 'abs', '.', 16912),
-        (0x298e, 'abs', 'BS_OBJA', 176),
-        (0x299d, 'abs', '.', 14964),
-        (0x29a9, 'abs', '.', 15056),
-        (0x29b0, 'abs', '.', 14964),
-        (0x29ba, 'abs', 'BS_ESTEPA', 0),
-        (0x29c0, 'abs', 'BS_TIMEA', 0),
-        (0x29cc, 'abs', 'BS_TIMEA', 0),
-        (0x29d5, 'rel', 'BS_PH0A', -4),
-        (0x29db, 'abs', 'BS_TIMEA', 0),
-        (0x29e6, 'abs', '.', 14968),
-        (0x29f2, 'abs', '.', 15056),
-        (0x29f9, 'abs', '.', 14964),
-        (0x2a03, 'abs', '.', 15008),
-        (0x2a0d, 'rel', 'BS_PH0A', -4),
-        (0x2a13, 'abs', '.', 15028),
-        (0x2a1a, 'rel', 'BS_WALLA', -4),
-        (0x2a20, 'abs', '.', 15032),
-        (0x2a27, 'abs', '.', 15028),
-        (0x2a30, 'abs', '.', 15028),
-        (0x2a38, 'abs', '.', 15040),
-        (0x2a3e, 'abs', '.', 15036),
-        (0x2a49, 'abs', 'BS_IDA', 0),
-        (0x2a54, 'abs', 'BS_SCANBASE', 0),
-        (0x2a59, 'rel', 'BS_SCANA', -4),
-        (0x2a5e, 'abs', 'BS_TIMEA', 0),
-        (0x2a66, 'abs', '.', 15024),
-        (0x2a6c, 'abs', '.', 15024),
-        (0x2a72, 'abs', '.', 15012),
-        (0x2a78, 'abs', 'BS_OBJA', 16),
-        (0x2a7e, 'abs', '.', 15020),
-        (0x2a84, 'abs', '.', 16904),
-        (0x2a8a, 'abs', 'BS_OBJA', 12),
-        (0x2a90, 'abs', '.', 15016),
-        (0x2a96, 'abs', '.', 16900),
-        (0x2a9b, 'abs', 'BS_OBJA', 8),
-        (0x2aa0, 'abs', '.', 16896),
-        (0x2aa6, 'abs8', 'SCAN_SLOT', 0),
-        (0x2aa7, 'abs', '.', 16880),
-        (0x2aac, 'rel', 'BS_FOUNDA', -4),
-        (0x2ab2, 'abs', 'BS_IDA', 0),
-        (0x2aba, 'rel', 'BS_VIEWA', -4),
-        (0x2ac0, 'abs', '.', 14948),
-        (0x2ac6, 'abs', 'BS_IDA', 0),
-        (0x2acf, 'abs', 'BS_TIMEA', 0),
-        (0x2adb, 'abs', 'BS_TIMEA', 0),
-        (0x2ae3, 'abs', '.', 14952),
-        (0x2aea, 'abs', '.', 14956),
-        (0x2af2, 'abs', 'BS_ESTEPA', 0),
-        (0x2b02, 'abs', 'BS_ECBLKA', 36),
-        (0x2b0e, 'abs', 'BS_ECBLKA', 40),
-        (0x2b1c, 'abs', 'BS_ECBLKA', 44),
-        (0x2b28, 'abs', '.', 14960),
-        (0x2b3c, 'abs', 'BS_ECBLKA', 36),
-        (0x2b44, 'abs', 'BS_ECBLKA', 36),
-        (0x2b52, 'abs', 'BS_ECBLKA', 40),
-        (0x2b5a, 'abs', 'BS_ECBLKA', 40),
-        (0x2b68, 'abs', 'BS_ECBLKA', 44),
-        (0x2b70, 'abs', 'BS_ECBLKA', 44),
-        (0x2b81, 'abs', 'BS_ESTEPA', 0),
-        (0x2b92, 'abs', '.', 15064),
-        (0x2b98, 'abs', '.', 15064),
-        (0x2b9e, 'abs', '.', 15060),
-        (0x2ba4, 'abs', 'BS_ECBLKA', 44),
-        (0x2bb0, 'abs', 'BS_ECBLKA', 36),
-        (0x2bce, 'rel', 'BS_VIEWA', -4),
-        (0x2bd4, 'abs', '.', 15228),
-        (0x2be1, 'rel', 'BS_VIEWA', -4),
-        (0x2be8, 'abs', 'BS_YAW4', 0),
-        (0x2bee, 'rel', 'BS_SINA', -4),
-        (0x2bf7, 'abs', '.', 14928),
-        (0x2c06, 'abs', 'BS_YAW4', 0),
-        (0x2c0c, 'rel', 'BS_COSA', -4),
-        (0x2c15, 'abs', '.', 14928),
-        (0x2c22, 'rel', 'BS_VIEWA', -4),
-        (0x2c28, 'abs', '.', 15228),
-        (0x2c31, 'abs8', 'CAM_PTR', 0),
-        (0x2c37, 'abs', '.', 14940),
-        (0x2c43, 'abs', '.', 14940),
-        (0x2c61, 'abs8', 'CAM_PTR', 0),
-        (0x2c67, 'rel', 'BS_LIVEA', -4),
-        (0x2c6d, 'abs8', 'CAM_PTR', 0),
-        (0x2c73, 'abs', '.', 15228),
-        (0x2c7c, 'abs', '.', 14936),
-        (0x2c84, 'abs', '.', 15228),
-        (0x2c8d, 'abs', '.', 14932),
-        (0x2c93, 'abs', '.', 14944),
-        (0x2ca2, 'abs', '.', 14944),
-        (0x2cab, 'abs', '.', 15228),
-        (0x2cb4, 'abs', 'BS_STAGEA', 0),
-        (0x2cbf, 'abs', 'BS_OBJA', 0),
-        (0x2ccc, 'rel', 'BS_INITA', -4),
-        (0x2cd3, 'abs', '.', 15228),
-        (0x2cdc, 'abs', 'BS_STAGEA', 0),
-        (0x2ce7, 'abs', 'BS_OBJA', 0),
-        (0x2cf7, 'rel', 'BS_FLYA', -4),
-        (0x2d09, 'abs', 'BS_READYA', 0),
-        (0x2d40, 'abs', 'BS_ZMODA', 0),
-        (0x2d45, 'rel', 'BS_FLYEA', -4),
-        (0x2d4d, 'abs', 'BS_ZMODA', 0),
-        (0x2d52, 'rel', 'BS_FLYPA', -4),
-        (0x2d58, 'abs', 'BS_ZTIMA', 0),
-        (0x2d62, 'abs', '.', 15124),
-        (0x2d6c, 'abs', '.', 15228),
-        (0x2d79, 'abs', 'BS_OBJA', 0),
-        (0x2d81, 'abs', 'BS_ARENA', 0),
-        (0x2d8d, 'abs', '.', 15132),
-        (0x2d93, 'abs', 'BS_ZTIMA', 0),
-        (0x2db5, 'abs', 'BS_RCOUNTA', 0),
-        (0x2dbe, 'abs', '.', 15228),
-        (0x2dc7, 'abs', 'BS_STAGEA', 0),
-        (0x2dd0, 'abs', 'BS_ZTIMA', 0),
-        (0x2dd9, 'abs', '.', 15116),
-        (0x2de5, 'abs', '.', 15116),
-        (0x2deb, 'abs', 'BS_RCOUNTA', 0),
-        (0x2df9, 'abs', '.', 15116),
-        (0x2e03, 'abs', 'BS_RCOUNTA', 0),
-        (0x2e0f, 'abs', 'BS_OBJA', 0),
-        (0x2e17, 'abs', '.', 15228),
-        (0x2e3c, 'abs', 'BS_OBJA', 0),
-        (0x2e42, 'rel', 'BS_ZBOXA', -4),
-        (0x2e48, 'abs', 'BS_STAGEA', 0),
-        (0x2e4f, 'rel', 'BS_ZBOXA', -4),
-        (0x2e66, 'rel', 'BS_FLOORA', -4),
-        (0x2e72, 'abs', '.', 15172),
-        (0x2e90, 'rel', 'BS_FLOORA', -4),
-        (0x2e9c, 'abs', '.', 15172),
-        (0x2eaf, 'abs', '.', 15176),
-        (0x2f14, 'abs', '.', 15228),
-        (0x2f1e, 'abs', 'BS_OBJA', 0),
-        (0x2f26, 'abs', 'BS_ZTIMA', 0),
-        (0x2f2d, 'rel', 'BS_TM2S', -4),
-        (0x2f32, 'rel', 'BS_TM2', -4),
-        (0x2f38, 'abs', 'BS_READYA', 0),
-        (0x2f3f, 'rel', 'BS_TM2', -4),
-        (0x2f44, 'rel', 'BS_TM2S', -4),
-        (0x2f4a, 'abs', '.', 15228),
-        (0x2f54, 'abs', 'BS_OBJA', 0),
-        (0x2f5c, 'abs', 'BS_ZTIMA', 0),
-        (0x2f63, 'rel', 'BS_TM4S', -4),
-        (0x2f68, 'rel', 'BS_TM4', -4),
-        (0x2f6e, 'abs', 'BS_READYA', 0),
-        (0x2f75, 'rel', 'BS_TM4', -4),
-        (0x2f7a, 'rel', 'BS_TM4S', -4),
-        (0x2f80, 'abs', '.', 15228),
-        (0x2f89, 'abs', 'BS_STAGEA', 0),
-        (0x2f91, 'abs', 'BS_OBJA', 0),
-        (0x2f97, 'rel', 'BS_CLIP0A', -4),
-        (0x2fa1, 'rel', 'BS_CLIP3A', -4),
-        (0x2fad, 'rel', 'BS_CLIP3A', -4),
-        (0x2fb2, 'rel', 'BS_CLIP0A', -4),
-        (0x2fbb, 'abs', 'BS_CLONEFRAME', 0),
-        (0x2fc4, 'abs', '.', 15228),
-        (0x2fcb, 'rel', 'BS_CLONEA', -4),
-        (0x2fd1, 'abs', 'BS_STAGEA', 0),
-        (0x2fd8, 'rel', 'BS_CLONEA', -4),
-        (0x2fe0, 'abs', 'BS_OBJA', 0),
-        (0x2fe7, 'rel', 'BS_CLONEA', -4),
-        (0x2ff2, 'rel', 'BS_CLONEA', -4),
-        (0x2ff8, 'abs', '.', 145988),
-        (0x2ffe, 'rel', 'BS_CLONEA', -4),
-        (0x3004, 'abs', 'BS_ZGA', 0),
-        (0x300a, 'rel', 'BS_CLONEA', -4),
-        (0x3010, 'abs', '.', 16818),
-        (0x301a, 'abs', '.', 145988),
-        (0x3028, 'abs', '.', 16818),
-        (0x303b, 'abs', '.', 145988),
-        (0x3041, 'abs', '.', 145988),
-        (0x3049, 'rel', 'BS_CLONEA', -4),
-        (0x304f, 'abs', '.', 15228),
-        (0x3058, 'abs', 'BS_STAGEA', 0),
-        (0x3063, 'abs', 'BS_OBJA', 0),
-        (0x3073, 'rel', 'BS_TICKA', -4),
-        (0x3079, 'abs', '.', 16822),
-        (0x3084, 'abs', 'BS_BSSA', 0),
-        (0x3089, 'abs', '.', 148036),
-        (0x308e, 'abs', 'BS_AIDW', 0),
-        (0x3099, 'abs', '.', 148036),
-        (0x309f, 'abs', 'BS_AI1C', 0),
-        (0x30a9, 'abs', 'BS_AITIMER', 0),
-        (0x30b3, 'abs', 'BS_AILASER', 0),
-        (0x30bd, 'abs', '.', 16822),
-        (0x30cf, 'abs', 'BS_ZTAB0', 0),
-        (0x30d6, 'abs', 'BS_ZTAB1', 0),
-        (0x30dc, 'abs', 'BS_AITAB', 0),
-        (0x30e5, 'abs', 'BS_AITAB2', 0),
-        (0x30f0, 'abs', 'BS_AITAB3', 0),
-        (0x30f9, 'abs', 'BS_AITAB4', 0),
-        (0x3102, 'abs', 'BS_BSSA', 0),
-        (0x3107, 'abs', '.', 148524),
-        (0x310c, 'abs', 'BS_AIDW', 0),
-        (0x311a, 'abs', '.', 148036),
-        (0x311f, 'abs', 'BS_BSSA', 0),
-        (0x3124, 'abs', 'BS_AIDW', 0),
-        (0x313e, 'abs', 'BS_BSSA', 0),
-        (0x3143, 'abs', '.', 148036),
-        (0x3148, 'abs', 'BS_AIDW', 0),
-        (0x3156, 'abs', '.', 148524),
-        (0x315b, 'abs', 'BS_BSSA', 0),
-        (0x3160, 'abs', 'BS_AIDW', 0),
-        (0x316d, 'abs', '.', 16822),
-        (0x317a, 'rel', 'BS_ZINITA', -4),
-        (0x3186, 'abs', 'BS_OBJA', 0),
-        (0x31a6, 'abs', '.', 14968),
-        (0x31b8, 'abs', '.', 14984),
-        (0x31be, 'abs', '.', 14984),
-        (0x31c6, 'abs', '.', 14988),
-        (0x31cc, 'abs', '.', 14992),
-        (0x31d2, 'abs', '.', 14972),
-        (0x31d8, 'abs', '.', 14976),
-        (0x31f3, 'abs', '.', 14980),
-        (0x31f9, 'abs', '.', 14992),
-        (0x31fe, 'abs', '.', 14972),
-        (0x320c, 'abs', '.', 14984),
-        (0x3212, 'abs', '.', 14984),
-        (0x3218, 'abs', '.', 14996),
-        (0x3220, 'abs', '.', 14976),
-        (0x3230, 'abs', '.', 14980),
-        (0x323a, 'abs', '.', 14984),
-        (0x3240, 'abs', '.', 14984),
-        (0x3246, 'abs', '.', 15000),
-        (0x324c, 'abs', '.', 15004),
-        (0x3254, 'abs', '.', 14976),
-        (0x325b, 'abs', '.', 14980),
-        (0x3268, 'abs', '.', 15056),
-        (0x3270, 'abs', 'BS_OBJA', 0),
-        (0x3278, 'abs', '.', 14968),
-        (0x3280, 'abs', 'BS_OBJA', 0),
-        (0x3287, 'rel', 'BS_ZDRAWA', -4),
-        (0x3292, 'rel', 'BS_ZDRAWA', -4),
-        (0x32a7, 'abs', '.', 14972),
-        (0x32b3, 'abs', '.', 14976),
-        (0x32bd, 'abs', '.', 14980),
-        (0x32ca, 'rel', 'BS_ZDRAWA', -4),
-        (0x32e6, 'abs', '.', 16912),
-        (0x3303, 'abs', '.', 16992),
-        (0x3318, 'abs', '.', 16994),
-        (0x3337, 'abs', 'BS_OBJA', 0),
-        (0x333e, 'rel', 'BS_MDRAWA', -4),
-        (0x3353, 'rel', 'BS_MDRAWA', -4),
-        (0x3360, 'abs', 'BS_ZEVA', 0),
-        (0x3365, 'abs', 'BS_EVA', 0),
-        (0x336b, 'abs', '.', 16814),
-        (0x3373, 'abs', 'BS_OBJA', 0),
-        (0x337c, 'abs', '.', 16814),
-        (0x3384, 'abs', '.', 16814),
-        (0x338d, 'abs', '.', 15240),
-        (0x3391, 'abs', 'BS_COL1', 0),
-        (0x3397, 'rel', 'BS_ZGA5', -4),
-        (0x339c, 'rel', 'BS_ZGA1', -4),
-        (0x33a2, 'abs8', 'PAL_CPU', 0),
-        (0x33a6, 'rel', 'BS_ZGA1', -4),
-        (0x33ab, 'rel', 'BS_ZGA5', -4),
-        (0x33b1, 'abs', '.', 16814),
-        (0x33ba, 'abs', '.', 15228),
-        (0x33d1, 'abs', '.', 15240),
-        (0x33d5, 'abs', 'BS_COL1', 0),
-        (0x33e6, 'rel', 'BS_PALLOADA', -4),
-        (0x33f4, 'rel', 'BS_PALLOADA', -4),
-        (0x33fc, 'rel', 'BS_ZRAX', -4),
-        (0x3402, 'abs8', 'PAL_CPU', 0),
-        (0x3406, 'rel', 'BS_ZRA1', -4),
-        (0x340b, 'rel', 'BS_ZRA5', -4),
-        (0x3411, 'abs', '.', 16814),
-        (0x3418, 'rel', 'BS_ZRAX', -4),
-        (0x341e, 'abs8', 'PAL_CPU', 0),
-        (0x3422, 'rel', 'BS_ZDA1', -4),
-        (0x3427, 'rel', 'BS_ZDA5', -4),
-        (0x342d, 'abs', '.', 16814),
-        (0x3434, 'rel', 'BS_ZRAX', -4),
-        (0x343a, 'abs8', 'PAL_CPU', 0),
-        (0x343e, 'rel', 'BS_ZFA1', -4),
-        (0x3443, 'rel', 'BS_ZFA5', -4),
-        (0x345a, 'abs', '.', 149012),
-        (0x3461, 'abs', 'BS_OBJA', 0),
-        (0x346a, 'abs', 'BS_BSSA', 0),
-        (0x346f, 'abs', 'BS_AIDW', 0),
-        (0x347c, 'abs', '.', 148036),
-        (0x348e, 'abs', '.', 16822),
-        (0x3499, 'abs', '.', 15124),
-        (0x34a4, 'abs', '.', 15120),
-        (0x34ad, 'abs', 'BS_BSSA', 0),
-        (0x34b2, 'abs', 'BS_AIDW', 0),
-        (0x34bf, 'abs', '.', 148036),
-        (0x34cb, 'abs', '.', 16822),
-        (0x34d6, 'abs', '.', 15124),
-        (0x34e1, 'abs', '.', 15120),
-        (0x34f3, 'abs', 'BS_SLOTS', 20),
-        (0x34f9, 'abs', 'BS_RBNAMES', 44),
-        (0x3517, 'abs', 'BS_KEYA', 0),
-        (0x3528, 'abs', '.', 15228),
-        (0x3536, 'abs', 'BS_OBJA', 0),
-        (0x3547, 'abs', '.', 14197),
-        (0x354d, 'abs', '.', 178780),
-        (0x3557, 'rel', 'BS_MPUSHA', -4),
-        (0x355c, 'rel', 'BS_MIDENTA', -4),
-        (0x3570, 'rel', 'BS_VIEWA', -4),
-        (0x357e, 'abs', '.', 178788),
-        (0x3596, 'rel', 'BS_MSCALEA', -4),
-        (0x35a4, 'abs', '.', 178796),
-        (0x35aa, 'abs', '.', 178780),
-        (0x35af, 'rel', 'BS_MSCALEA', -4),
-        (0x35c0, 'rel', 'BS_VIEWA', -4),
-        (0x35c8, 'rel', 'BS_MSETA', -4),
-        (0x35cf, 'abs', 'BS_BARMESHA', 0),
-        (0x35d5, 'abs', '.', 178776),
-        (0x35dc, 'rel', 'BS_MESHA', -4),
-        (0x35e4, 'rel', 'BS_MPOPA', -4),
-        (0x35ed, 'rel', 'BS_TXTPOSA', -4),
-        (0x35f6, 'abs', '.', 178784),
-        (0x3600, 'rel', 'BS_CHARGEA', -4),
-        (0x360c, 'rel', 'BS_CHARGEA', -4),
-        (0x3618, 'rel', 'BS_TXTPOSA', -4),
-        (0x3620, 'abs', '.', 14213),
-        (0x3625, 'rel', 'BS_PRINT2A', -4),
-        (0x3632, 'abs', 'BS_BSSA', 0),
-        (0x3638, 'abs', '.', 16822),
-        (0x3640, 'abs', '.', 148036),
-        (0x3646, 'abs', 'BS_AILASER', 0),
-        (0x364c, 'abs', '.', 178776),
-        (0x3650, 'abs', 'BS_BARREDA', 0),
-        (0x3656, 'abs', '.', 178796),
-        (0x3660, 'abs', '.', 178800),
-        (0x3692, 'abs', '.', 178772),
-        (0x3698, 'abs', '.', 178772),
-        (0x369e, 'abs', '.', 14201),
-        (0x36a5, 'abs', '.', 178776),
-        (0x36a9, 'abs', 'BS_BARLIVEA', 0),
-        (0x36ae, 'abs', 'BS_FRAMEA', 0),
-        (0x36b7, 'rel', 'BS_SINA', -4),
-        (0x36c0, 'abs', '.', 14205),
-        (0x36c6, 'abs', '.', 14209),
-        (0x36cc, 'abs', '.', 178796),
-        (0x36d2, 'abs', '.', 178800),
-        (0x36df, 'abs', '.', 178800),
-        (0x36e9, 'abs', '.', 178776),
-        (0x36ed, 'abs', 'BS_BARONA', 0),
-        (0x36f6, 'abs', '.', 178784),
-        (0x3700, 'abs', '.', 178800),
-        (0x3709, 'abs', '.', 178788),
-        (0x3712, 'abs', '.', 178788),
-        (0x372d, 'abs', '.', 178784),
-        (0x3737, 'abs', '.', 178788),
-        (0x3741, 'abs', '.', 178792),
-        (0x374a, 'abs', '.', 178792),
-        (0x3758, 'rel', 'BS_SFX', -4),
-        (0x3762, 'abs', '.', 178788),
-        (0x376c, 'abs', '.', 178792),
-        (0x378e, 'abs', 'BS_BARONA', 0),
-        (0x3794, 'abs', '.', 15228),
-        (0x379f, 'abs', 'BS_OBJA', 0),
-        (0x37b1, 'abs', 'BS_BARLIVEA', 0),
-        (0x37b9, 'abs', 'BS_BARONA', 0),
-        (0x37bf, 'abs', '.', 15228),
-        (0x37ca, 'abs', 'BS_OBJA', 0),
-        (0x37dc, 'abs', 'BS_BARLIVEA', 0),
-        (0x37e4, 'abs', 'BS_BARONA', 0),
-        (0x37ea, 'abs', '.', 15228),
-        (0x37f5, 'abs', 'BS_OBJA', 0),
-        (0x3807, 'abs', 'BS_BARLIVEA', 0),
-        (0x3820, 'abs', '.', 15184),
-        (0x3826, 'abs', '.', 15188),
-        (0x382e, 'abs', '.', 15180),
-        (0x3834, 'abs', '.', 15192),
-        (0x383a, 'abs', '.', 15196),
-        (0x3846, 'abs', '.', 15196),
-        (0x385c, 'abs', '.', 15196),
-        (0x386b, 'abs', 'BS_WIND1', 0),
-        (0x3872, 'abs', '.', 15104),
-        (0x3878, 'abs', '.', 15104),
-        (0x3885, 'abs', '.', 15108),
-        (0x388b, 'abs', '.', 15108),
-        (0x3891, 'abs', '.', 15112),
-        (0x3897, 'abs', '.', 15112),
-        (0x389d, 'abs', '.', 15196),
-        (0x38a9, 'abs', 'BS_WIND1', 0),
-        (0x38b0, 'abs', '.', 15200),
-        (0x38b6, 'abs', '.', 15196),
-        (0x38c5, 'abs', 'BS_WIND1', 0),
-        (0x38cc, 'abs', '.', 15204),
-        (0x38d2, 'abs', '.', 15196),
-        (0x38e1, 'abs', 'BS_WIND1', 0),
-        (0x38e7, 'abs', 'BS_IDA', 0),
-        (0x38f5, 'rel', 'BS_VIEWA', -4),
-        (0x38fa, 'abs', '.', 15212),
-        (0x3901, 'abs', '.', 15208),
-        (0x3906, 'abs', '.', 15216),
-        (0x390d, 'abs', 'BS_RPITCH1', 0),
-        (0x3913, 'rel', 'BS_COSA', -4),
-        (0x391c, 'abs', '.', 15216),
-        (0x3922, 'abs', '.', 15220),
-        (0x3929, 'abs', 'BS_RYAW1', 0),
-        (0x392f, 'rel', 'BS_SINA', -4),
-        (0x3938, 'abs', '.', 15220),
-        (0x3947, 'abs', 'BS_RYAW1', 0),
-        (0x394d, 'rel', 'BS_COSA', -4),
-        (0x3956, 'abs', '.', 15220),
-        (0x3965, 'abs', 'BS_RPITCH1', 0),
-        (0x396b, 'rel', 'BS_SINA', -4),
-        (0x3974, 'abs', '.', 15216),
-        (0x3984, 'rel', 'BS_VIEWA', -4),
-        (0x3991, 'rel', 'BS_VIEWA', -4),
-        (0x3bf0, 'abs', '.', 15244),
-        (0x3bf8, 'abs', '.', 15260),
-        (0x3bfc, 'abs', '.', 15244),
-        (0x3c80, 'abs', 'BS_ZPARTS', 0),
-        (0x3c94, 'abs', 'BS_ZPARTS', 0),
+        (0x1fef, 'abs', '.', 184972),
+        (0x2005, 'abs', '.', 14892),
+        (0x200e, 'abs', '.', 203660),
+        (0x2038, 'abs', '.', 14892),
+        (0x2045, 'abs', '.', 14896),
+        (0x204d, 'abs', 'BS_ARTPOOL', 0),
+        (0x2057, 'abs', 'BS_ARTCOUNT', 0),
+        (0x205e, 'abs', 'BS_ARTPOOL2', 0),
+        (0x206a, 'abs', 'BS_ARTCOUNT', -4),
+        (0x2075, 'abs', '.', 184972),
+        (0x2082, 'abs', '.', 14900),
+        (0x2088, 'abs', '.', 14908),
+        (0x2090, 'abs', '.', 14904),
+        (0x209c, 'abs', '.', 14896),
+        (0x20a3, 'abs', '.', 14900),
+        (0x20b0, 'abs', '.', 14876),
+        (0x20c2, 'abs', '.', 277772),
+        (0x20ea, 'abs', '.', 14896),
+        (0x20f5, 'abs', '.', 14908),
+        (0x20fa, 'abs', '.', 14904),
+        (0x2102, 'abs', '.', 14896),
+        (0x210c, 'abs', '.', 16874),
+        (0x2116, 'abs', 'BS_PALRAMA', 0),
+        (0x211b, 'abs', '.', 228620),
+        (0x2128, 'abs', '.', 16874),
+        (0x2131, 'abs', '.', 16874),
+        (0x213b, 'abs', '.', 228620),
+        (0x2140, 'abs', 'BS_PALRAMA', 0),
+        (0x214d, 'abs', '.', 16874),
+        (0x2158, 'abs', '.', 16882),
+        (0x2165, 'rel', 'BS_MALLOC', -4),
+        (0x216d, 'abs', '.', 16882),
+        (0x2177, 'abs', '.', 16882),
+        (0x217c, 'abs', 'BS_FCBUF', 0),
+        (0x2188, 'abs', 'BS_FLDBUF', 0),
+        (0x2194, 'abs', 'BS_MTSELMEM', 0),
+        (0x21a0, 'abs', 'BS_SEGA', 0),
+        (0x21a5, 'abs', '.', 16902),
+        (0x21aa, 'abs', 'BS_GLOW1', 0),
+        (0x21af, 'abs', '.', 16890),
+        (0x21b4, 'abs', 'BS_GLOW2', 0),
+        (0x21b9, 'abs', '.', 16894),
+        (0x21be, 'abs', 'BS_GLOW3', 0),
+        (0x21c3, 'abs', '.', 16898),
+        (0x21c9, 'abs', '.', 16886),
+        (0x21d2, 'abs', '.', 16886),
+        (0x21dd, 'abs', '.', 16882),
+        (0x21e2, 'abs', 'BS_FCBUF', 0),
+        (0x21ee, 'abs', 'BS_FLDBUF', 0),
+        (0x21fa, 'abs', 'BS_MTSELMEM', 0),
+        (0x2206, 'abs', '.', 16902),
+        (0x220b, 'abs', 'BS_SEGA', 0),
+        (0x2210, 'abs', '.', 16890),
+        (0x2215, 'abs', 'BS_GLOW1', 0),
+        (0x221a, 'abs', '.', 16894),
+        (0x221f, 'abs', 'BS_GLOW2', 0),
+        (0x2224, 'abs', '.', 16898),
+        (0x2229, 'abs', 'BS_GLOW3', 0),
+        (0x222e, 'abs', '.', 16878),
+        (0x2233, 'abs', 'BS_SCNNOW', 0),
+        (0x2239, 'abs', '.', 16886),
+        (0x224d, 'abs', '.', 16910),
+        (0x2253, 'rel', 'BS_LOADTEX', -4),
+        (0x226b, 'abs', '.', 14860),
+        (0x2272, 'abs', '.', 8791),
+        (0x2280, 'abs', '.', 14860),
+        (0x2287, 'abs', '.', 8795),
+        (0x228e, 'abs', 'GAMEMODE', 0),
+        (0x2297, 'abs', 'BS_DIFF', 0),
+        (0x22a0, 'abs', '.', 14868),
+        (0x22a8, 'abs', 'BS_LOSSA', 0),
+        (0x22ae, 'abs', '.', 14868),
+        (0x22b9, 'abs', 'BS_STATEA', 0),
+        (0x22d8, 'abs', 'BS_CPUA', 100),
+        (0x22e1, 'abs', '.', 14860),
+        (0x22e8, 'abs', '.', 8799),
+        (0x22ed, 'abs', '.', 14860),
+        (0x22f9, 'abs', '.', 14876),
+        (0x2303, 'abs', '.', 14880),
+        (0x230e, 'abs', '.', 14872),
+        (0x2317, 'abs', '.', 14872),
+        (0x2333, 'abs', '.', 14860),
+        (0x233a, 'abs', '.', 8803),
+        (0x233f, 'abs', '.', 14860),
+        (0x2349, 'abs', 'BS_SCNNOW', 0),
+        (0x234e, 'abs', '.', 16878),
+        (0x2353, 'abs', '.', 16910),
+        (0x2358, 'abs', '.', 16906),
+        (0x2363, 'abs', '.', 14876),
+        (0x236d, 'abs', '.', 14880),
+        (0x2377, 'abs', 'BS_STATEA', 0),
+        (0x2382, 'abs', 'BS_STATEA', 0),
+        (0x238d, 'abs', '.', 14876),
+        (0x2395, 'rel', 'BS_REPTEXTA', -4),
+        (0x239c, 'abs', '.', 14876),
+        (0x23a4, 'rel', 'BS_REPLOGICA', -4),
+        (0x23ab, 'abs', '.', 14880),
+        (0x23bc, 'rel', 'BS_SFX', -4),
+        (0x23c5, 'abs', '.', 14884),
+        (0x23cf, 'abs', '.', 14888),
+        (0x23db, 'abs', '.', 14876),
+        (0x23e8, 'rel', 'BS_PALLOADA', -4),
+        (0x23f6, 'rel', 'BS_PALLOADA', -4),
+        (0x2404, 'rel', 'BS_PALLOADA', -4),
+        (0x2412, 'rel', 'BS_PALLOADA', -4),
+        (0x241a, 'abs', '.', 14876),
+        (0x2421, 'abs', '.', 15272),
+        (0x242b, 'rel', 'BS_PALLOADA', -4),
+        (0x243a, 'rel', 'BS_PALLOADA', -4),
+        (0x2444, 'rel', 'BS_TCLRALL', -4),
+        (0x244c, 'rel', 'BS_TRESET', -4),
+        (0x2452, 'abs', '.', 14880),
+        (0x245c, 'rel', 'BS_TCLRALL', -4),
+        (0x2464, 'rel', 'BS_TRESET', -4),
+        (0x246a, 'abs', '.', 14916),
+        (0x2470, 'abs', '.', 14912),
+        (0x2475, 'rel', 'BS_TXTPOSA', -4),
+        (0x247d, 'abs', '.', 14814),
+        (0x2482, 'rel', 'BS_PRINTBIG', -4),
+        (0x248b, 'abs', '.', 14880),
+        (0x249b, 'abs', '.', 14876),
+        (0x24a4, 'abs', '.', 14928),
+        (0x24ab, 'abs', '.', 14920),
+        (0x24b0, 'rel', 'BS_TXTPOSA', -4),
+        (0x24bc, 'abs', '.', 16600),
+        (0x24c7, 'abs', '.', 277772),
+        (0x24cc, 'rel', 'BS_TBLOCKA', -4),
+        (0x24d5, 'abs', '.', 14888),
+        (0x24de, 'abs', '.', 14880),
+        (0x24e4, 'abs', '.', 14852),
+        (0x24ea, 'abs', '.', 14856),
+        (0x24fc, 'abs', 'BS_G1PA', 0),
+        (0x2501, 'abs', '.', 14876),
+        (0x2506, 'abs', 'BS_G1PA', 0),
+        (0x250f, 'rel', 'BS_REPMODELA', -4),
+        (0x2518, 'abs', 'BS_G1PA', 0),
+        (0x2520, 'abs', '.', 14880),
+        (0x253a, 'abs', '.', 14960),
+        (0x2540, 'abs', '.', 14956),
+        (0x2545, 'rel', 'BS_TXTPOSA', -4),
+        (0x2555, 'abs', '.', 14827),
+        (0x255a, 'rel', 'BS_PRINTBIG', -4),
+        (0x2568, 'rel', 'BS_TCLEARA', -4),
+        (0x2570, 'abs', 'BS_PADEDGE', 0),
+        (0x257b, 'abs', 'ACCEPT1', 0),
+        (0x2581, 'abs', 'CAMERA1', 0),
+        (0x258f, 'abs', '.', 14888),
+        (0x2598, 'abs', '.', 14884),
+        (0x259d, 'abs', '.', 14884),
+        (0x25a9, 'abs', '.', 14888),
+        (0x25b1, 'rel', 'BS_SFX', -4),
+        (0x25c0, 'abs', '.', 14880),
+        (0x25c9, 'rel', 'BS_TCLRALL', -4),
+        (0x25d1, 'rel', 'BS_TRESET', -4),
+        (0x25e2, 'rel', 'BS_FADE', -4),
+        (0x25eb, 'abs', 'BS_REPCNT', 0),
+        (0x25fa, 'rel', 'BS_SCNEND', -4),
+        (0x2603, 'abs', '.', 14880),
+        (0x260c, 'abs', '.', 14876),
+        (0x2612, 'abs', '.', 14876),
+        (0x261c, 'abs', 'BS_STATEA', 0),
+        (0x2632, 'abs', '.', 16906),
+        (0x2637, 'rel', 'BS_LOADTEX', -4),
+        (0x2641, 'abs', 'BS_SCENEA', 0),
+        (0x2649, 'abs', 'BS_EVA', 0),
+        (0x2653, 'abs', 'BS_STATEA', 0),
+        (0x265e, 'abs', 'BS_IDA', 0),
+        (0x2667, 'rel', 'BS_LDXA', -4),
+        (0x266c, 'rel', 'BS_LDA', -4),
+        (0x2672, 'abs', 'BS_IDA', 0),
+        (0x2679, 'rel', 'BS_DRSA', -4),
+        (0x267f, 'abs8', 'DR_FLAG', 0),
+        (0x2683, 'rel', 'BS_DRJA', -4),
+        (0x2688, 'rel', 'BS_DRFA', -4),
+        (0x268d, 'abs', 'BS_IDA', 0),
+        (0x2696, 'rel', 'BS_LDXA', -4),
+        (0x269b, 'rel', 'BS_C2A', -4),
+        (0x26a0, 'abs', 'BS_IDA', 0),
+        (0x26ae, 'abs', 'BS_MDLA', 0),
+        (0x26b2, 'abs', 'BS_JAGA', 0),
+        (0x26ba, 'abs', 'BS_MDLA', 0),
+        (0x26be, 'abs', 'BS_ZGA', 0),
+        (0x26c6, 'abs', 'BS_PHASEA', 0),
+        (0x26cd, 'rel', 'BS_END1A', -4),
+        (0x26d2, 'rel', 'BS_ENDA', -4),
+        (0x26d7, 'abs', 'BS_G1PA', 0),
+        (0x26e1, 'abs', '.', 15092),
+        (0x26e7, 'abs', 'BS_PHASEA', 0),
+        (0x26f0, 'abs', 'BS_G1PA', 0),
+        (0x26f9, 'rel', 'BS_ENDA', -4),
+        (0x26fe, 'abs', '.', 15092),
+        (0x2707, 'abs', 'BS_G1PA', 0),
+        (0x270d, 'abs', 'BS_PHASEA', 0),
+        (0x2714, 'rel', 'BS_END1A', -4),
+        (0x271a, 'rel', 'BS_ENDEA', -4),
+        (0x271f, 'rel', 'BS_ENDEA', -4),
+        (0x2725, 'abs', 'BS_IDA', 0),
+        (0x272d, 'rel', 'BS_PH0A', -4),
+        (0x2733, 'abs', 'BS_ESTEPA', 0),
+        (0x273f, 'abs', 'BS_ESTEPA', 0),
+        (0x2745, 'abs', 'BS_TIMEA', 0),
+        (0x274f, 'abs', 'BS_ESTEPA', 0),
+        (0x275b, 'abs', 'BS_ESTEPA', 0),
+        (0x2761, 'abs', 'BS_BSSA', 0),
+        (0x2767, 'abs', '.', 16862),
+        (0x276f, 'abs', '.', 148084),
+        (0x2774, 'abs', 'BS_AILASER', 0),
+        (0x277a, 'abs', 'BS_TIMEA', 0),
+        (0x2787, 'abs', 'BS_TIMEA', 0),
+        (0x2794, 'abs', 'BS_G1PA', 0),
+        (0x27a6, 'abs', 'BS_TIMEA', 0),
+        (0x27b3, 'abs', 'BS_OBJA', 376),
+        (0x27bd, 'abs', 'BS_OBJA', 376),
+        (0x27c5, 'abs', 'BS_TIMEA', 0),
+        (0x27d1, 'abs', '.', 15068),
+        (0x27da, 'abs', '.', 15068),
+        (0x27e1, 'abs', '.', 15080),
+        (0x27e5, 'abs', 'BS_SPDA', 0),
+        (0x27eb, 'abs', 'BS_SPDA', 0),
+        (0x27f1, 'abs', '.', 15076),
+        (0x27f7, 'abs', 'BS_SPDA', 0),
+        (0x27fd, 'abs', '.', 15084),
+        (0x2803, 'abs', 'BS_SPDA', 0),
+        (0x2809, 'abs', '.', 15088),
+        (0x280f, 'abs', '.', 15088),
+        (0x2818, 'abs', '.', 15088),
+        (0x2824, 'abs', 'BS_OBJA', 512),
+        (0x284d, 'abs', 'BS_TIMEA', 0),
+        (0x285b, 'rel', 'BS_PH0A', -4),
+        (0x2866, 'abs', '.', 15096),
+        (0x286d, 'abs', '.', 15004),
+        (0x2877, 'abs', '.', 15048),
+        (0x2882, 'abs', 'BS_OBJA', 12),
+        (0x2888, 'abs', 'BS_OBJA', 16),
+        (0x288e, 'abs', 'BS_OBJA', 12),
+        (0x2894, 'abs', '.', 15012),
+        (0x289a, 'abs', 'BS_OBJA', 12),
+        (0x28a0, 'abs', 'BS_OBJA', 16),
+        (0x28a6, 'abs', '.', 15016),
+        (0x28ac, 'abs', 'BS_OBJA', 16),
+        (0x28b1, 'rel', 'BS_PH0A', -4),
+        (0x28b7, 'abs', 'BS_OBJA', 16),
+        (0x28bd, 'abs', 'BS_OBJA', 12),
+        (0x28c4, 'abs', '.', 15048),
+        (0x28cd, 'abs', 'BS_EVA', 0),
+        (0x28d9, 'abs', '.', 15048),
+        (0x28df, 'abs', '.', 15048),
+        (0x28e9, 'abs', 'BS_EVA', 0),
+        (0x28f0, 'abs', '.', 16854),
+        (0x28f7, 'abs', '.', 15096),
+        (0x2900, 'abs', '.', 15004),
+        (0x2909, 'abs', '.', 15004),
+        (0x2914, 'abs', 'BS_OBJA', 368),
+        (0x291d, 'abs', 'BS_OBJA', 380),
+        (0x2926, 'abs', 'BS_OBJA', 376),
+        (0x2940, 'abs', '.', 15096),
+        (0x2947, 'abs', '.', 15004),
+        (0x2957, 'abs', '.', 15004),
+        (0x295e, 'abs', 'BS_OBJA', 176),
+        (0x2963, 'abs', '.', 16960),
+        (0x2971, 'abs', 'BS_OBJA', 376),
+        (0x2977, 'abs', '.', 17040),
+        (0x297d, 'abs', 'BS_OBJA', 420),
+        (0x2983, 'abs', '.', 17042),
+        (0x298a, 'abs', 'BS_OBJA', 376),
+        (0x2991, 'rel', 'BS_PH0A', -4),
+        (0x2997, 'abs', '.', 17040),
+        (0x299d, 'abs', 'BS_OBJA', 376),
+        (0x29a3, 'abs', '.', 17042),
+        (0x29a9, 'abs', 'BS_OBJA', 420),
+        (0x29ae, 'abs', '.', 16960),
+        (0x29b3, 'abs', 'BS_OBJA', 176),
+        (0x29c2, 'abs', '.', 15004),
+        (0x29ce, 'abs', '.', 15096),
+        (0x29d5, 'abs', '.', 15004),
+        (0x29df, 'abs', 'BS_ESTEPA', 0),
+        (0x29e5, 'abs', 'BS_TIMEA', 0),
+        (0x29f1, 'abs', 'BS_TIMEA', 0),
+        (0x29fa, 'rel', 'BS_PH0A', -4),
+        (0x2a00, 'abs', 'BS_TIMEA', 0),
+        (0x2a0b, 'abs', '.', 15008),
+        (0x2a17, 'abs', '.', 15096),
+        (0x2a1e, 'abs', '.', 15004),
+        (0x2a28, 'abs', '.', 15048),
+        (0x2a32, 'rel', 'BS_PH0A', -4),
+        (0x2a38, 'abs', '.', 15068),
+        (0x2a3f, 'rel', 'BS_WALLA', -4),
+        (0x2a45, 'abs', '.', 15072),
+        (0x2a4c, 'abs', '.', 15068),
+        (0x2a55, 'abs', '.', 15068),
+        (0x2a5d, 'abs', '.', 15080),
+        (0x2a63, 'abs', '.', 15076),
+        (0x2a6e, 'abs', 'BS_IDA', 0),
+        (0x2a79, 'abs', 'BS_SCANBASE', 0),
+        (0x2a7e, 'rel', 'BS_SCANA', -4),
+        (0x2a83, 'abs', 'BS_TIMEA', 0),
+        (0x2a8b, 'abs', '.', 15064),
+        (0x2a91, 'abs', '.', 15064),
+        (0x2a97, 'abs', '.', 15052),
+        (0x2a9d, 'abs', 'BS_OBJA', 16),
+        (0x2aa3, 'abs', '.', 15060),
+        (0x2aa9, 'abs', '.', 16952),
+        (0x2aaf, 'abs', 'BS_OBJA', 12),
+        (0x2ab5, 'abs', '.', 15056),
+        (0x2abb, 'abs', '.', 16948),
+        (0x2ac0, 'abs', 'BS_OBJA', 8),
+        (0x2ac5, 'abs', '.', 16944),
+        (0x2acb, 'abs8', 'SCAN_SLOT', 0),
+        (0x2acc, 'abs', '.', 16928),
+        (0x2ad1, 'rel', 'BS_FOUNDA', -4),
+        (0x2ad7, 'abs', 'BS_IDA', 0),
+        (0x2adf, 'rel', 'BS_VIEWA', -4),
+        (0x2ae5, 'abs', '.', 14988),
+        (0x2aeb, 'abs', 'BS_IDA', 0),
+        (0x2af4, 'abs', 'BS_TIMEA', 0),
+        (0x2b00, 'abs', 'BS_TIMEA', 0),
+        (0x2b08, 'abs', '.', 14992),
+        (0x2b0f, 'abs', '.', 14996),
+        (0x2b17, 'abs', 'BS_ESTEPA', 0),
+        (0x2b27, 'abs', 'BS_ECBLKA', 36),
+        (0x2b33, 'abs', 'BS_ECBLKA', 40),
+        (0x2b41, 'abs', 'BS_ECBLKA', 44),
+        (0x2b4d, 'abs', '.', 15000),
+        (0x2b61, 'abs', 'BS_ECBLKA', 36),
+        (0x2b69, 'abs', 'BS_ECBLKA', 36),
+        (0x2b77, 'abs', 'BS_ECBLKA', 40),
+        (0x2b7f, 'abs', 'BS_ECBLKA', 40),
+        (0x2b8d, 'abs', 'BS_ECBLKA', 44),
+        (0x2b95, 'abs', 'BS_ECBLKA', 44),
+        (0x2ba6, 'abs', 'BS_ESTEPA', 0),
+        (0x2bb7, 'abs', '.', 15104),
+        (0x2bbd, 'abs', '.', 15104),
+        (0x2bc3, 'abs', '.', 15100),
+        (0x2bc9, 'abs', 'BS_ECBLKA', 44),
+        (0x2bd5, 'abs', 'BS_ECBLKA', 36),
+        (0x2bf3, 'rel', 'BS_VIEWA', -4),
+        (0x2bf9, 'abs', '.', 15268),
+        (0x2c06, 'rel', 'BS_VIEWA', -4),
+        (0x2c0d, 'abs', 'BS_YAW4', 0),
+        (0x2c13, 'rel', 'BS_SINA', -4),
+        (0x2c1c, 'abs', '.', 14968),
+        (0x2c2b, 'abs', 'BS_YAW4', 0),
+        (0x2c31, 'rel', 'BS_COSA', -4),
+        (0x2c3a, 'abs', '.', 14968),
+        (0x2c47, 'rel', 'BS_VIEWA', -4),
+        (0x2c4d, 'abs', '.', 15268),
+        (0x2c56, 'abs8', 'CAM_PTR', 0),
+        (0x2c5c, 'abs', '.', 14980),
+        (0x2c68, 'abs', '.', 14980),
+        (0x2c86, 'abs8', 'CAM_PTR', 0),
+        (0x2c8c, 'rel', 'BS_LIVEA', -4),
+        (0x2c92, 'abs8', 'CAM_PTR', 0),
+        (0x2c98, 'abs', '.', 15268),
+        (0x2ca1, 'abs', '.', 14976),
+        (0x2ca9, 'abs', '.', 15268),
+        (0x2cb2, 'abs', '.', 14972),
+        (0x2cb8, 'abs', '.', 14984),
+        (0x2cc7, 'abs', '.', 14984),
+        (0x2cd0, 'abs', '.', 15268),
+        (0x2cd9, 'abs', 'BS_STAGEA', 0),
+        (0x2ce4, 'abs', 'BS_OBJA', 0),
+        (0x2cf1, 'rel', 'BS_INITA', -4),
+        (0x2cf8, 'abs', '.', 15268),
+        (0x2d01, 'abs', 'BS_STAGEA', 0),
+        (0x2d0c, 'abs', 'BS_OBJA', 0),
+        (0x2d1c, 'rel', 'BS_FLYA', -4),
+        (0x2d2e, 'abs', 'BS_READYA', 0),
+        (0x2d65, 'abs', 'BS_ZMODA', 0),
+        (0x2d6a, 'rel', 'BS_FLYEA', -4),
+        (0x2d72, 'abs', 'BS_ZMODA', 0),
+        (0x2d77, 'rel', 'BS_FLYPA', -4),
+        (0x2d7d, 'abs', 'BS_ZTIMA', 0),
+        (0x2d87, 'abs', '.', 15164),
+        (0x2d91, 'abs', '.', 15268),
+        (0x2d9e, 'abs', 'BS_OBJA', 0),
+        (0x2da6, 'abs', 'BS_ARENA', 0),
+        (0x2db2, 'abs', '.', 15172),
+        (0x2db8, 'abs', 'BS_ZTIMA', 0),
+        (0x2dda, 'abs', 'BS_RCOUNTA', 0),
+        (0x2de3, 'abs', '.', 15268),
+        (0x2dec, 'abs', 'BS_STAGEA', 0),
+        (0x2df5, 'abs', 'BS_ZTIMA', 0),
+        (0x2dfe, 'abs', '.', 15156),
+        (0x2e0a, 'abs', '.', 15156),
+        (0x2e10, 'abs', 'BS_RCOUNTA', 0),
+        (0x2e1e, 'abs', '.', 15156),
+        (0x2e28, 'abs', 'BS_RCOUNTA', 0),
+        (0x2e34, 'abs', 'BS_OBJA', 0),
+        (0x2e3c, 'abs', '.', 15268),
+        (0x2e61, 'abs', 'BS_OBJA', 0),
+        (0x2e67, 'rel', 'BS_ZBOXA', -4),
+        (0x2e6d, 'abs', 'BS_STAGEA', 0),
+        (0x2e74, 'rel', 'BS_ZBOXA', -4),
+        (0x2e8b, 'rel', 'BS_FLOORA', -4),
+        (0x2e97, 'abs', '.', 15212),
+        (0x2eb5, 'rel', 'BS_FLOORA', -4),
+        (0x2ec1, 'abs', '.', 15212),
+        (0x2ed4, 'abs', '.', 15216),
+        (0x2f39, 'abs', '.', 15268),
+        (0x2f43, 'abs', 'BS_OBJA', 0),
+        (0x2f4b, 'abs', 'BS_ZTIMA', 0),
+        (0x2f52, 'rel', 'BS_TM2S', -4),
+        (0x2f57, 'rel', 'BS_TM2', -4),
+        (0x2f5d, 'abs', 'BS_READYA', 0),
+        (0x2f64, 'rel', 'BS_TM2', -4),
+        (0x2f69, 'rel', 'BS_TM2S', -4),
+        (0x2f6f, 'abs', '.', 15268),
+        (0x2f79, 'abs', 'BS_OBJA', 0),
+        (0x2f81, 'abs', 'BS_ZTIMA', 0),
+        (0x2f88, 'rel', 'BS_TM4S', -4),
+        (0x2f8d, 'rel', 'BS_TM4', -4),
+        (0x2f93, 'abs', 'BS_READYA', 0),
+        (0x2f9a, 'rel', 'BS_TM4', -4),
+        (0x2f9f, 'rel', 'BS_TM4S', -4),
+        (0x2fa5, 'abs', '.', 15268),
+        (0x2fae, 'abs', 'BS_STAGEA', 0),
+        (0x2fb6, 'abs', 'BS_OBJA', 0),
+        (0x2fbc, 'rel', 'BS_CLIP0A', -4),
+        (0x2fc6, 'rel', 'BS_CLIP3A', -4),
+        (0x2fd2, 'rel', 'BS_CLIP3A', -4),
+        (0x2fd7, 'rel', 'BS_CLIP0A', -4),
+        (0x2fe0, 'abs', 'BS_CLONEFRAME', 0),
+        (0x2fe9, 'abs', '.', 15268),
+        (0x2ff0, 'rel', 'BS_CLONEA', -4),
+        (0x2ff6, 'abs', 'BS_STAGEA', 0),
+        (0x2ffd, 'rel', 'BS_CLONEA', -4),
+        (0x3005, 'abs', 'BS_OBJA', 0),
+        (0x300c, 'rel', 'BS_CLONEA', -4),
+        (0x3017, 'rel', 'BS_CLONEA', -4),
+        (0x301d, 'abs', '.', 146036),
+        (0x3023, 'rel', 'BS_CLONEA', -4),
+        (0x3029, 'abs', 'BS_ZGA', 0),
+        (0x302f, 'rel', 'BS_CLONEA', -4),
+        (0x3035, 'abs', '.', 16858),
+        (0x303f, 'abs', '.', 146036),
+        (0x304d, 'abs', '.', 16858),
+        (0x3060, 'abs', '.', 146036),
+        (0x3066, 'abs', '.', 146036),
+        (0x306e, 'rel', 'BS_CLONEA', -4),
+        (0x3074, 'abs', '.', 15268),
+        (0x307d, 'abs', 'BS_STAGEA', 0),
+        (0x3088, 'abs', 'BS_OBJA', 0),
+        (0x3098, 'rel', 'BS_TICKA', -4),
+        (0x309e, 'abs', '.', 16862),
+        (0x30a9, 'abs', 'BS_BSSA', 0),
+        (0x30ae, 'abs', '.', 148084),
+        (0x30b3, 'abs', 'BS_AIDW', 0),
+        (0x30be, 'abs', '.', 148084),
+        (0x30c4, 'abs', 'BS_AI1C', 0),
+        (0x30ce, 'abs', 'BS_AITIMER', 0),
+        (0x30d8, 'abs', 'BS_AILASER', 0),
+        (0x30e2, 'abs', '.', 16862),
+        (0x30f4, 'abs', 'BS_ZTAB0', 0),
+        (0x30fb, 'abs', 'BS_ZTAB1', 0),
+        (0x3101, 'abs', 'BS_AITAB', 0),
+        (0x310a, 'abs', 'BS_AITAB2', 0),
+        (0x3115, 'abs', 'BS_AITAB3', 0),
+        (0x311e, 'abs', 'BS_AITAB4', 0),
+        (0x3127, 'abs', 'BS_BSSA', 0),
+        (0x312c, 'abs', '.', 148572),
+        (0x3131, 'abs', 'BS_AIDW', 0),
+        (0x313f, 'abs', '.', 148084),
+        (0x3144, 'abs', 'BS_BSSA', 0),
+        (0x3149, 'abs', 'BS_AIDW', 0),
+        (0x3163, 'abs', 'BS_BSSA', 0),
+        (0x3168, 'abs', '.', 148084),
+        (0x316d, 'abs', 'BS_AIDW', 0),
+        (0x317b, 'abs', '.', 148572),
+        (0x3180, 'abs', 'BS_BSSA', 0),
+        (0x3185, 'abs', 'BS_AIDW', 0),
+        (0x3192, 'abs', '.', 16862),
+        (0x319f, 'rel', 'BS_ZINITA', -4),
+        (0x31ab, 'abs', 'BS_OBJA', 0),
+        (0x31cb, 'abs', '.', 15008),
+        (0x31dd, 'abs', '.', 15024),
+        (0x31e3, 'abs', '.', 15024),
+        (0x31eb, 'abs', '.', 15028),
+        (0x31f1, 'abs', '.', 15032),
+        (0x31f7, 'abs', '.', 15012),
+        (0x31fd, 'abs', '.', 15016),
+        (0x3218, 'abs', '.', 15020),
+        (0x321e, 'abs', '.', 15032),
+        (0x3223, 'abs', '.', 15012),
+        (0x3231, 'abs', '.', 15024),
+        (0x3237, 'abs', '.', 15024),
+        (0x323d, 'abs', '.', 15036),
+        (0x3245, 'abs', '.', 15016),
+        (0x3255, 'abs', '.', 15020),
+        (0x325f, 'abs', '.', 15024),
+        (0x3265, 'abs', '.', 15024),
+        (0x326b, 'abs', '.', 15040),
+        (0x3271, 'abs', '.', 15044),
+        (0x3279, 'abs', '.', 15016),
+        (0x3280, 'abs', '.', 15020),
+        (0x328d, 'abs', '.', 15096),
+        (0x3295, 'abs', 'BS_OBJA', 0),
+        (0x329d, 'abs', '.', 15008),
+        (0x32a5, 'abs', 'BS_OBJA', 0),
+        (0x32ac, 'rel', 'BS_ZDRAWA', -4),
+        (0x32b7, 'rel', 'BS_ZDRAWA', -4),
+        (0x32cc, 'abs', '.', 15012),
+        (0x32d8, 'abs', '.', 15016),
+        (0x32e2, 'abs', '.', 15020),
+        (0x32ef, 'rel', 'BS_ZDRAWA', -4),
+        (0x330b, 'abs', '.', 16960),
+        (0x3328, 'abs', '.', 17040),
+        (0x333d, 'abs', '.', 17042),
+        (0x335c, 'abs', 'BS_OBJA', 0),
+        (0x3363, 'rel', 'BS_MDRAWA', -4),
+        (0x3378, 'rel', 'BS_MDRAWA', -4),
+        (0x3385, 'abs', 'BS_ZEVA', 0),
+        (0x338a, 'abs', 'BS_EVA', 0),
+        (0x3390, 'abs', '.', 16854),
+        (0x3398, 'abs', 'BS_OBJA', 0),
+        (0x33a1, 'abs', '.', 16854),
+        (0x33a9, 'abs', '.', 16854),
+        (0x33b2, 'abs', '.', 15280),
+        (0x33b6, 'abs', 'BS_COL1', 0),
+        (0x33bc, 'rel', 'BS_ZGA5', -4),
+        (0x33c1, 'rel', 'BS_ZGA1', -4),
+        (0x33c7, 'abs8', 'PAL_CPU', 0),
+        (0x33cb, 'rel', 'BS_ZGA1', -4),
+        (0x33d0, 'rel', 'BS_ZGA5', -4),
+        (0x33d6, 'abs', '.', 16854),
+        (0x33df, 'abs', '.', 15268),
+        (0x33f6, 'abs', '.', 15280),
+        (0x33fa, 'abs', 'BS_COL1', 0),
+        (0x340b, 'rel', 'BS_PALLOADA', -4),
+        (0x3419, 'rel', 'BS_PALLOADA', -4),
+        (0x3421, 'rel', 'BS_ZRAX', -4),
+        (0x3427, 'abs8', 'PAL_CPU', 0),
+        (0x342b, 'rel', 'BS_ZRA1', -4),
+        (0x3430, 'rel', 'BS_ZRA5', -4),
+        (0x3436, 'abs', '.', 16854),
+        (0x343d, 'rel', 'BS_ZRAX', -4),
+        (0x3443, 'abs8', 'PAL_CPU', 0),
+        (0x3447, 'rel', 'BS_ZDA1', -4),
+        (0x344c, 'rel', 'BS_ZDA5', -4),
+        (0x3452, 'abs', '.', 16854),
+        (0x3459, 'rel', 'BS_ZRAX', -4),
+        (0x345f, 'abs8', 'PAL_CPU', 0),
+        (0x3463, 'rel', 'BS_ZFA1', -4),
+        (0x3468, 'rel', 'BS_ZFA5', -4),
+        (0x347f, 'abs', '.', 149060),
+        (0x3486, 'abs', 'BS_OBJA', 0),
+        (0x348f, 'abs', 'BS_BSSA', 0),
+        (0x3494, 'abs', 'BS_AIDW', 0),
+        (0x34a1, 'abs', '.', 148084),
+        (0x34b3, 'abs', '.', 16862),
+        (0x34be, 'abs', '.', 15164),
+        (0x34c9, 'abs', '.', 15160),
+        (0x34d2, 'abs', 'BS_BSSA', 0),
+        (0x34d7, 'abs', 'BS_AIDW', 0),
+        (0x34e4, 'abs', '.', 148084),
+        (0x34f0, 'abs', '.', 16862),
+        (0x34fb, 'abs', '.', 15164),
+        (0x3506, 'abs', '.', 15160),
+        (0x3518, 'abs', 'BS_SLOTJ', 0),
+        (0x351e, 'abs', 'BS_RBNAMES', 44),
+        (0x353c, 'abs', 'BS_KEYA', 0),
+        (0x354d, 'abs', '.', 15268),
+        (0x355b, 'abs', 'BS_OBJA', 0),
+        (0x356c, 'abs', '.', 14234),
+        (0x3572, 'abs', '.', 178828),
+        (0x357c, 'rel', 'BS_MPUSHA', -4),
+        (0x3581, 'rel', 'BS_MIDENTA', -4),
+        (0x3595, 'rel', 'BS_VIEWA', -4),
+        (0x35a3, 'abs', '.', 178836),
+        (0x35bb, 'rel', 'BS_MSCALEA', -4),
+        (0x35c9, 'abs', '.', 178844),
+        (0x35cf, 'abs', '.', 178828),
+        (0x35d4, 'rel', 'BS_MSCALEA', -4),
+        (0x35e5, 'rel', 'BS_VIEWA', -4),
+        (0x35ed, 'rel', 'BS_MSETA', -4),
+        (0x35f4, 'abs', 'BS_BARMESHA', 0),
+        (0x35fa, 'abs', '.', 178824),
+        (0x3601, 'rel', 'BS_MESHA', -4),
+        (0x3609, 'rel', 'BS_MPOPA', -4),
+        (0x3612, 'rel', 'BS_TXTPOSA', -4),
+        (0x361b, 'abs', '.', 178832),
+        (0x3625, 'rel', 'BS_CHARGEA', -4),
+        (0x3631, 'rel', 'BS_CHARGEA', -4),
+        (0x363d, 'rel', 'BS_TXTPOSA', -4),
+        (0x3645, 'abs', '.', 14250),
+        (0x364a, 'rel', 'BS_PRINT2A', -4),
+        (0x3657, 'abs', 'BS_BSSA', 0),
+        (0x365d, 'abs', '.', 16862),
+        (0x3665, 'abs', '.', 148084),
+        (0x366b, 'abs', 'BS_AILASER', 0),
+        (0x3671, 'abs', '.', 178824),
+        (0x3675, 'abs', 'BS_BARREDA', 0),
+        (0x367b, 'abs', '.', 178844),
+        (0x3685, 'abs', '.', 178848),
+        (0x36b7, 'abs', '.', 178820),
+        (0x36bd, 'abs', '.', 178820),
+        (0x36c3, 'abs', '.', 14238),
+        (0x36ca, 'abs', '.', 178824),
+        (0x36ce, 'abs', 'BS_BARLIVEA', 0),
+        (0x36d3, 'abs', 'BS_FRAMEA', 0),
+        (0x36dc, 'rel', 'BS_SINA', -4),
+        (0x36e5, 'abs', '.', 14242),
+        (0x36eb, 'abs', '.', 14246),
+        (0x36f1, 'abs', '.', 178844),
+        (0x36f7, 'abs', '.', 178848),
+        (0x3704, 'abs', '.', 178848),
+        (0x370e, 'abs', '.', 178824),
+        (0x3712, 'abs', 'BS_BARONA', 0),
+        (0x371b, 'abs', '.', 178832),
+        (0x3725, 'abs', '.', 178848),
+        (0x372e, 'abs', '.', 178836),
+        (0x3737, 'abs', '.', 178836),
+        (0x3752, 'abs', '.', 178832),
+        (0x375c, 'abs', '.', 178836),
+        (0x3766, 'abs', '.', 178840),
+        (0x376f, 'abs', '.', 178840),
+        (0x377d, 'rel', 'BS_SFX', -4),
+        (0x3787, 'abs', '.', 178836),
+        (0x3791, 'abs', '.', 178840),
+        (0x37b3, 'abs', 'BS_BARONA', 0),
+        (0x37b9, 'abs', '.', 15268),
+        (0x37c4, 'abs', 'BS_OBJA', 0),
+        (0x37d6, 'abs', 'BS_BARLIVEA', 0),
+        (0x37de, 'abs', 'BS_BARONA', 0),
+        (0x37e4, 'abs', '.', 15268),
+        (0x37ef, 'abs', 'BS_OBJA', 0),
+        (0x3801, 'abs', 'BS_BARLIVEA', 0),
+        (0x3809, 'abs', 'BS_BARONA', 0),
+        (0x380f, 'abs', '.', 15268),
+        (0x381a, 'abs', 'BS_OBJA', 0),
+        (0x382c, 'abs', 'BS_BARLIVEA', 0),
+        (0x3845, 'abs', '.', 15224),
+        (0x384b, 'abs', '.', 15228),
+        (0x3853, 'abs', '.', 15220),
+        (0x3859, 'abs', '.', 15232),
+        (0x385f, 'abs', '.', 15236),
+        (0x386b, 'abs', '.', 15236),
+        (0x3881, 'abs', '.', 15236),
+        (0x3890, 'abs', 'BS_WIND1', 0),
+        (0x3897, 'abs', '.', 15144),
+        (0x389d, 'abs', '.', 15144),
+        (0x38aa, 'abs', '.', 15148),
+        (0x38b0, 'abs', '.', 15148),
+        (0x38b6, 'abs', '.', 15152),
+        (0x38bc, 'abs', '.', 15152),
+        (0x38c2, 'abs', '.', 15236),
+        (0x38ce, 'abs', 'BS_WIND1', 0),
+        (0x38d5, 'abs', '.', 15240),
+        (0x38db, 'abs', '.', 15236),
+        (0x38ea, 'abs', 'BS_WIND1', 0),
+        (0x38f1, 'abs', '.', 15244),
+        (0x38f7, 'abs', '.', 15236),
+        (0x3906, 'abs', 'BS_WIND1', 0),
+        (0x390c, 'abs', 'BS_IDA', 0),
+        (0x391a, 'rel', 'BS_VIEWA', -4),
+        (0x391f, 'abs', '.', 15252),
+        (0x3926, 'abs', '.', 15248),
+        (0x392b, 'abs', '.', 15256),
+        (0x3932, 'abs', 'BS_RPITCH1', 0),
+        (0x3938, 'rel', 'BS_COSA', -4),
+        (0x3941, 'abs', '.', 15256),
+        (0x3947, 'abs', '.', 15260),
+        (0x394e, 'abs', 'BS_RYAW1', 0),
+        (0x3954, 'rel', 'BS_SINA', -4),
+        (0x395d, 'abs', '.', 15260),
+        (0x396c, 'abs', 'BS_RYAW1', 0),
+        (0x3972, 'rel', 'BS_COSA', -4),
+        (0x397b, 'abs', '.', 15260),
+        (0x398a, 'abs', 'BS_RPITCH1', 0),
+        (0x3990, 'rel', 'BS_SINA', -4),
+        (0x3999, 'abs', '.', 15256),
+        (0x39a9, 'rel', 'BS_VIEWA', -4),
+        (0x39b6, 'rel', 'BS_VIEWA', -4),
+        (0x3c18, 'abs', '.', 15284),
+        (0x3c20, 'abs', '.', 15300),
+        (0x3c24, 'abs', '.', 15284),
         (0x3ca8, 'abs', 'BS_ZPARTS', 0),
         (0x3cbc, 'abs', 'BS_ZPARTS', 0),
-        (0x3cd0, 'abs', 'BS_ZPARTS', 12),
-        (0x3ce4, 'abs', 'BS_ZCROWN', 0),
-        (0x3cf8, 'abs', 'BS_ZRINGS', 0),
-        (0x3d0c, 'abs', 'BS_ZPARTS', 24),
-        (0x3d20, 'abs', 'BS_ZSIDES', 0),
-        (0x3d34, 'abs', 'BS_ZSIDES', 0),
+        (0x3cd0, 'abs', 'BS_ZPARTS', 0),
+        (0x3ce4, 'abs', 'BS_ZPARTS', 0),
+        (0x3cf8, 'abs', 'BS_ZPARTS', 12),
+        (0x3d0c, 'abs', 'BS_ZCROWN', 0),
+        (0x3d20, 'abs', 'BS_ZRINGS', 0),
+        (0x3d34, 'abs', 'BS_ZPARTS', 24),
         (0x3d48, 'abs', 'BS_ZSIDES', 0),
         (0x3d5c, 'abs', 'BS_ZSIDES', 0),
-        (0x3d70, 'abs', 'BS_ZPARTS', 36),
-        (0x3d84, 'abs', 'BS_ZPARTS', 60),
-        (0x3d98, 'abs', 'BS_ZPARTS', 72),
-        (0x3dac, 'abs', 'BS_ZPARTS', 48),
-        (0x3dc0, 'abs', 'BS_ZPARTS', 60),
-        (0x3dd4, 'abs', 'BS_ZPARTS', 72),
-        (0x3e08, 'abs', '.', 16996),
-        (0x3e0c, 'abs', '.', 15936),
-        (0x3e1c, 'abs', '.', 79396),
-        (0x3e20, 'abs', '.', 15944),
-        (0x3e30, 'abs', '.', 110596),
-        (0x3e34, 'abs', '.', 15952),
-        (0x3e40, 'abs', '.', 15960),
-        (0x3e48, 'abs', '.', 15960),
-        (0x3e50, 'abs', '.', 15960),
-        (0x410c, 'abs', 'BS_LOGOJ', 0),
-        (0x4174, 'abs', 'BS_LOGOZ', 0),
+        (0x3d70, 'abs', 'BS_ZSIDES', 0),
+        (0x3d84, 'abs', 'BS_ZSIDES', 0),
+        (0x3d98, 'abs', 'BS_ZPARTS', 36),
+        (0x3dac, 'abs', 'BS_ZPARTS', 60),
+        (0x3dc0, 'abs', 'BS_ZPARTS', 72),
+        (0x3dd4, 'abs', 'BS_ZPARTS', 48),
+        (0x3de8, 'abs', 'BS_ZPARTS', 60),
+        (0x3dfc, 'abs', 'BS_ZPARTS', 72),
+        (0x3e30, 'abs', '.', 17044),
+        (0x3e34, 'abs', '.', 15976),
+        (0x3e44, 'abs', '.', 79444),
+        (0x3e48, 'abs', '.', 15984),
+        (0x3e58, 'abs', '.', 110644),
+        (0x3e5c, 'abs', '.', 15992),
+        (0x3e68, 'abs', '.', 16000),
+        (0x3e70, 'abs', '.', 16000),
+        (0x3e78, 'abs', '.', 16000),
+        (0x4134, 'abs', 'BS_LOGOJ', 0),
+        (0x419c, 'abs', 'BS_LOGOZ', 0),
     ), {
         'tick': 0x0,
         'confirm_a': 0x155,
@@ -16786,298 +18030,480 @@ BLOBS = {
         'unl_tick': 0x1e73,
         'unl_tileat': 0x1f7c,
         'unl_grab': 0x1fd9,
-        'unl_place': 0x200c,
-        'unl_unplace': 0x20c8,
-        'unl_palsave': 0x20e5,
-        'unl_palback': 0x210a,
-        'unl_scnsave': 0x212f,
-        'unl_scnback': 0x21ab,
-        'unl_ldtex': 0x221b,
-        'unl_bits': 0x2232,
-        'unl_tops': 0x2236,
-        'unl_withjag': 0x223a,
-        'unl_withz': 0x223e,
-        'unl_has': 0x2242,
-        'unl_top': 0x225a,
-        'unl_ok': 0x2267,
-        'unl_lost': 0x2281,
-        'unl_jag': 0x2292,
-        'unl_z': 0x22e7,
-        'unl_text': 0x2366,
-        'unl_logic': 0x2375,
-        'loads_a': 0x2638,
-        'deref_a': 0x264b,
-        'case2_a': 0x2667,
-        'end_a': 0x267a,
-        'zend_a': 0x26fe,
-        'zwall_a': 0x2a11,
-        'zbeam_off': 0x2a25,
-        'zbeam_a': 0x2a47,
-        'etrans_a': 0x2ab0,
-        'is_zgradt': 0x2bd2,
-        'cam_4': 0x2bda,
-        'live_a': 0x2c26,
-        'zeye_a': 0x2c6b,
-        'init_a': 0x2ca9,
-        'fly_a': 0x2cd1,
-        'zflyin_a': 0x2d56,
-        'zready_a': 0x2db3,
-        'zfire_a': 0x2e09,
-        'zfloor_a': 0x2e37,
-        'tm_2': 0x2f12,
-        'tm_4': 0x2f48,
-        'clip_a': 0x2f7e,
-        'clone_a': 0x2fb6,
-        'ai_a': 0x304d,
-        'zinit_a': 0x316b,
-        'zflyout': 0x3197,
-        'zfly_draw_a': 0x3262,
-        'zswap': 0x32d9,
-        'jpose_a': 0x3326,
-        'zpost_a': 0x335f,
-        'zgold_a': 0x3382,
-        'zrest_a': 0x33af,
-        'zdark_a': 0x340f,
-        'zfade_a': 0x342b,
-        'zring_a': 0x3447,
-        'jlum_a': 0x34ed,
-        'zgauge_a': 0x351c,
-        'zg_fill': 0x3631,
-        'zg_press': 0x36f4,
-        'zg_full': 0x3775,
-        'zg_cent': 0x3779,
-        'zg_pamp': 0x377d,
-        'zg_pbase': 0x3781,
-        'zg_name': 0x3785,
-        'zbar_ra': 0x378c,
-        'zbar_la': 0x37b7,
-        'zbar_ba': 0x37e2,
-        'winfactor': 0x380d,
-        'win_1': 0x385a,
-        'win_1t': 0x3870,
-        'win_1a': 0x38ae,
-        'win_1b': 0x38ca,
-        'rep_1': 0x38e6,
-        'name_jag': 0x3995,
-        'name_z': 0x39a3,
-        'unl_file': 0x39ae,
-        'unl_you': 0x39b9,
-        'unl_press': 0x39c6,
-        'unl_grow': 0x39df,
-        'unl_size': 0x39e3,
-        'unl_level': 0x39e7,
-        'unl_read': 0x39eb,
-        'unl_clean': 0x39ef,
-        'unl_zwon': 0x39f3,
-        'unl_on': 0x39f7,
-        'unl_t': 0x39fb,
-        'unl_prev': 0x39ff,
-        'unl_go': 0x3a03,
-        'unl_got': 0x3a07,
-        'unl_placed': 0x3a0b,
-        'unl_first': 0x3a0f,
-        'unl_count': 0x3a13,
-        'unl_x1': 0x3a17,
-        'unl_y1': 0x3a1b,
-        'unl_x2': 0x3a1f,
-        'unl_y2': 0x3a27,
-        'urm_jag': 0x3a2b,
-        'urm_z': 0x3a37,
-        'unl_px': 0x3a43,
-        'unl_py': 0x3a47,
-        'stood_ca': 0x3a4b,
-        'pull': 0x3a50,
-        'zcam_k': 0x3a54,
-        'jcam_k': 0x3a58,
-        'cam_min': 0x3a5c,
-        'zcam_near': 0x3a60,
-        'ecam_jag': 0x3a64,
-        'ecam_z': 0x3a68,
-        'ecam_zfly': 0x3a6c,
-        'ecap_d': 0x3a70,
-        'zcharge': 0x3a74,
-        'zfly_on': 0x3a78,
-        'zfly_y': 0x3a7c,
-        'zfly_z': 0x3a80,
-        'zfly_p': 0x3a84,
-        'zfly_n': 0x3a88,
-        'zfly_g': 0x3a8c,
-        'zfly_h': 0x3a90,
-        'zfly_v1': 0x3a94,
-        'zfly_v2': 0x3a98,
-        'zfly_z1': 0x3a9c,
-        'zgold': 0x3aa0,
-        'zbeam_v': 0x3aa4,
-        'zbeam_y': 0x3aa8,
-        'zbeam_z': 0x3aac,
-        'zbeam_n': 0x3ab0,
-        'zbeam_free': 0x3ab4,
-        'zbeam_far': 0x3ab8,
-        'zspd': 0x3abc,
-        'zspd_at': 0x3ac0,
-        'zspd_k': 0x3ac4,
-        'zslow': 0x3ac8,
-        'end_g1p': 0x3acc,
-        'zstage': 0x3ad0,
-        'eside': 0x3ad4,
-        'eside_n': 0x3ad8,
-        'rm_jag': 0x3adc,
-        'rm_z': 0x3ae8,
-        'rrm_jag': 0x3af4,
-        'win_tries': 0x3b00,
-        'win_turn': 0x3b04,
-        'win_steps': 0x3b08,
-        'zr_wait': 0x3b0c,
-        'zl_prev': 0x3b10,
-        'zl_on': 0x3b14,
-        'zl_ang': 0x3b18,
-        'zf_start': 0x3b1c,
-        'zfl_wall': 0x3b44,
-        'zfl_step': 0x3b48,
-        'win_z': 0x3b4c,
-        'win_jag': 0x3b50,
-        'win_jmin': 0x3b54,
-        'win_zmin': 0x3b58,
-        'win_share': 0x3b5c,
-        'win_35': 0x3b60,
-        'win_30': 0x3b64,
-        'rep_z': 0x3b68,
-        'rep_jag': 0x3b6c,
-        'pullk': 0x3b70,
-        'pullh': 0x3b74,
-        'was': 0x3b78,
-        'boss': 0x3b7c,
-        'bsrc': 0x3b80,
-        'bcolor': 0x3b84,
-        'bside': 0x3b88,
-        'sel_step': 0x3b8c,
-        'sel_bstep': 0x3b90,
-        'sel_one': 0x3b94,
-        'sel_twenty': 0x3b98,
-        'sel_zgap': 0x3b9c,
-        'sel_zy': 0x3ba0,
-        'sel_zscale': 0x3ba4,
-        'sel_zstep': 0x3ba8,
-        'sel_zrise': 0x3bac,
-        'sel_zlook': 0x3bb0,
-        'sel_zback': 0x3bb4,
-        'sel_bcol': 0x3bb8,
-        'sel_bslots': 0x3bc0,
-        'sel_rowsin': 0x3bd0,
-        'sel_objst': 0x3bd4,
-        'sel_lpair': 0x3bd8,
-        'sel_launch': 0x3be0,
-        'sel_remap': 0x3be4,
-        'sel_remapto': 0x3be8,
-        'sel_fjag': 0x3bf0,
-        'sel_fz': 0x3bf8,
-        'sel_fedge': 0x3c04,
-        'sel_fslope': 0x3c08,
-        'sel_ffloor': 0x3c0c,
-        'sel_f65536': 0x3c10,
-        'sel_zup': 0x3c14,
-        'sel_zexit': 0x3c18,
-        'sel_zthrust': 0x3c1c,
-        'sel_zclear2': 0x3c20,
-        'sel_zclear': 0x3c24,
-        'sel_zfast': 0x3c28,
-        'sel_zdive': 0x3c2c,
-        'sel_zdivemax': 0x3c30,
-        'sel_zskim': 0x3c34,
-        'sel_zclimb': 0x3c38,
-        'sel_zeye': 0x3c3c,
-        'sel_zrad': 0x3c40,
-        'sel_zease': 0x3c44,
-        'sel_zpivot': 0x3c48,
-        'sel_zpivotn': 0x3c4c,
-        'sel_ztilt': 0x3c50,
-        'sel_zspin': 0x3c54,
-        'sel_zhead': 0x3c58,
-        'sel_eight': 0x3c5c,
-        'sel_four': 0x3c60,
-        'sel_zbob': 0x3c64,
-        'sel_zturn': 0x3c68,
-        'sel_zprevz': 0x3c6c,
-        'sel_zflamey': 0x3c70,
-        'sel_zflamerx': 0x3c74,
-        'sel_zflames': 0x3c78,
-        'sel_zjet': 0x3c7c,
-        'selzparts': 0x3c80,
-        'selzmotok': 0x3dec,
-        'selzgot': 0x3df0,
-        'selzmtname': 0x3df4,
-        'selzmots': 0x3e00,
-        'selzmot': 0x3e40,
-        'selzdip': 0x3e48,
-        'selzrec': 0x3e50,
-        'selzpose': 0x3e58,
-        'seljagdraw': 0x4060,
-        'sel_jagcam': 0x4064,
-        'sel_neck': 0x4070,
-        'selbuilt': 0x407c,
-        'selt0': 0x4080,
-        'seltxt': 0x40b0,
-        'sel_frx': 0x4180,
-        'sel_rbin': 0x4190,
-        'sel_rbsave': 0x4192,
-        'selblank': 0x419a,
-        'zmine': 0x41ae,
-        'copied_a': 0x41b2,
-        'banked_a': 0x41b6,
-        'rmbase_on': 0x41ba,
-        'stood_a': 0x41be,
-        'unl_palin': 0x41c2,
-        'unl_scn': 0x41c6,
-        'unl_scnmem': 0x41ca,
-        'unl_scnin': 0x41ce,
-        'unl_glow': 0x41d2,
-        'unl_sega': 0x41de,
-        'unl_texb': 0x41e2,
-        'unl_texnow': 0x41e6,
-        'bss': 0x41f0,
-        'zfake': 0x41f0,
-        'zpose': 0x4210,
-        'selzmotion': 0x4264,
-        'selzdipf': 0x13624,
-        'selzrecf': 0x1b004,
-        'selzvar': 0x229e4,
-        'selzout': 0x22a18,
-        'selrow': 0x22e18,
-        'selhas': 0x23268,
-        'selrows': 0x2326c,
-        'seld68': 0x2335c,
-        'sellcam': 0x23384,
-        'selda8': 0x233fc,
-        'selpath': 0x23424,
-        'sel_rbbuf': 0x23528,
-        'sel_rbtry': 0x23558,
-        'selscript': 0x23564,
-        'copy_a': 0x23a44,
-        'bank_a': 0x24244,
-        'scratch_a': 0x2442c,
-        'zring': 0x24614,
-        'zg_tmp': 0x2ba54,
-        'zg_mat': 0x2ba58,
-        'zg_width': 0x2ba5c,
-        'zg_held': 0x2ba60,
-        'zg_timer': 0x2ba64,
-        'zg_sounded': 0x2ba68,
-        'zg_h': 0x2ba6c,
-        'zg_ready': 0x2ba70,
-        'objsave': 0x2ba74,
-        'stand_a': 0x2c074,
-        'standai_a': 0x2c674,
-        'rmbase': 0x2c85c,
-        'aisave_a': 0x2c88c,
-        'stand_ca': 0x2ca74,
-        'standai_ca': 0x2d074,
-        'unl_tiles': 0x2d25c,
-        'unl_area': 0x31b5c,
-        'sel_rowskept': 0x364dc,
-        'unl_pals': 0x37cdc,
-        'unl_map': 0x43cdc,
-        'fxsave': 0x43d78,
-        'fx2save': 0x440d8,
+        'unl_reach': 0x200c,
+        'unl_place': 0x2034,
+        'unl_unplace': 0x20e8,
+        'unl_palsave': 0x210a,
+        'unl_palback': 0x212f,
+        'unl_scnsave': 0x2154,
+        'unl_scnback': 0x21d0,
+        'unl_ldtex': 0x2240,
+        'unl_bits': 0x2257,
+        'unl_tops': 0x225b,
+        'unl_withjag': 0x225f,
+        'unl_withz': 0x2263,
+        'unl_has': 0x2267,
+        'unl_top': 0x227f,
+        'unl_ok': 0x228c,
+        'unl_lost': 0x22a6,
+        'unl_jag': 0x22b7,
+        'unl_z': 0x230c,
+        'unl_text': 0x238b,
+        'unl_logic': 0x239a,
+        'loads_a': 0x265d,
+        'deref_a': 0x2670,
+        'case2_a': 0x268c,
+        'end_a': 0x269f,
+        'zend_a': 0x2723,
+        'zwall_a': 0x2a36,
+        'zbeam_off': 0x2a4a,
+        'zbeam_a': 0x2a6c,
+        'etrans_a': 0x2ad5,
+        'is_zgradt': 0x2bf7,
+        'cam_4': 0x2bff,
+        'live_a': 0x2c4b,
+        'zeye_a': 0x2c90,
+        'init_a': 0x2cce,
+        'fly_a': 0x2cf6,
+        'zflyin_a': 0x2d7b,
+        'zready_a': 0x2dd8,
+        'zfire_a': 0x2e2e,
+        'zfloor_a': 0x2e5c,
+        'tm_2': 0x2f37,
+        'tm_4': 0x2f6d,
+        'clip_a': 0x2fa3,
+        'clone_a': 0x2fdb,
+        'ai_a': 0x3072,
+        'zinit_a': 0x3190,
+        'zflyout': 0x31bc,
+        'zfly_draw_a': 0x3287,
+        'zswap': 0x32fe,
+        'jpose_a': 0x334b,
+        'zpost_a': 0x3384,
+        'zgold_a': 0x33a7,
+        'zrest_a': 0x33d4,
+        'zdark_a': 0x3434,
+        'zfade_a': 0x3450,
+        'zring_a': 0x346c,
+        'jlum_a': 0x3512,
+        'zgauge_a': 0x3541,
+        'zg_fill': 0x3656,
+        'zg_press': 0x3719,
+        'zg_full': 0x379a,
+        'zg_cent': 0x379e,
+        'zg_pamp': 0x37a2,
+        'zg_pbase': 0x37a6,
+        'zg_name': 0x37aa,
+        'zbar_ra': 0x37b1,
+        'zbar_la': 0x37dc,
+        'zbar_ba': 0x3807,
+        'winfactor': 0x3832,
+        'win_1': 0x387f,
+        'win_1t': 0x3895,
+        'win_1a': 0x38d3,
+        'win_1b': 0x38ef,
+        'rep_1': 0x390b,
+        'name_jag': 0x39ba,
+        'name_z': 0x39c8,
+        'unl_file': 0x39d3,
+        'unl_you': 0x39de,
+        'unl_press': 0x39eb,
+        'unl_grow': 0x3a04,
+        'unl_size': 0x3a08,
+        'unl_level': 0x3a0c,
+        'unl_read': 0x3a10,
+        'unl_clean': 0x3a14,
+        'unl_zwon': 0x3a18,
+        'unl_on': 0x3a1c,
+        'unl_t': 0x3a20,
+        'unl_prev': 0x3a24,
+        'unl_go': 0x3a28,
+        'unl_got': 0x3a2c,
+        'unl_placed': 0x3a30,
+        'unl_first': 0x3a34,
+        'unl_count': 0x3a38,
+        'unl_countp': 0x3a3c,
+        'unl_x1': 0x3a40,
+        'unl_y1': 0x3a44,
+        'unl_x2': 0x3a48,
+        'unl_y2': 0x3a50,
+        'urm_jag': 0x3a54,
+        'urm_z': 0x3a60,
+        'unl_px': 0x3a6c,
+        'unl_py': 0x3a70,
+        'stood_ca': 0x3a74,
+        'pull': 0x3a78,
+        'zcam_k': 0x3a7c,
+        'jcam_k': 0x3a80,
+        'cam_min': 0x3a84,
+        'zcam_near': 0x3a88,
+        'ecam_jag': 0x3a8c,
+        'ecam_z': 0x3a90,
+        'ecam_zfly': 0x3a94,
+        'ecap_d': 0x3a98,
+        'zcharge': 0x3a9c,
+        'zfly_on': 0x3aa0,
+        'zfly_y': 0x3aa4,
+        'zfly_z': 0x3aa8,
+        'zfly_p': 0x3aac,
+        'zfly_n': 0x3ab0,
+        'zfly_g': 0x3ab4,
+        'zfly_h': 0x3ab8,
+        'zfly_v1': 0x3abc,
+        'zfly_v2': 0x3ac0,
+        'zfly_z1': 0x3ac4,
+        'zgold': 0x3ac8,
+        'zbeam_v': 0x3acc,
+        'zbeam_y': 0x3ad0,
+        'zbeam_z': 0x3ad4,
+        'zbeam_n': 0x3ad8,
+        'zbeam_free': 0x3adc,
+        'zbeam_far': 0x3ae0,
+        'zspd': 0x3ae4,
+        'zspd_at': 0x3ae8,
+        'zspd_k': 0x3aec,
+        'zslow': 0x3af0,
+        'end_g1p': 0x3af4,
+        'zstage': 0x3af8,
+        'eside': 0x3afc,
+        'eside_n': 0x3b00,
+        'rm_jag': 0x3b04,
+        'rm_z': 0x3b10,
+        'rrm_jag': 0x3b1c,
+        'win_tries': 0x3b28,
+        'win_turn': 0x3b2c,
+        'win_steps': 0x3b30,
+        'zr_wait': 0x3b34,
+        'zl_prev': 0x3b38,
+        'zl_on': 0x3b3c,
+        'zl_ang': 0x3b40,
+        'zf_start': 0x3b44,
+        'zfl_wall': 0x3b6c,
+        'zfl_step': 0x3b70,
+        'win_z': 0x3b74,
+        'win_jag': 0x3b78,
+        'win_jmin': 0x3b7c,
+        'win_zmin': 0x3b80,
+        'win_share': 0x3b84,
+        'win_35': 0x3b88,
+        'win_30': 0x3b8c,
+        'rep_z': 0x3b90,
+        'rep_jag': 0x3b94,
+        'pullk': 0x3b98,
+        'pullh': 0x3b9c,
+        'was': 0x3ba0,
+        'boss': 0x3ba4,
+        'bsrc': 0x3ba8,
+        'bcolor': 0x3bac,
+        'bside': 0x3bb0,
+        'sel_step': 0x3bb4,
+        'sel_bstep': 0x3bb8,
+        'sel_one': 0x3bbc,
+        'sel_twenty': 0x3bc0,
+        'sel_zgap': 0x3bc4,
+        'sel_zy': 0x3bc8,
+        'sel_zscale': 0x3bcc,
+        'sel_zstep': 0x3bd0,
+        'sel_zrise': 0x3bd4,
+        'sel_zlook': 0x3bd8,
+        'sel_zback': 0x3bdc,
+        'sel_bcol': 0x3be0,
+        'sel_bslots': 0x3be8,
+        'sel_rowsin': 0x3bf8,
+        'sel_objst': 0x3bfc,
+        'sel_lpair': 0x3c00,
+        'sel_launch': 0x3c08,
+        'sel_remap': 0x3c0c,
+        'sel_remapto': 0x3c10,
+        'sel_fjag': 0x3c18,
+        'sel_fz': 0x3c20,
+        'sel_fedge': 0x3c2c,
+        'sel_fslope': 0x3c30,
+        'sel_ffloor': 0x3c34,
+        'sel_f65536': 0x3c38,
+        'sel_zup': 0x3c3c,
+        'sel_zexit': 0x3c40,
+        'sel_zthrust': 0x3c44,
+        'sel_zclear2': 0x3c48,
+        'sel_zclear': 0x3c4c,
+        'sel_zfast': 0x3c50,
+        'sel_zdive': 0x3c54,
+        'sel_zdivemax': 0x3c58,
+        'sel_zskim': 0x3c5c,
+        'sel_zclimb': 0x3c60,
+        'sel_zeye': 0x3c64,
+        'sel_zrad': 0x3c68,
+        'sel_zease': 0x3c6c,
+        'sel_zpivot': 0x3c70,
+        'sel_zpivotn': 0x3c74,
+        'sel_ztilt': 0x3c78,
+        'sel_zspin': 0x3c7c,
+        'sel_zhead': 0x3c80,
+        'sel_eight': 0x3c84,
+        'sel_four': 0x3c88,
+        'sel_zbob': 0x3c8c,
+        'sel_zturn': 0x3c90,
+        'sel_zprevz': 0x3c94,
+        'sel_zflamey': 0x3c98,
+        'sel_zflamerx': 0x3c9c,
+        'sel_zflames': 0x3ca0,
+        'sel_zjet': 0x3ca4,
+        'selzparts': 0x3ca8,
+        'selzmotok': 0x3e14,
+        'selzgot': 0x3e18,
+        'selzmtname': 0x3e1c,
+        'selzmots': 0x3e28,
+        'selzmot': 0x3e68,
+        'selzdip': 0x3e70,
+        'selzrec': 0x3e78,
+        'selzpose': 0x3e80,
+        'seljagdraw': 0x4088,
+        'sel_jagcam': 0x408c,
+        'sel_neck': 0x4098,
+        'selbuilt': 0x40a4,
+        'selt0': 0x40a8,
+        'seltxt': 0x40d8,
+        'sel_frx': 0x41a8,
+        'sel_rbin': 0x41b8,
+        'sel_rbsave': 0x41ba,
+        'selblank': 0x41c2,
+        'zmine': 0x41d6,
+        'copied_a': 0x41da,
+        'banked_a': 0x41de,
+        'rmbase_on': 0x41e2,
+        'stood_a': 0x41e6,
+        'unl_palin': 0x41ea,
+        'unl_scn': 0x41ee,
+        'unl_scnmem': 0x41f2,
+        'unl_scnin': 0x41f6,
+        'unl_glow': 0x41fa,
+        'unl_sega': 0x4206,
+        'unl_texb': 0x420a,
+        'unl_texnow': 0x420e,
+        'bss': 0x4220,
+        'zfake': 0x4220,
+        'zpose': 0x4240,
+        'selzmotion': 0x4294,
+        'selzdipf': 0x13654,
+        'selzrecf': 0x1b034,
+        'selzvar': 0x22a14,
+        'selzout': 0x22a48,
+        'selrow': 0x22e48,
+        'selhas': 0x23298,
+        'selrows': 0x2329c,
+        'seld68': 0x2338c,
+        'sellcam': 0x233b4,
+        'selda8': 0x2342c,
+        'selpath': 0x23454,
+        'sel_rbbuf': 0x23558,
+        'sel_rbtry': 0x23588,
+        'selscript': 0x23594,
+        'copy_a': 0x23a74,
+        'bank_a': 0x24274,
+        'scratch_a': 0x2445c,
+        'zring': 0x24644,
+        'zg_tmp': 0x2ba84,
+        'zg_mat': 0x2ba88,
+        'zg_width': 0x2ba8c,
+        'zg_held': 0x2ba90,
+        'zg_timer': 0x2ba94,
+        'zg_sounded': 0x2ba98,
+        'zg_h': 0x2ba9c,
+        'zg_ready': 0x2baa0,
+        'objsave': 0x2baa4,
+        'stand_a': 0x2c0a4,
+        'standai_a': 0x2c6a4,
+        'rmbase': 0x2c88c,
+        'aisave_a': 0x2c8bc,
+        'stand_ca': 0x2caa4,
+        'standai_ca': 0x2d0a4,
+        'unl_tiles': 0x2d28c,
+        'unl_area': 0x31b8c,
+        'sel_rowskept': 0x3650c,
+        'unl_pals': 0x37d0c,
+        'unl_map': 0x43d0c,
+        'fxsave': 0x43da8,
+        'fx2save': 0x44108,
+    }),
+    'PVRWIDE': (bytes.fromhex(
+        '83250000000000833d00000000007407830d0000000002ff742404ff154f0200'
+        '0083c404a100000000a337020000a100000000a33b020000a100000000a33f02'
+        '0000a100000000a3430200008b0d53020000a1000000008901a1000000008941'
+        '0431c0c3a1570200008338007514e9fcffffffa1570200008338007505e9fcff'
+        'ffff6a00e8fcffffff83c404c3810d0000000000008000c7054b020000010000'
+        '00586800000000ffe0a14b020000a347020000c7054b02000000000000e8fcff'
+        'ffff833d47020000007440813d000000003502000075348b150000000085d274'
+        '2a5753bb4002000089d7b90004000066833f20750566c707000083c7024975ef'
+        '0315000000004b75df5b5fc3833d47020000007532e839000000752c8b150000'
+        '000085d2742157538b1d0000000031c089d78b0d00000000d1e9f3ab03150000'
+        '00004b75eb5b5fc3c7050000000001000000c3a157020000833802b800000000'
+        '7505b800000000f60080c3e89cffffffe8deffffff0f95c00fb6c0a35f020000'
+        'a13702000085c07423a300000000a13b020000a300000000a13f020000a30000'
+        '0000a143020000a300000000e9fcffffff8b1d00000000eb068b1d00000000a1'
+        '000000002d8002000029c3c3e836000000ff155b0200005051a1000000008b0d'
+        '000000006601421066014a126601421466014a166601421866014a1a6601421c'
+        '66014a1e5958c35051a1000000008b0d000000006629421066294a1266294214'
+        '66294a166629421866294a1a6629421c66294a1e5958c3000000000000000000'
+        '0000000000000000000000000000000000000000000000000000000000000000'
+        '000000'
+    ), (
+        (0x2, 'abs', 'FSFLAGS', 0),
+        (0x9, 'abs', 'SPLITTYPE', 0),
+        (0x12, 'abs', 'FSFLAGS', 0),
+        (0x1d, 'abs', '.', 591),
+        (0x25, 'abs', 'CENTREAX', 0),
+        (0x2a, 'abs', '.', 567),
+        (0x2f, 'abs', 'CENTREAY', 0),
+        (0x34, 'abs', '.', 571),
+        (0x39, 'abs', 'CENTREBX', 0),
+        (0x3e, 'abs', '.', 575),
+        (0x43, 'abs', 'CENTREBY', 0),
+        (0x48, 'abs', '.', 579),
+        (0x4e, 'abs', '.', 595),
+        (0x53, 'abs', 'VIEWW', 0),
+        (0x5a, 'abs', 'VIEWH', 0),
+        (0x65, 'abs', '.', 599),
+        (0x6f, 'rel', 'REGION1', -4),
+        (0x74, 'abs', '.', 599),
+        (0x7e, 'rel', 'REGION2', -4),
+        (0x85, 'rel', 'REGIONFULL', -4),
+        (0x8f, 'abs', 'SCENEFLAGS', 0),
+        (0x99, 'abs', '.', 587),
+        (0xa3, 'abs', 'SCENE', 0),
+        (0xaa, 'abs', '.', 587),
+        (0xaf, 'abs', '.', 583),
+        (0xb5, 'abs', '.', 587),
+        (0xbe, 'rel', 'WAITRENDER', -4),
+        (0xc4, 'abs', '.', 583),
+        (0xcd, 'abs', 'PIXFMT', 0),
+        (0xd9, 'abs', 'SURFBASE', 0),
+        (0x102, 'abs', 'SURFPITCH', 0),
+        (0x10e, 'abs', '.', 583),
+        (0x11e, 'abs', 'SURFBASE', 0),
+        (0x12a, 'abs', 'VIEWH', 0),
+        (0x134, 'abs', 'VIEWW', 0),
+        (0x13e, 'abs', 'SURFPITCH', 0),
+        (0x14a, 'abs', 'SKIPFLIP', 0),
+        (0x154, 'abs', '.', 599),
+        (0x15c, 'abs', 'PLANEB', 0),
+        (0x163, 'abs', 'PLANEB2', 0),
+        (0x17c, 'abs', '.', 607),
+        (0x181, 'abs', '.', 567),
+        (0x18a, 'abs', 'CENTREAX', 0),
+        (0x18f, 'abs', '.', 571),
+        (0x194, 'abs', 'CENTREAY', 0),
+        (0x199, 'abs', '.', 575),
+        (0x19e, 'abs', 'CENTREBX', 0),
+        (0x1a3, 'abs', '.', 579),
+        (0x1a8, 'abs', 'CENTREBY', 0),
+        (0x1ad, 'rel', 'PRE2D', -4),
+        (0x1b3, 'abs', 'SURF1', 0),
+        (0x1bb, 'abs', 'SURF2', 0),
+        (0x1c0, 'abs', 'VIEWW', 0),
+        (0x1d3, 'abs', '.', 603),
+        (0x1da, 'abs', 'ORGX2', 0),
+        (0x1e0, 'abs', 'ORGY2', 0),
+        (0x20a, 'abs', 'ORGX2', 0),
+        (0x210, 'abs', 'ORGY2', 0),
+    ), {
+        'frame': 0x0,
+        'region1': 0x64,
+        'region2': 0x73,
+        'whole': 0x82,
+        'nodither': 0x8d,
+        'waitcard': 0xa9,
+        'clearsurface': 0x10c,
+        'behind3d': 0x153,
+        'drawn3d': 0x16b,
+        'fill1': 0x1b1,
+        'fill2': 0x1b9,
+        'fillfrom': 0x1bf,
+        'insert2': 0x1cc,
+        'origin_on': 0x1d7,
+        'origin_off': 0x207,
+        'centres': 0x237,
+        'rendered': 0x247,
+        'kicked': 0x24b,
+        'framefn': 0x24f,
+        'uisize': 0x253,
+        'uishow': 0x257,
+        'insertfn': 0x25b,
+        'drawn': 0x25f,
+    }),
+    'PVRBOSS': (bytes.fromhex(
+        '909090909090833db0c500021e750ac705f4c584000000000083ec34e9fcffff'
+        'ff66c70540064a020080e9fcffffff833d00000000090f85fcffffffc3813c24'
+        '000000000f82fcffffff813c24000000000f83fcffffff837c2408010f85fcff'
+        'ffff608b0d6c4d8200e85e0000008b0d704d8200e853000000b808000000bf00'
+        '00000083fd05740ab809000000bf00000000b901000000833d6c4d8200007c0b'
+        '41833d704d8200007c0141888805020000ff3789376a006a08506a01e8fcffff'
+        'ff83c4108f0761e9fcffffff83f908730b516a01e8fcffffff83c408c3837c24'
+        '0c017553608b7424248b4c242889f731d283cbffa10000000085c07505a10000'
+        '000083f8097505bb0300000085c9741749ad83f80874f583f80974f039d87503'
+        '83cbffab42ebe583fbff740489d8ab428954242861eb0760e836000000615589'
+        'e581ec24010000e9fcffffff60e821000000615589e583ec04e9fcffffff8b85'
+        'e0feffff833d00000000087505b808000000c3b808000000bb05000000e80a00'
+        '0000b809000000bb090000000fb6880502000085c97475c680050200000083f9'
+        '01751539056c4d8200753b506a01e8fcffffff83c408eb2e83f9027529390570'
+        '4d82007521ff356c4d8200c7056c4d8200ffffffff506a01e8fcffffff83c408'
+        '8f056c4d8200c68300000000008b0c9d00000000c7049d000000000000000085'
+        'c9740951e8fcffffff83c404c300000000000000000000000000000000000000'
+        '00000000000000000000000000000000000000000000006053820038d8000000'
+        '000000000000000000000000000000000000000000000054538200a45f060000'
+        '00000000000000000000006f02000058130040e815004094fd0040b810004048'
+        '130040c0f60040180e0040a8100040ecef0040780b0040080e004018e90040'
+    ), (
+        (0x1d, 'rel', 'PVR_SELDRAW', -4),
+        (0x2b, 'rel', 'PVR_REPMODEL', -4),
+        (0x31, 'abs', 'UNLON', 0),
+        (0x38, 'rel', 'PVR_SCENE', -4),
+        (0x40, 'abs', 'RBLOAD', 0),
+        (0x46, 'rel', 'PVR_FCLOSE', -4),
+        (0x4d, 'abs', 'RBLOADEND', 0),
+        (0x53, 'rel', 'PVR_FCLOSE', -4),
+        (0x5e, 'rel', 'PVR_FCLOSE', -4),
+        (0x7f, 'abs', 'BS_SLOTJ', 0),
+        (0x8e, 'abs', 'BS_SLOTZ', 0),
+        (0xad, 'abs', '.', 517),
+        (0xbd, 'rel', 'PVR_TEXLOAD', -4),
+        (0xc8, 'rel', 'PVR_FCLOSE', -4),
+        (0xd5, 'rel', 'PVR_TEXFREE', -4),
+        (0xf5, 'abs', 'BOSSID', 0),
+        (0xfe, 'abs', 'SELCURSOR', 0),
+        (0x148, 'rel', 'PVR_LOADER', -4),
+        (0x15a, 'rel', 'PVR_FREEALL', -4),
+        (0x166, 'abs', 'BOSSID', 0),
+        (0x18f, 'abs', '.', 517),
+        (0x199, 'abs', '.', 517),
+        (0x1af, 'rel', 'PVR_TEXFREE', -4),
+        (0x1d9, 'rel', 'PVR_TEXFREE', -4),
+        (0x1e8, 'abs', 'RBTRY', 0),
+        (0x1f0, 'abs', 'RBBUF', 0),
+        (0x1f7, 'abs', 'RBBUF', 0),
+        (0x205, 'rel', 'BS_FREE', -4),
+        (0x26b, 'abs', '.', 623),
+    ), {
+        'selmdl': 0x0,
+        'repmodel': 0x21,
+        'repscene': 0x2f,
+        'fclose': 0x3d,
+        'vacate': 0xcc,
+        'loader': 0xdd,
+        'freeall': 0x14c,
+        'ownside': 0x15e,
+        'dropall': 0x173,
+        'drop': 0x18c,
+        'ready': 0x20d,
+        'rbnames': 0x20f,
+        'flames': 0x25f,
+        'flames3': 0x26f,
+    }),
+    'PVRHOLD': (bytes.fromhex(
+        'a300000000c3'
+    ), (
+        (0x1, 'abs', 'FLIPTIME', 0),
+    ), {
+        'store': 0x0,
     }),
     'PAD_COND': (bytes.fromhex(
         '0200000000100000020000000020000002000000004000000200000000800000'
@@ -17160,6 +18586,37 @@ BLOBS = {
         'user32': 0x0,
         'dlgboxproc': 0xb,
         'checks': 0x24,
+    }),
+    'F5_PVR': (bytes.fromhex(
+        'c000c88000000000130000000000d40082000000000047007200610070006800'
+        '690063002000530065007400740069006e0067007300000008004d0053002000'
+        '530061006e007300200053006500720069006600000000000100015000000000'
+        '4100730025000e003004ffff80004f004b000000000000000000015000000000'
+        '6d00730025000e000200ffff8000430061006e00630065006c00000000000000'
+        '09000350000000005a0005002b0008002004ffff80004e006f0072006d006100'
+        '6c00000000000000090001500000000087000500270008002104ffff80004c00'
+        '61007200670065000000000009000350000000005a000f00280009002204ffff'
+        '80005200690063006800000000000000090001500000000087000f002d000900'
+        '2304ffff80004e006f0072006d0061006c000000000000000300014800000000'
+        '28002f0029000b003204ffff80004600690065006c0064000000000003000150'
+        '000000005a002f0029000b003304ffff800053006b0079000000000003000150'
+        '0000000087002f0029000b003404ffff80004f00750074007300690064006500'
+        '0000000009000350000000005a004a00290008002c04ffff8000330030002000'
+        '460050005300000000000000090001500000000087004a00290008002d04ffff'
+        '800036003000200046005000530000000000000009000350000000005a005700'
+        '240008002e04ffff800054007900700065003100000000000900015000000000'
+        '87005700240008002f04ffff8000540079007000650032000000000000000250'
+        '000000000f00050022000800ffffffff8200530063007200650065006e000000'
+        '00000000000002500000000012004a0032000800ffffffff82004d006f007400'
+        '69006f006e002000540079007000650000000000000002500000000012005600'
+        '32000a00ffffffff8200530063007200650065006e002000530070006c006900'
+        '7400000000000000070000500000000010002500af001800ffffffff80004400'
+        '6900730070006c006100790020004f0062006a00650063007400730000000000'
+        '00000250000000000f000f002b000900ffffffff82004600690065006c006400'
+        '2000470072006100700068006900630000000000000002500000000019005f00'
+        '1a000800ffffffff8200280032005000200056005300290000000000'
+    ), (
+    ), {
     }),
 }
 # BLOBS BLOB END
@@ -17488,6 +18945,36 @@ F5_FPS = bytes.fromhex(
     '720061007000680069006300000000000000025000000000160069001a000800'
     'ffffffff8200280032005000200056005300290000000000'
 )
+
+PVR_F5_STOCK = bytes.fromhex(
+    'c000c88000000000130000000000d40082000000000047007200610070006800'
+    '690063002000530065007400740069006e0067007300000008004d0053002000'
+    '530061006e007300200053006500720069006600000000000100015000000000'
+    '4100730025000e003004ffff80004f004b000000000000000000015000000000'
+    '6d00730025000e000200ffff8000430061006e00630065006c00000000000000'
+    '09000350000000005a0005002b0008002004ffff80004e006f0072006d006100'
+    '6c00000000000000090001500000000087000500270008002104ffff80004c00'
+    '61007200670065000000000009000350000000005a000f00280009002204ffff'
+    '80005200690063006800000000000000090001500000000087000f002d000900'
+    '2304ffff80004e006f0072006d0061006c000000000000000300014800000000'
+    '28002f0029000b003204ffff80004600690065006c0064000000000003000150'
+    '000000005a002f0029000b003304ffff800053006b0079000000000003000150'
+    '0000000087002f0029000b003404ffff80004f00750074007300690064006500'
+    '0000000009000350000000005a004a00230008002c04ffff8000460061007300'
+    '7400000000000000090001500000000087004a00290008002d04ffff80005300'
+    '6d006f006f007400680000000000000009000350000000005a00570024000800'
+    '2e04ffff80005400790070006500310000000000090001500000000087005700'
+    '240008002f04ffff800054007900700065003200000000000000025000000000'
+    '0f00050022000800ffffffff8200530063007200650065006e00000000000000'
+    '000002500000000012004a0032000800ffffffff82004d006f00740069006f00'
+    '6e00200054007900700065000000000000000250000000001200560032000a00'
+    'ffffffff8200530063007200650065006e002000530070006c00690074000000'
+    '00000000070000500000000010002500af001800ffffffff8000440069007300'
+    '70006c006100790020004f0062006a0065006300740073000000000000000250'
+    '000000000f000f002b000900ffffffff82004600690065006c00640020004700'
+    '72006100700068006900630000000000000002500000000019005f001a000800'
+    'ffffffff8200280032005000200056005300290000000000'
+)
 # DIALOGS BLOB END
 
 # Where the blob lands, where the version goes inside it, and how much room
@@ -17657,14 +19144,6 @@ CREDIT_AFTER = 1                # the first spacer, just past the title
 # carries 0x63; these two take the title's -1 and centre with it, since the
 # lines are right-aligned inside their own bitmaps already.
 CREDIT_FLAG = 0xffffffff
-# The title is followed by five blank spacers of four rows before "PC version
-# STAFF". The lines go inside that run rather than after it, centred: seven
-# blank rows, the two lines, seven more. Five entries replaced by five, twenty
-# rows by twenty, so nothing below moves and the roll keeps its length.
-CREDIT_SPACERS = 5              # blank blocks the lines are placed into
-CREDIT_GAP_TOP = 7              # blank rows above the lines
-CREDIT_GAP_BOTTOM = 7           # and below - the six text rows leave 14
-CREDIT_GAP = 1                  # between the two lines
 # Where the new cells go in the map. The title block is 42x3, so the two new
 # blocks start right after its 126 cells.
 CREDIT_CELLS_AT = 126
@@ -17674,12 +19153,33 @@ CREDIT_CELLS_AT = 126
 CREDIT_RIGHT = 366
 
 SCRSTFCG = 'scrstfcg.bin'       # the tile sheet: 1129 tiles, 8x8, 16bpp
-SCRSTFCG_SIZE = 144512
-SCRSTFCG_MD5 = '1141876c33fe75fe6aaaf5780ae730d8'
 SCRSTFMP = 'scrstfmp.bin'       # one 16-bit tile index per cell
-SCRSTFMP_SIZE = 9288
-SCRSTFMP_MD5 = '4cb38735719c986f7a303e8215466220'
-CREDIT_INK = 0xffbf             # the only non-zero value in the sheet
+
+# How a build's roll files differ. spacers is how many blank blocks follow the
+# title, and the lines replace them. gaps is the blank rows above the lines,
+# between them and below them; a gap of 0 takes no entry. pad is the blank rows
+# line 1's block carries under its text. counts and table are the file offsets
+# of the two byte counts and the first spacer, for a build whose site map does
+# not hold them.
+Roll = collections.namedtuple('Roll', 'cg_size cg_md5 mp_size mp_md5 ink '
+                                      'spacers gaps pad counts table')
+# Five spacers of four rows come before "PC version STAFF". The lines go inside
+# them, centred. The twenty rows stay twenty, so nothing below moves and the
+# roll keeps its length.
+STOCK_ROLL = Roll(144512, '1141876c33fe75fe6aaaf5780ae730d8',
+                  9288, '4cb38735719c986f7a303e8215466220', 0xffbf,
+                  5, (7, 1, 7), 0, None, None)
+# PowerVR's roll names its own staff, in 1192 tiles of ink 0xffdf. Only four
+# spacers follow its title, sixteen rows. Four entries cannot hold both lines
+# and three gaps, so line 1's block carries the row between the lines.
+PVR_ROLL = Roll(152576, '333228d6f2c2d006175420ec4bf5ed38',
+                9918, '40f3b733ce6ae9611020b4787cc0789e', 0xffdf,
+                4, (5, 0, 5), 1, 0x001fa520, 0x0037c734)
+ROLLS = {PVR.md5: PVR_ROLL}
+
+
+def roll_of(build):
+    return ROLLS.get(build.md5, STOCK_ROLL)
 
 BANNER_W, BANNER_H = 42, 3      # cells
 BANNER_TABLE = 0x00269b60       # v_on.exe, the tile index for each cell
@@ -17725,7 +19225,7 @@ def banner_tiles():
     return tiles, table
 
 
-def credit_tiles():
+def credit_tiles(roll=STOCK_ROLL):
     """Expand both lines into 8x8 tiles and the cell index for each.
 
     Deduplicated across both lines, and blank cells cost no tile at all -
@@ -17733,10 +19233,10 @@ def credit_tiles():
     line of text needs far fewer tiles than it has cells.
 
     The tiles go on the end of scrstfcg.bin, so their indices carry on from
-    the 1129 already there. Bit 15 is set on every non-zero entry because
+    the ones already there. Bit 15 is set on every non-zero entry because
     the loader tests the whole word for zero before rebasing it."""
     tiles, cells = [], []
-    for width, height, bits in CREDITS:
+    for line, (width, height, bits) in enumerate(CREDITS):
         for r in range(height):
             for c in range(width):
                 raw = bytearray()
@@ -17744,50 +19244,82 @@ def credit_tiles():
                     base = (r * 8 + y) * width
                     for x in range(c * 8, c * 8 + 8):
                         on = bits[base + (x >> 3)] >> (7 - (x & 7)) & 1
-                        raw += (CREDIT_INK if on else 0).to_bytes(2, 'little')
+                        raw += (roll.ink if on else 0).to_bytes(2, 'little')
                 raw = bytes(raw)
                 if not any(raw):
                     cells.append(0)         # blank: no tile, no index
                     continue
                 if raw not in tiles:
                     tiles.append(raw)
-                cells.append(0x8000 | (SCRSTFCG_SIZE // 128 + tiles.index(raw)))
+                cells.append(0x8000 | (roll.cg_size // 128 + tiles.index(raw)))
+        if line == 0:
+            cells += [0] * (width * roll.pad)
     return tiles, cells
 
 
-CREDIT_NEW_TILES, CREDIT_CELLS = credit_tiles()
+def credit_roll(data, cells, build):
+    """The two stock roll files with the lines in: (tile sheet, map)."""
+    tiles, new = credit_tiles(roll_of(build))
+    at = CREDIT_CELLS_AT * 2
+    return (bytes(data) + b''.join(tiles),
+            bytes(cells[:at]) + b''.join(c.to_bytes(2, 'little') for c in new)
+            + bytes(cells[at:]))
 
 
-def credit_table(original):
+def credit_table(original, roll=STOCK_ROLL):
     """The block list with the two new lines placed after the title.
 
-    Nothing calls this at patch time - the result is committed as the site's
-    hex - but tools/credittest.py runs it against the original bytes to check
-    that what is committed is still what this produces.
+    Retail's result is committed as the site's hex, and tools/credittest.py
+    runs this against the original bytes to check it still matches. The
+    PowerVR build's sites call it directly (pvr_credit_sites).
 
-    The five blank spacers between the title and "PC version STAFF" are
-    replaced by five entries carrying the same twenty rows, with the lines
-    centred in them. Nothing shifts and the roll does not get longer."""
+    The blank spacers between the title and "PC version STAFF" are replaced
+    by as many entries carrying the same rows, with the lines centred in
+    them. Nothing shifts and the roll does not get longer."""
     entry = struct.Struct('<3I')
     rows = [entry.unpack_from(original, i * 12)
             for i in range(len(original) // 12)]
-    gap = rows[CREDIT_AFTER:CREDIT_AFTER + CREDIT_SPACERS]
+    gap = rows[CREDIT_AFTER:CREDIT_AFTER + roll.spacers]
     # Text in there would mean the table moved under us and the lines would
     # land on top of somebody's credit.
     if any(w for _flag, w, _h in gap):
         raise AssertionError('block %d..%d are not the blank spacers this '
                              'expects' % (CREDIT_AFTER,
-                                          CREDIT_AFTER + CREDIT_SPACERS - 1))
-    placed = [(0, 0, CREDIT_GAP_TOP),
-              (CREDIT_FLAG, CREDITS[0][0], CREDITS[0][1]),
-              (0, 0, CREDIT_GAP),
+                                          CREDIT_AFTER + roll.spacers - 1))
+    placed = [(0, 0, roll.gaps[0]),
+              (CREDIT_FLAG, CREDITS[0][0], CREDITS[0][1] + roll.pad),
+              (0, 0, roll.gaps[1]),
               (CREDIT_FLAG, CREDITS[1][0], CREDITS[1][1]),
-              (0, 0, CREDIT_GAP_BOTTOM)]
-    if sum(h for _f, _w, h in placed) != sum(h for _f, _w, h in gap):
-        raise AssertionError('the lines do not fit the twenty rows they '
-                             'replace')
-    rows[CREDIT_AFTER:CREDIT_AFTER + CREDIT_SPACERS] = placed
+              (0, 0, roll.gaps[2])]
+    placed = [row for row in placed if row[1] or row[2]]
+    if len(placed) != len(gap) \
+            or sum(h for _f, _w, h in placed) != sum(h for _f, _w, h in gap):
+        raise AssertionError('the lines do not fit the rows they replace')
+    rows[CREDIT_AFTER:CREDIT_AFTER + roll.spacers] = placed
     return b''.join(entry.pack(*r) for r in rows[:len(original) // 12])
+
+
+def pvr_hold_site():
+    """The call HOLD TO SKIP makes first on PowerVR, a blob only it has."""
+    code = link('PVRHOLD', PVR)
+    return (In(PVR_MD5, PVR.off(cave_va('PVRHOLD', PVR))),
+            '00' * len(code), code.hex())
+
+
+def pvr_credit_sites():
+    """The roll's sites on PowerVR: its own two byte counts and spacers."""
+    roll = PVR_ROLL
+    tiles, cells = credit_tiles(roll)
+    spacers = struct.pack('<3I', 0, 0, 4) * roll.spacers
+    table = credit_table(struct.pack('<3I', CREDIT_FLAG, CREDITS[0][0], 3)
+                         + spacers, roll)[12:]
+    return [(In(PVR_MD5, roll.counts),
+             struct.pack('<I', roll.cg_size).hex(),
+             struct.pack('<I', roll.cg_size + 128 * len(tiles)).hex()),
+            (In(PVR_MD5, roll.counts + 4),
+             struct.pack('<I', roll.mp_size).hex(),
+             struct.pack('<I', roll.mp_size + 2 * len(cells)).hex()),
+            (In(PVR_MD5, roll.table), spacers.hex(), table.hex())]
 
 
 BANNER_TILES, BANNER_CELLS = banner_tiles()
@@ -18197,6 +19729,221 @@ def boss_icon_tiles():
     return tiles
 
 
+PVR_WIDE = (1024, 576)          # 16:9 in whole 32-pixel tiles, the card's
+                                # widest
+
+
+def pvr_wide_sites():
+    """Native widescreen on the PowerVR build: the sites that need no address
+    from the section pvr_ui_install appends. Every row is the build's own, by
+    virtual address: see docs/HIRES.md, The PowerVR build."""
+    w, h = PVR_WIDE
+    sy = h / 480
+    def at(va):
+        return In(PVR_MD5, PVR.off(va))
+    def word(va, old, new):
+        return (at(va), u32(old).hex(), u32(new).hex())
+    def flt(va, old, new):
+        return (at(va), f32(old).hex(), f32(new).hex())
+    def f64(value):
+        return struct.pack('<d', value)
+    def hexes(va, old, new):
+        return (at(va), old, new)
+    def skip(va, old, to):
+        rel = struct.pack('<i', to - (va + 5)).hex()
+        return hexes(va, old, 'e9' + rel + '90' * (len(old) // 2 - 5))
+    def hook(va, old, target):
+        rel = symbol_va(target, PVR) - (va + 5)
+        return hexes(va, old, 'e8' + struct.pack('<i', rel).hex())
+    def hook_pad(va, old, target):
+        site, was, new = hook(va, old, target)
+        return site, was, new + '90'
+    # The window, SetDisplayMode's callers, the SGL device and viewport, and
+    # the ALT+TAB recreate.
+    rows = [word(va + 1, 640, w) for va in (
+        0x495a2e, 0x496d86, 0x497590, 0x4979ab, 0x4998a4, 0x4999d2, 0x499a66,
+        0x548bdb, 0x472884, 0x472a2b, 0x47291c, 0x472ac3)]
+    rows += [word(va + 1, 480, h) for va in (
+        0x495a29, 0x496d81, 0x49758b, 0x4979a6, 0x49989f, 0x4999cd, 0x499a61,
+        0x548bd6, 0x47287f, 0x472a26, 0x472917, 0x472abe)]
+    rows += [flt(va + 1, 640.0, float(w)) for va in (0x47290e, 0x472ab5)]
+    rows += [flt(va + 1, 480.0, float(h)) for va in (0x472909, 0x472ab0)]
+    # The 3D scale follows the height, so the vertical view stays as it was
+    # and the wider picture shows more at the sides.
+    rows += [flt(0x49847f, 1.0, sy), flt(0x4984ce, 0.95, 0.95 * sy)]
+    # The mode selector returns failure for a size it does not know. The
+    # enumeration callback (0x495c4a) still looks for 640x480, and
+    # SetDisplayMode is the judge.
+    rows += [word(0x499725, 640, w), word(0x499732, 480, h)]
+    # No low-resolution mode: 320x240 cannot hold this width. Its toggle and
+    # menu command go to the handler's exit, and a saved ScrSize with the
+    # bit set reads as a value out of range, which takes the default.
+    rows += [skip(va, '6a1068f0000000', 0x497e70)
+             for va in (0x4975a9, 0x497a14)]
+    rows += [hexes(0x56df19, '07', '03')]
+    # One player's viewport, and the render regions, in .data: the whole
+    # frame in every layout.
+    rows += [word(0x498bc3, 640, w), word(0x498b95, 640, w),
+             word(0x498bcd, 480, h), word(0x498ba7, 480, h)]
+    rows += [word(0x66cd98, 639, w - 1), word(0x66cda0, 479, h - 1),
+             word(0x66cdb8, 575, w - 1), word(0x66cdb4, 64, 0),
+             word(0x66cdc0, 479, h - 1), word(0x66cdc8, 639, w - 1),
+             word(0x66cdcc, 64, 0), word(0x66cdd0, 415, h - 1),
+             word(0x66cdd8, 639, w - 1), word(0x66cddc, 120, 0),
+             word(0x66cde0, 359, h - 1)]
+    # Each renderer's own region in a split frame, in the same table: top and
+    # bottom, then side by side for either setting of the radio it tests. The
+    # card clips on whole tiles, and the views meet on a tile line.
+    sbs, tb = w // 2, h // 2
+    rows += [word(0x66cde4 + 4 * i, old_, new_) for i, (old_, new_) in enumerate((
+        (64, 0), (383, w - 1), (0, 0), (239, tb - 1),
+        (256, 0), (575, w - 1), (240, tb), (479, h - 1),
+        (0, 0), (319, sbs - 1), (64, 0), (303, h - 1),
+        (320, sbs), (639, w - 1), (176, 0), (415, h - 1),
+        (0, 0), (319, sbs - 1), (120, 0), (359, h - 1),
+        (320, sbs), (639, w - 1), (120, 0), (359, h - 1))) if old_ != new_]
+    # The bands stock masks around its split layouts, in both device paths.
+    rows += [skip(0x472d33, '6a706840010000', 0x472d5f),
+             skip(0x472de8, '6a186880020000', 0x472e11),
+             skip(0x47307f, '680000e042', 0x4730b4),
+             skip(0x473125, '680000c041', 0x473157)]
+    # The two split layouts. Side by side is two 512x576 viewports, top and
+    # bottom two 1024x288, both with no origins; the layout tests read bit 1
+    # alone where the origin table reads Screen=Normal too. The second
+    # viewport starts half a row in, for the 2D layer and for the card.
+    rows += [word(0x498ae3, 320, w), word(0x498aed, 240, tb),
+             word(0x498b10, 320, sbs), word(0x498b1a, 240, h),
+             hexes(0x498ad6, '02', '03'), hexes(0x498c58, '02', '03')]
+    rows += [word(0x6ac468 + 4 * i, old, 0) for i, old in enumerate(
+        (120, 120, 64, 176, 64, 256, 64, 64, 176, 256, 120, 120))]
+    rows += [word(va, 640, w) for va in (0x498628, 0x4986aa, 0x498990)]
+    rows += [word(va, 320, sbs) for va in (0x4985e8, 0x49866a)]
+    rows += [word(0x4986ec, 240, tb),
+             hexes(0x498723, '8d0c498d0c89c1e104',
+                   '69c9' + u32(tb).hex() + '909090')]
+    # The second renderer's scale starts at the first's: the split block,
+    # out of line in pvr_ui_install, applies the layout's factor to both.
+    rows += [flt(0x498489, 0.5, sy)]
+    # F5's split radios choose the layout (asm/pvrwide.asm), so its test
+    # for the third, which this template lacks, never passes.
+    rows += [hexes(0x594f2f, '02', '00')]
+    # The sprite blit: split or not, mode 8 takes the plain path, as at
+    # 0x47f0c0 on the other builds.
+    rows += [hexes(0x418c54, '8b0d58fb82003bc80f84bd010000',
+                   '833d44706400080f84be01000090')]
+    # The select's rectangles: when both planes hide the 3D the card does not
+    # run, and a software list draws the portrait frames. Engine 1's halves
+    # them under the split flag, which pre hides. Engine 2's halves them always,
+    # since stock only ever drew it in a half-size view, so it does as 1 does.
+    rows += [hexes(0x43c7fa, '30', '60')]
+    rows += [hexes(va, '2bc2d1f8', '90909090')
+             for va in (0x43c81f, 0x43c835, 0x43c848, 0x43c854)]
+    # The frame's 2D calls run whether or not plane B shows: stub1 is where
+    # the blob captures the frame, and the engines test the bit themselves.
+    rows += [hexes(0x4980d3, '0f8405000000', '90' * 6),
+             hexes(0x4980f7, '0f8405000000', '90' * 6)]
+    # The 2D row tables are 480 entries each and the second is followed by the
+    # draw-skip flags and the frame divisor. Nothing reads the second: it is not
+    # filled, so at this height the first can run into it.
+    rows += [hexes(0x498216, 'e8b4d9ffff', '90' * 5)]
+    # The two 24-pixel fonts behind the pause, loading and message text.
+    rows += [word(va, 24, 24 * h // 480) for va in (0x6ac4a8, 0x6ac528)]
+    # The clear on a mode change, in dwords a row.
+    rows += [word(0x419c42, 320, w // 2), word(0x419c3d, 480, h)]
+    # GDI text: the pause and message centre, its rectangles, and the wrap.
+    rows += [word(va, 320, w // 2) for va in (0x499daa, 0x499e3a)]
+    rows += [word(va, 640, w)
+             for va in (0x499306, 0x499362, 0x499386, 0x4991f1)]
+    rows += [word(va, 160, 160 * h // 480) for va in (0x499db1, 0x499e41)]
+    rows += [word(va, 480, h)
+             for va in (0x49930d, 0x499369, 0x49938d, 0x4990ca)]
+    rows += [word(0x4992ff, 336, 336 * h // 480)]
+    rows += [word(va, 432, 432 * h // 480) for va in (0x49935b, 0x49937f)]
+    # Where an unfitted movie goes: 320x200 in the middle.
+    rows += [word(0x4998c9, 160, (w - 320) // 2),
+             word(0x4998d3, 140, (h - 200) // 2)]
+    # The ending roll, as hires' build_sites has it for retail: the window
+    # moved 13 rows, 60 rows drawn and the destination's cap raised, in both
+    # engines; the strip watermarks floored; the letterbox off; the entering
+    # row's push re-encoded; the cut, its check and the SEGA card moved. The
+    # star field starts further left, by the extra width in columns.
+    for coarse, count, cap, push in ((0x41a15e, 0x41a12f, 0x41a4f7, 0x41a226),
+                                     (0x43948e, 0x43945f, 0x439827, 0x439556)):
+        rows += [hexes(coarse, '81e1ffff0000', '83e90d83e13f'),
+                 hexes(count, '32', '3c'), hexes(cap, '31', '3d'),
+                 hexes(push, 'b8080000002bc350', '8d43085090909090')]
+    rows += [hexes(va, '83e27f', '83e200') for va in (
+        0x439f17, 0x43a1f5, 0x43a573, 0x43a926, 0x41bd16, 0x41c441, 0x41c96b,
+        0x41cfa2, 0x41d45a, 0x41d6df, 0x41da3e, 0x41dcdf, 0x439f95, 0x43a30a,
+        0x43a6fe, 0x43aacc, 0x41be7e, 0x41c6c2, 0x41cb7a, 0x41d116, 0x41d4de,
+        0x41d763, 0x41dad0, 0x41dd63)]
+    rows += [hexes(va, '0f85a6000000', 'e9a700000090')
+             for va in (0x41a834, 0x439b74)]
+    rows += [word(0x51c434, 0x10e2, 0x10e2 + 80),
+             word(0x51c7d9, 0x10e3, 0x10e3 + 80), hexes(0x517c67, '16', '09')]
+    rows += [word(0x51ca54, -9000 & 0xffffffff, star_start(w, h) & 0xffffffff)]
+    wide, margin, win = wider_view(w, h)
+    # The machine select's draw window, as on the others: the wider view's
+    # half field plus eight degrees for a machine's own width. The loader's
+    # fifth slot, in pvr_ui_install, is what lets the extra machine load.
+    # Each renderer has a copy.
+    for lo, hi in ((0x642a30, 0x642a38), (0x5fc148, 0x5fc150)):
+        rows += [hexes(lo, f64(31.57).hex(), f64(31.57 + margin + 8).hex()),
+                 hexes(hi, f64(28.43).hex(), f64(28.43 + margin + 8).hex())]
+    # The enemy marker and its arrow: the x bounds in focal-600 space, a copy
+    # per renderer, and the bearing window with the extra half field of view.
+    rows += [flt(va, -256.0, -256.0 * wide) for va in (0x6142d0, 0x641fd8)]
+    rows += [flt(va, 256.0, 256.0 * wide) for va in (0x6142d4, 0x641fdc)]
+    rows += [word(va, 0x1500, win)
+             for va in (0x462c4a, 0x462db2, 0x5c201a, 0x5c2182)]
+    rows += [word(va, 0xffffeb00, -win)
+             for va in (0x462c59, 0x462dc1, 0x5c2029, 0x5c2191)]
+    # Stage objects mesh outside a yaw window, the add and its compare: as
+    # the others', 22.5 degrees more, in the three windows each renderer calls.
+    for add, cmp_ in ((0x55e252, 0x55e263), (0x593cd2, 0x593ce3)):
+        rows += [word(add, 0x4800, 0x5800), word(cmp_, 0x9000, 0xb000)]
+    for add, cmp_ in ((0x55e369, 0x55e37a), (0x55e46f, 0x55e480),
+                      (0x593de9, 0x593dfa), (0x593eef, 0x593f00)):
+        rows += [word(add, 0x3800, 0x4800), word(cmp_, 0x7000, 0x9000)]
+    # The glue's hooks, and the glue. Every call to the viewport setup goes
+    # through the frame hook: this build's 2D layer runs after a whole frame,
+    # so any of them can come between the setup and the 2D layer that needs it.
+    rows += [hook(va, old_, 'WIDEFRAME') for va, old_ in (
+        (0x4981eb, 'e8e9010000'), (0x495867, 'e86d2b0000'),
+        (0x49a0c9, 'e80be3ffff'), (0x49a941, 'e893daffff'),
+        (0x49a9c2, 'e812daffff'))]
+    rows += [hook(0x4980c7, 'e8941bf8ff', 'WIDEDRAWN')]
+    rows += [hook(0x4980aa, 'e87ba6fdff', 'WIDEWAIT')]
+    rows += [hook(0x4961f9, 'e897d9fdff', 'WIDEREG1'),
+             hook(0x496238, 'e884dcfdff', 'WIDEREG2')]
+    # Near-black: the card's dither off at both render calls, as the other
+    # builds' rasterizers have none.
+    rows += [hook(va, '68a0a00002', 'WIDENODITHER')
+             for va in (0x4732fa, 0x472b86)]
+    rows += [hook_pad(0x419d51, '8b1db8346a00', 'WIDEFILL1'),
+             hook_pad(0x439071, '8b1dc0346a00', 'WIDEFILL2')]
+    code = link('PVRWIDE', PVR)
+    rows.append((at(cave_va('PVRWIDE', PVR)), '00' * len(code), code.hex()))
+    return rows
+
+
+def pvr_boss_sites():
+    """Playable bosses on the PowerVR build, on top of the table's sites."""
+    code = link('PVRBOSS', PVR)
+    def rel(site, sym):
+        return struct.pack('<i', symbol_va(sym, PVR) - (site + 5)).hex()
+    return [(In(PVR_MD5, PVR.off(0x57f03f)), '558bec81ec24010000',
+             'e9' + rel(0x57f03f, 'PVRLOADER') + '90' * 4),
+            (In(PVR_MD5, PVR.off(0x57e29d)), '558bec83ec04',
+             'e9' + rel(0x57e29d, 'PVRFREEALL') + '90'),
+            (In(PVR_MD5, PVR.off(0x57f7d0)), '8b85e0feffff',
+             'e8' + rel(0x57f7d0, 'PVROWNSIDE') + '90'),
+            (In(PVR_MD5, PVR.off(0x487ca9)), 'e87c890f00',
+             'e8' + rel(0x487ca9, 'PVRREPSCENE')),
+            (In(PVR_MD5, PVR.off(cave_va('PVRBOSS', PVR))),
+             '00' * len(code), code.hex())]
+
+
 FEATURES = [
     ('sound', 'Sound fixes',
      'Three small fixes.\n'
@@ -18235,7 +19982,8 @@ FEATURES = [
          #
          #   call titlever
          (0x001c5900, 'a1405fae01', call(0x001c5900, ('TITLEVER', 'titlever'))),
-         (site('TITLEVER'), zeros('TITLEVER'), blob('TITLEVER'))]),
+         (site('TITLEVER'), zeros('TITLEVER'), blob('TITLEVER'))]
+     + pvr_credit_sites()),
 
     ('movie', 'Intro, loading and ending screens',
      'Four fixes to the screens either side of the fighting.\n'
@@ -18298,7 +20046,12 @@ FEATURES = [
          # surface is flipped is made in the stub instead, which is
          # what puts the text on the frame about to be shown.
          (0x001c58e7, 'e8f31b0000', call(0x001c58e7, ('OVERLAY', 'overlay'))),
-         (site('OVERLAY'), zeros('OVERLAY'), blob('OVERLAY'))]),
+         (site('OVERLAY'), zeros('OVERLAY'), blob('OVERLAY')),
+         # On PowerVR the matching call runs only behind a toggle, so the
+         # hook is the store just before the flip (asm/pvrhold.asm).
+         (In(PVR_MD5, 0x00097586), 'a3b09c0002',
+          call(In(PVR_MD5, 0x00097586), ('OVERLAY', 'overlay'))),
+         pvr_hold_site()]),
 
 
     ('defaults', 'Better defaults with no v_on.ini',
@@ -18316,7 +20069,13 @@ FEATURES = [
                       'e92300000090909090909090909090'),
          (0x0010b1b0, '00000000', '01000000'),
          (0x0010b1ba, '00000000', '01000000'),
-         (0x0010b1c4, '00000000', '01000000')]),
+         (0x0010b1c4, '00000000', '01000000'),
+         # The PowerVR build's Field Graphic fallback clears two flags where
+         # retail's clears one, so its jump into the Rich block (0x56dfd9)
+         # is longer and lands elsewhere.
+         (In(PVR_MD5, 0x0016d3a7),
+          'c7052c3f7f0000000000c7051449650000000000e964000000',
+          'e92d000000' + '90' * 20)]),
 
     ('nodisc', 'No disc required',
      'Removes the disc check. The soundtrack then has to come from\n'
@@ -18381,6 +20140,16 @@ FEATURES = [
           'c705' + abs32('SPEEDSEL') + '01000000'),
          (0x006035ac, '2c040000', '30040000'),
          (0x0060c064, F5_STOCK.hex(), F5_FPS.hex()),
+         # The PowerVR build's F5 dialog cannot grow where it is: the next
+         # resource starts where it ends. The stock one is checked in
+         # place, the new one goes in the annex, and the resource entry
+         # (data RVA, size) points there.
+         (In(PVR_MD5, 0x00784a58), PVR_F5_STOCK.hex(), PVR_F5_STOCK.hex()),
+         (In(PVR_MD5, PVR.off(cave_va('F5_PVR', PVR))),
+          '00' * len(blob_of('F5_PVR')[0]), blob_of('F5_PVR')[0].hex()),
+         (In(PVR_MD5, 0x0077c1e8), '58d20a0258030000',
+          struct.pack('<II', cave_va('F5_PVR', PVR) - 0x400000,
+                      len(blob_of('F5_PVR')[0])).hex()),
          (0x0010afbe, 'c705d0846c0003000000',
           'c705' + abs32('FRAMEDIV') + '01000000'),
          (0x0010afeb, 'c705d0846c0003000000',
@@ -19021,7 +20790,7 @@ FEATURES = [
          (0x0010f8a1, 'c7050885bf0000000c42', call(0x0010f8a1, ('BOSSES', 'win_1a'), 5)),
          (0x0010f8b0, 'c7050885bf000000f041', call(0x0010f8b0, ('BOSSES', 'win_1b'), 5)),
          (0x0010325f, 'e8bc48f0ff', call(0x0010325f, ('BOSSES', 'rep_1'))),
-         (site('BOSSES'), zeros('BOSSES'), blob('BOSSES'))]),
+         (site('BOSSES'), zeros('BOSSES'), blob('BOSSES'))] + pvr_boss_sites()),
 
     # No sites: written beside the game as bosses.bin, the progress the
     # bosses patch keeps (see Patcher._write_unlocks).
@@ -19035,6 +20804,9 @@ FEATURES = [
      '\tsame way.\n'
      'File\tbosses.bin beside the game, which keeps the unlocks.\n'
      '\tProgress already made is never taken back.', []),
+
+    # BY_KEY['hires'] below names it: the other builds' sites are computed.
+    ('hires', 'Native widescreen', '', pvr_wide_sites()),
 ]
 
 
@@ -19056,6 +20828,9 @@ def features(build):
     out = []
     for key, label, tip, sites in FEATURES:
         rows = []
+        if unsupported(build, key):
+            out.append((key, label, tip, rows))
+            continue
         for off, orig, new in sites:
             if isinstance(off, In):
                 if off.md5 != build.md5:
@@ -19087,7 +20862,8 @@ def by_key(build):
     table = {key: (label, tip, sites)
              for key, label, tip, sites in features(build)}
     table['dinput'] = BY_KEY['dinput']
-    table['hires'] = BY_KEY['hires']
+    # Computed at apply time, except on a build whose rows are in FEATURES.
+    table['hires'] = BY_KEY['hires'][:2] + (table['hires'][2] or None,)
     return table
 
 
@@ -19116,7 +20892,10 @@ BY_KEY['hires'] = (
     '\tfull size; the photo screens of a two-player game\n'
     '\tfill the screen.\n'
     'Ending credits\tThe black bands are gone; the roll uses the whole\n'
-    '\tscreen.',
+    '\tscreen.\n'
+    'PowerVR version\t1024x576 instead: its card stops at 1024 wide. F4\n'
+    '\tstays its PVR Settings, and F5 has no Screen row. It\n'
+    '\tstarts unticked, because 60 FPS needs a fast CPU.',
     None)
 
 # The patches a lockstep match cannot differ on are the frame rate and the
@@ -19343,7 +21122,11 @@ def _cue_file(base, line):
         # between it and FILE is the name, spaces and all.
         parts = line.split()
         name = ' '.join(parts[1:-1]) if len(parts) > 2 else parts[-1]
+    return _beside(base, name)
 
+
+def _beside(base, name):
+    """The file a .cue or .mds names, looked for beside it."""
     here = os.path.join(base, name)
     if os.path.exists(here):
         return here
@@ -19427,7 +21210,9 @@ def _audio_spans(tracks):
         if 'AUDIO' not in t['mode']:
             continue
         nxt = tracks[i + 1] if i + 1 < len(tracks) else None
-        if nxt is None or nxt['bin'] != t['bin']:
+        if t.get('end') is not None:
+            end = t['end']
+        elif nxt is None or nxt['bin'] != t['bin']:
             end = os.path.getsize(t['bin']) // RAW
         else:
             end = nxt['pregap'] if nxt['pregap'] is not None else nxt['start']
@@ -19435,29 +21220,176 @@ def _audio_spans(tracks):
             yield t, t['start'], end
 
 
+# --------------------------------------------------------------------- mds
+# Alcohol 120%'s image: a binary .mds that describes the disc and a .mdf
+# that holds the sectors. Read as far as one dump shows it, the PowerVR
+# disc (MDS 1.5): every track in one .mdf, 2352-byte sectors, no subchannel
+# data, and each track's data from its INDEX 01 on. The 150-sector pregap
+# before the first audio track is in the TOC but not in the file; track 2
+# starts where track 1 ends. A layout other than tracks back to back is
+# refused rather than guessed at.
+#
+# Subchannel mode 8 stores 96 bytes after each sector's 2352, and the sector
+# size in the .mds counts them. None of what the patcher reads is in them,
+# so they are stepped over. libmirage reads the format the same way; no real
+# dump of this layout has been tried.
+
+MDS_MAGIC = b'MEDIA DESCRIPTOR'
+MDS_AUDIO = 0x9                 # low nibble of a track block's mode byte
+MDS_MODE1 = 0xA
+MDS_PW = 0x08                   # subchannel: 96 bytes, interleaved
+MDS_PW_SIZE = 96
+MDS_TRACK = 80                  # bytes in a track block
+MDS_SESSION = 24                # bytes in a session block
+
+
+def _mds_file(data, block, mds_path):
+    """The image file a track block names. '*.mdf' is the .mds's own name
+    with that extension."""
+    count, at = struct.unpack_from('<II', data, block + 0x30)
+    if not count:
+        raise ValueError('track %d names no image file' % data[block + 4])
+    where, wide = struct.unpack_from('<IB', data, at)
+    if wide:
+        end = where
+        while end + 1 < len(data) and data[end:end + 2] != b'\0\0':
+            end += 2
+        name = data[where:end].decode('utf-16-le')
+    else:
+        name = data[where:data.index(b'\0', where)].decode('latin-1')
+    if name.startswith('*'):
+        name = os.path.splitext(os.path.basename(mds_path))[0] + name[1:]
+    return _beside(os.path.dirname(os.path.abspath(mds_path)), name)
+
+
+def parse_mds(path):
+    """Every track in an Alcohol 120% .mds, shaped as parse_cue's are, plus
+    'end', the sector after the track's last one in its file, and 'stride',
+    the bytes one sector takes there."""
+    label = os.path.basename(path)
+    with open(path, 'rb') as fh:
+        data = fh.read()
+    if data[:16] != MDS_MAGIC:
+        raise ValueError('%s is not an Alcohol 120%% .mds file.' % label)
+    if data[16] != 1:
+        raise ValueError('%s is .mds version %d. The patcher reads version 1, '
+                         'which Alcohol 120%% writes.' % (label, data[16]))
+    tracks, spans = [], []
+    try:
+        sessions = struct.unpack_from('<H', data, 0x14)[0]
+        first_session = struct.unpack_from('<I', data, 0x50)[0]
+        for s in range(sessions):
+            at = first_session + MDS_SESSION * s
+            blocks = data[at + 10]
+            first_block = struct.unpack_from('<I', data, at + 20)[0]
+            for b in range(blocks):
+                block = first_block + MDS_TRACK * b
+                mode, sub, point = data[block], data[block + 1], data[block + 4]
+                if not 1 <= point <= 99:
+                    continue                    # lead-in and lead-out entries
+                extra, size = struct.unpack_from('<IH', data, block + 0x0c)
+                offset = struct.unpack_from('<Q', data, block + 0x28)[0]
+                length = struct.unpack_from('<I', data, extra + 4)[0]
+                audio = mode & 0x0f == MDS_AUDIO
+                if sub not in (0, MDS_PW):
+                    raise ValueError(
+                        '%s stores track %d with subchannel mode %d, which '
+                        'the patcher cannot read. Image the disc again '
+                        'without subchannel data, or to BIN/CUE.'
+                        % (label, point, sub))
+                main = size - MDS_PW_SIZE if sub else size
+                if main not in ((RAW,) if audio or sub
+                                else (LOGICAL, 2336, RAW)):
+                    raise ValueError(
+                        '%s stores track %d as %d-byte sectors. The patcher '
+                        'reads %s; image the disc again, or to BIN/CUE.'
+                        % (label, point, size,
+                           'audio and subchannel images as 2352-byte sectors'
+                           if audio or sub
+                           else 'data as 2048, 2336 or 2352-byte sectors'))
+                if offset % size:
+                    raise ValueError('%s puts track %d part way into a sector.'
+                                     % (label, point))
+                start = offset // size
+                tracks.append({
+                    'no': point,
+                    'mode': 'AUDIO' if audio else 'MODE%d/%d' % (
+                        1 if mode & 0x0f == MDS_MODE1 else 2, main),
+                    'bin': _mds_file(data, block, path),
+                    'start': start, 'end': start + length, 'pregap': None,
+                    'stride': size})
+                spans.append((offset, length * size))
+    except (struct.error, IndexError, ValueError, UnicodeDecodeError) as exc:
+        if isinstance(exc, ValueError) and str(exc).startswith(label):
+            raise
+        raise ValueError('%s is damaged: %s' % (label, exc))
+
+    if not tracks:
+        raise ValueError('no tracks in %s' % label)
+    for t in tracks:
+        if not os.path.exists(t['bin']):
+            raise IOError('%s not found for track %d'
+                          % (os.path.basename(t['bin']), t['no']))
+    order = sorted(range(len(tracks)), key=lambda i: tracks[i]['no'])
+    tracks = [tracks[i] for i in order]
+    spans = [spans[i] for i in order]
+    for i, (t, (offset, nbytes)) in enumerate(zip(tracks, spans)):
+        nxt = tracks[i + 1] if i + 1 < len(tracks) else None
+        if nxt is not None and nxt['bin'] == t['bin']:
+            if spans[i + 1][0] != offset + nbytes:
+                raise ValueError(
+                    'The tracks in %s are not stored back to back, which is '
+                    'the only .mds layout the patcher has seen. Image the '
+                    'disc to BIN/CUE instead.' % label)
+        elif os.path.getsize(t['bin']) < offset + nbytes:
+            raise ValueError('%s is shorter than %s says. It is truncated.'
+                             % (os.path.basename(t['bin']), label))
+    return tracks
+
+
+# What Source takes: the small file that describes an image, keyed to the
+# image file it describes.
+SHEETS = {'.cue': '.bin', '.mds': '.mdf'}
+
+
+def is_sheet(path):
+    return os.path.splitext(path)[1].lower() in SHEETS
+
+
+def parse_image(path):
+    """Tracks from a .cue or a .mds, whichever this is."""
+    if path.lower().endswith('.mds'):
+        return parse_mds(path)
+    return parse_cue(path)
+
+
 def rip_bytes(cue_path):
-    """How much room the WAV files will need, from the cue sheet alone."""
+    """How much room the WAV files will need, from the .cue or .mds alone."""
     return sum((end - start) * RAW + WAV_HDR
-               for _t, start, end in _audio_spans(parse_cue(cue_path)))
+               for _t, start, end in _audio_spans(parse_image(cue_path)))
 
 
 def rip_cue(cue_path, outdir, progress=None):
-    """Extract every AUDIO track from a bin/cue pair."""
-    tracks = parse_cue(cue_path)
+    """Extract every AUDIO track from a bin/cue pair or an mds/mdf one."""
+    tracks = parse_image(cue_path)
     os.makedirs(outdir, exist_ok=True)
     written = []
 
     for t, start, end in _audio_spans(tracks):
         out = os.path.join(outdir, 'track%02d.wav' % t['no'])
         total = (end - start) * RAW
+        stride = t.get('stride', RAW)
 
         with open(t['bin'], 'rb') as src, WavWriter(out) as dst:
-            src.seek(start * RAW)
+            src.seek(start * stride)
             left = total
             while left > 0:
-                chunk = src.read(min(left, RAW * 512))
+                chunk = src.read(min(left // RAW, 512) * stride)
                 if not chunk:
                     break
+                if stride != RAW:       # the audio, without the subchannel
+                    chunk = b''.join(chunk[i:i + RAW]
+                                     for i in range(0, len(chunk), stride))
                 dst.write(chunk)
                 left -= len(chunk)
                 if progress:
@@ -19597,14 +21529,14 @@ def looks_like_drive(source):
 
 
 def audio_tracks(cue_path):
-    """The numbers of the audio tracks in a cue sheet. Raises like
-    parse_cue does when the sheet or its bin files are wrong."""
-    return [t['no'] for t in parse_cue(cue_path) if 'AUDIO' in t['mode']]
+    """The numbers of the audio tracks in a .cue or .mds. Raises like
+    parse_cue does when the sheet or its image files are wrong."""
+    return [t['no'] for t in parse_image(cue_path) if 'AUDIO' in t['mode']]
 
 
 def rip(source, outdir, progress=None):
     """Dispatch on what the source looks like."""
-    if source.lower().endswith('.cue'):
+    if is_sheet(source):
         return rip_cue(source, outdir, progress)
     return rip_device(source, outdir, progress)
 
@@ -19641,13 +21573,16 @@ LOGICAL = 2048                  # user bytes in a sector, whatever its form
 
 # Sector layouts, walked in order; the one whose sector 16 holds an ISO9660
 # descriptor wins. Looking rather than trusting TRACK 01 means a cue sheet
-# that names the wrong mode still works, and the four cover every pressing.
+# that names the wrong mode still works, and the first four cover every
+# pressing. The last two are an .mds with subchannel data after each sector.
 #   name            stride  offset of the user bytes
 SECTOR_FORMS = (
     ('MODE1/2352', 2352, 16),
     ('MODE2/2352', 2352, 24),
     ('MODE1/2048', 2048, 0),
     ('MODE2/2336', 2336, 8),
+    ('MODE1/2448', 2448, 16),
+    ('MODE2/2448', 2448, 24),
 )
 
 PRIMARY_VD = 16                 # where the descriptors start, by the standard
@@ -19676,8 +21611,8 @@ class DataTrack:
                     self.form, self.stride, self.offset = name, stride, offset
                     return
         self.fh.close()
-        raise DiscError('No filesystem in %s. The image is damaged, or the '
-                        'cue sheet names the wrong file for track 1.'
+        raise DiscError('No filesystem in %s. The image is damaged, or its '
+                        '.cue or .mds names the wrong file for track 1.'
                         % os.path.basename(path))
 
     def close(self):
@@ -19688,7 +21623,7 @@ class DataTrack:
         data = self.fh.read(LOGICAL)
         if len(data) != LOGICAL:
             raise DiscError('The image ends early. It is truncated, or one of '
-                            'the bin files beside the cue sheet is missing.')
+                            'the files beside its .cue or .mds is missing.')
         return data
 
     def read(self, lba, length):
@@ -19796,6 +21731,9 @@ class DiscPlan:
         self.track, self.root, self.ssp = track, root, ssp
         option = ssp.get('OPTION', {})
         self.source_dir = (option.get('sourcepath1') or 'V_ON').lower()
+        # V_ON.EXE on every pressing but the PowerVR one, whose installer
+        # runs VONPVR.EXE.
+        self.exe = (option.get('execfilename') or 'V_ON.EXE').lower()
         # Whether a language directory is copied at all is a property of the
         # pressing: the retail discs say so in Select1 and keep the help
         # files in english/, the OEM disc does not and keeps them in v_on/.
@@ -19843,11 +21781,12 @@ class DiscPlan:
 
 
 def open_disc(cue_path):
-    """(DataTrack, DiscPlan) for a cue sheet. Raises DiscError or OSError."""
-    tracks = parse_cue(cue_path)
+    """(DataTrack, DiscPlan) for a .cue or .mds. Raises DiscError or
+    OSError."""
+    tracks = parse_image(cue_path)
     data = [t for t in tracks if 'AUDIO' not in t['mode']]
     if not data:
-        raise DiscError('This cue sheet lists only audio tracks, so the game '
+        raise DiscError('This image lists only audio tracks, so the game '
                         'files are not in it.')
     track = DataTrack(data[0]['bin'], data[0]['start'])
     try:
@@ -19867,21 +21806,24 @@ def open_disc(cue_path):
 
 
 def disc_build(track, plan):
-    """Identify v_on.exe on the disc without extracting anything else."""
+    """Identify the game on the disc without extracting anything else."""
     for name, lba, size in plan.files():
-        if name == 'v_on.exe':
+        if name == plan.exe:
             digest = hashlib.md5(track.read(lba, size)).hexdigest()
             build = BUILDS.get(digest)
+            if build:
+                label, why = build.name, build.note or ''
+            else:
+                label, why = 'unrecognised', (
+                    'Not a %s this patcher knows - a bad rip, a repack, or '
+                    'a disc it has not seen.' % plan.exe)
             return {
-                'size': size, 'md5': digest,
+                'exe': plan.exe, 'size': size, 'md5': digest,
                 'supported': build is not None,
-                'name': build.name if build else 'unrecognised',
-                'why': ('' if build else
-                        'Not a v_on.exe this patcher knows - a bad rip, a '
-                        'repack, or a disc it has not seen.'),
+                'name': label, 'why': why,
             }
-    raise DiscError('No v_on.exe in the %s directory of this image.'
-                    % plan.source_dir.upper())
+    raise DiscError('No %s in the %s directory of this image.'
+                    % (plan.exe, plan.source_dir.upper()))
 
 
 def probe_disc(cue_path):
@@ -19924,6 +21866,12 @@ def install_disc(cue_path, dest, language=None, progress=None):
         #
         # Both files are copied as the disc has them, so the settings are
         # not lost, and the game writes its own v_on.ini on first run.
+        #
+        # The exception is a value the game offers no way to set: the
+        # PowerVR build's Texture. That one file holds it alone.
+        build = build_for_exe(plan.exe)
+        if build and fix_ini(dest, build):
+            written.append('v_on.ini')
         return written
     finally:
         track.close()
@@ -20058,7 +22006,7 @@ def dest_problem(path, needed):
     short = room_for(probe, needed)
     if short:
         return short, 'bad'
-    if exists and os.path.exists(os.path.join(path, 'v_on.exe')):
+    if exists and game_exe(path):
         # Worth its own message: installing over a patched copy replaces
         # v_on.exe with the stock one and leaves the .bak beside it no
         # longer matching, which Restore original would then act on.
@@ -20102,10 +22050,10 @@ def rip_in_background(source, gamedir, progress, done):
 
 # --- netplay hashes: written by net/build.py, do not edit ---
 # Source: net/dpctrl.c, compiled by net/build.py.
-NETPLAY_SRC_SHA = 'b4e2bd8716663cbb9eb1636f74f4f0dc818b4892c8ff6971a5a41773334d2323'
+NETPLAY_SRC_SHA = '631f49b7a7408ae458ca0a0f15ba553b89b1a667da56fd2c66bb3f06ee6fd7a0'
 # sha256 of net/dpctrl.dll, so the patcher can tell its own build
 # from an older one already installed.
-NETPLAY_DLL_SHA = 'b9014dcaaba9a4a0654bd0b47434a65b7f954d56be9caae027e0674b6ec54551'
+NETPLAY_DLL_SHA = '8710228482f25e0ad89bd73b804a524fdd9e00dc41a9e66e61dc210f254cd410'
 # --- end netplay hashes ---
 
 NETPLAY_NAME = 'dpctrl.dll'
@@ -20165,10 +22113,13 @@ SYNC_SITES = {build.md5: ((site_in(0x0010afbe, build) + 6, 0x01),
 
 
 def netplay_sync_ready(gamedir):
-    """True if v_on.exe here has both simulation-affecting patches, False if
+    """True if the game here has both simulation-affecting patches, False if
     either is missing, None if the exe cannot be read (so: do not warn)."""
+    exe = game_exe(gamedir)
+    if not exe:
+        return None
     try:
-        with open(os.path.join(gamedir, 'v_on.exe'), 'rb') as fh:
+        with open(exe, 'rb') as fh:
             data = fh.read()
     except OSError:
         return None
@@ -20260,6 +22211,13 @@ DDRAW_SETTINGS = (
                                     # button with ExitProcess, so the game
                                     # never gets WM_DESTROY and never writes
                                     # v_on.ini or BkUp.bin.
+    ('singlecpu', 'false'),         # cnc-ddraw pins the process to one core
+                                    # by default. The game starts no threads
+                                    # of its own, and the PowerVR build's
+                                    # sgl.dll replacement draws on every
+                                    # core: pinned, it runs in slow motion.
+    ('shader', 'Nearest neighbor'),  # hard pixels when scaling up, under
+    ('d3d9_filter', '0'),           # either renderer it may pick
 )
 
 
@@ -20340,13 +22298,9 @@ def _ddraw_configure(text):
     return '\n'.join(lines)
 
 
-def install_ddraw(gamedir, progress=None):
-    """Download cnc-ddraw and unpack it beside the game.
-
-    Returns the list of files written. An existing ddraw.ini is left alone,
-    so re-running to update never discards someone's settings.
-    """
-    req = urllib.request.Request(DDRAW_URL, headers={
+def _download(url, limit, progress=None):
+    """The body at url, in memory, refused past limit bytes."""
+    req = urllib.request.Request(url, headers={
         'User-Agent': '%s/%s' % (NAME, VERSION)})
     blob = io.BytesIO()
     with _urlopen(req, timeout=30) as resp:
@@ -20356,12 +22310,21 @@ def install_ddraw(gamedir, progress=None):
             if not chunk:
                 break
             blob.write(chunk)
-            if blob.tell() > DDRAW_MAX:
+            if blob.tell() > limit:
                 raise ValueError('download is larger than %d MB'
-                                 % (DDRAW_MAX >> 20))
+                                 % (limit >> 20))
             if progress:
                 progress(blob.tell(), total)
+    return blob
 
+
+def install_ddraw(gamedir, progress=None):
+    """Download cnc-ddraw and unpack it beside the game.
+
+    Returns the list of files written. An existing ddraw.ini is left alone,
+    so re-running to update never discards someone's settings.
+    """
+    blob = _download(DDRAW_URL, DDRAW_MAX, progress)
     written = []
     with zipfile.ZipFile(blob) as zf:
         members = [m for m in zf.namelist() if _ddraw_wanted(m)]
@@ -20403,20 +22366,98 @@ def remove_ddraw(gamedir):
     return gone
 
 
-def install_ddraw_in_background(gamedir, progress, done):
-    """Same shape as rip_in_background: both callbacks fire off the UI
-    thread."""
+def addon_in_background(install, gamedir, progress, done):
+    """An add-on's install, shaped as rip_in_background: both callbacks fire
+    off the UI thread."""
     def work():
         try:
-            files = install_ddraw(gamedir, progress)
+            result = install(gamedir, progress)
         except Exception as exc:
             done(exc, None)
         else:
-            done(None, files)
+            done(None, result)
 
     thread = threading.Thread(target=work, daemon=True)
     thread.start()
     return thread
+
+
+# --- PowerVR renderer ----------------------------------------------------
+# The PowerVR build draws through sgl.dll, which came with the card's driver
+# and is not on the disc. pvr-sgl-wrapper is a replacement that emulates the
+# card on the CPU (MIT). Fetched at the user's request like cnc-ddraw, from
+# the latest release; its zip is named for the version, so the file comes
+# from the release's own asset list. Only sgl.dll is taken from it.
+
+SGL_REPO = 'z2k-retro/pvr-sgl-wrapper'
+SGL_URL = 'https://github.com/' + SGL_REPO
+SGL_API = 'https://api.github.com/repos/%s/releases/latest' % SGL_REPO
+SGL_MAX = 32 << 20              # sanity bound on the download
+SGL_DLL = 'sgl.dll'
+SGL_NOT_PVR = 'Only the PowerVR version uses sgl.dll; this folder has no %s.'
+
+
+def sgl_status(gamedir):
+    """Whether an sgl.dll is beside the game."""
+    return bool(gamedir) and os.path.exists(os.path.join(gamedir, SGL_DLL))
+
+
+def sgl_wanted(gamedir):
+    """Whether the folder holds the game that reads sgl.dll."""
+    return bool(gamedir) and os.path.exists(os.path.join(gamedir, PVR.exe))
+
+
+def _sgl_asset():
+    """(release tag, zip URL) of the wrapper's latest release."""
+    req = urllib.request.Request(SGL_API, headers={
+        'User-Agent': '%s/%s' % (NAME, VERSION),
+        'Accept': 'application/vnd.github+json'})
+    with _urlopen(req, timeout=30) as resp:
+        release = json.loads(resp.read(1 << 20).decode('utf-8'))
+    zips = [a for a in release.get('assets', ())
+            if str(a.get('name', '')).lower().endswith('.zip')]
+    if len(zips) != 1:
+        raise ValueError('the latest release has %d zip files, expected one'
+                         % len(zips))
+    return release.get('tag_name', '?'), zips[0]['browser_download_url']
+
+
+def install_sgl(gamedir, progress=None):
+    """Download the wrapper and put its sgl.dll beside the game. Returns
+    the release tag. Written beside and renamed over, so a failed write
+    leaves the one that was there."""
+    if not sgl_wanted(gamedir):
+        raise ValueError(SGL_NOT_PVR % PVR.exe)
+    tag, url = _sgl_asset()
+    blob = _download(url, SGL_MAX, progress)
+    with zipfile.ZipFile(blob) as zf:
+        # by name, wherever the zip keeps it; nothing else is written
+        found = [m for m in zf.namelist()
+                 if m.rsplit('/', 1)[-1].lower() == SGL_DLL
+                 and '..' not in m.split('/') and '\\' not in m]
+        if len(found) != 1:
+            raise ValueError('expected one %s in the release, found %d'
+                             % (SGL_DLL, len(found)))
+        dest = os.path.join(gamedir, SGL_DLL)
+        temp = dest + '.new'
+        try:
+            with zf.open(found[0]) as src, open(temp, 'wb') as out:
+                shutil.copyfileobj(src, out)
+            os.replace(temp, dest)
+        except OSError:
+            if os.path.exists(temp):
+                os.remove(temp)
+            raise
+    return tag
+
+
+def remove_sgl(gamedir):
+    """Take sgl.dll out again. Its log, pvrsgl.log, is left."""
+    path = os.path.join(gamedir, SGL_DLL)
+    if os.path.exists(path):
+        os.remove(path)
+        return [SGL_DLL]
+    return []
 
 
 # --- CD audio ------------------------------------------------------------
@@ -20851,7 +22892,11 @@ def apply_selected(buf, wanted, build=RETAIL):
     for key in apply_order():
         if not wanted.get(key):
             continue
-        if key == 'hires':
+        why = unsupported(build, key)
+        if why:
+            skipped.append((key, why))
+            continue
+        if key == 'hires' and table[key][2] is None:
             # Computed sites, own section append; wanted['hires'] carries
             # (width, height) from the window, or True from a caller that
             # takes the default.
@@ -20880,6 +22925,8 @@ def apply_selected(buf, wanted, build=RETAIL):
                 buf = apply_extras_template(buf, build)
             if key == 'nodisc':          # bytes first, then the section
                 buf = apply_cdaudio(buf)
+            if key == 'hires':           # the section, and what names it
+                pvr_ui_install(buf)
             if key == 'bosses':          # the select writes BS_FRX
                 _make_writable(buf, _PE(buf),
                                build.off(build.symbols['BS_FRX']))
@@ -20970,7 +23017,7 @@ class Patcher:
             self.compare = {
                 'rows': [],
                 'why': 'This is a %s, not the game.' % kind,
-                'hint': 'Pick v_on.exe here. The disc image goes in Source '
+                'hint': 'Pick the game\'s .exe here. The disc image goes in Source '
                         'under INSTALL, which installs and rips from it.',
                 'level': 'warn',
                 'log': ['%s is a %s' % (os.path.basename(path), kind)],
@@ -20996,11 +23043,11 @@ class Patcher:
             # build's artwork rather than retail's.
             self.build = build
             what, level = 'already patched', 'warn'
-            why = 'The v_on.exe.bak beside it is the unmodified original.'
+            why = 'The .bak beside it is the unmodified original.'
             hint = 'Press Restore original, or copy the .bak back by hand.'
         else:
             what, level = 'unrecognised file', 'bad'
-            why = ('Not a v_on.exe this patcher knows - a bad rip, a repack, '
+            why = ('Not a game file this patcher knows - a bad rip, a repack, '
                    'or a copy already patched or otherwise modified.')
             hint = RETAIL_HINT
         self.compare = compare_report(len(data), digest, why, hint, level)
@@ -21199,9 +23246,10 @@ class Patcher:
         accepted with stock=False: that is a re-run, and the line is
         already in it."""
         folder = os.path.dirname(self.exe_path)
+        roll = roll_of(self.build)
         out = []
-        for name, size, want in ((SCRSTFCG, SCRSTFCG_SIZE, SCRSTFCG_MD5),
-                                 (SCRSTFMP, SCRSTFMP_SIZE, SCRSTFMP_MD5)):
+        for name, size, want in ((SCRSTFCG, roll.cg_size, roll.cg_md5),
+                                 (SCRSTFMP, roll.mp_size, roll.mp_md5)):
             path = os.path.join(folder, name)
             try:
                 with open(path, 'rb') as fh:
@@ -21248,11 +23296,11 @@ class Patcher:
             if stock and not self._backup(path, log):
                 log.append('patch: credit line skipped')
                 return False
+        new_cg, new_mp = credit_roll(cg, mp, self.build)
         if cg_stock:
-            cg += b''.join(CREDIT_NEW_TILES)
-        at = CREDIT_CELLS_AT * 2
+            cg = new_cg
         if mp_stock:
-            mp[at:at] = b''.join(c.to_bytes(2, 'little') for c in CREDIT_CELLS)
+            mp = new_mp
         # Both temps written before either rename: the two files have to
         # change together, or the renderer walks a map that disagrees with
         # the block list already in the executable.
@@ -21383,6 +23431,16 @@ class Patcher:
             log.append('patch: could not move v_on.ini - %s, delete it by '
                        'hand'
                        % exc)
+            return
+        # what the build must have even in a fresh one; see fix_ini
+        try:
+            keys = fix_ini(os.path.dirname(self.exe_path), self.build)
+        except OSError as exc:
+            log.append('patch: could not write v_on.ini - %s' % exc)
+            return
+        if keys:
+            log.append('patch: wrote v_on.ini with %s set'
+                       % ', '.join(keys))
 
     @staticmethod
     def _backup(path, log):
@@ -21914,8 +23972,9 @@ FILE_HINT = ('Installing above fills this in. Browse for it if the game is '
 INSTALL_HINT = ('Copies the game and its soundtrack off a disc image, onto '
                 'your disk.')
 
-INSTALL_TIP = ('Source\tThe .cue sheet beside the .bin files, not the .bin '
-               'itself. On Linux a device node such as /dev/sr0 works too, '
+INSTALL_TIP = ('Source\tThe .cue sheet beside the .bin files, or the .mds '
+               'beside the .mdf, not the image itself. On Linux a device node '
+               'such as /dev/sr0 works too, '
                'for the soundtrack only.\n'
                'Install game\tThe game folder, about 95 MB.\n'
                'Rip soundtrack\tmusic\\track02.wav onward, about 320 MB. '
@@ -21923,17 +23982,17 @@ INSTALL_TIP = ('Source\tThe .cue sheet beside the .bin files, not the .bin '
                'Manual\tWhich readme and help file is copied; the game '
                'itself is the same on every pressing of a release.')
 
-INSTALL_PICK = 'Give the .cue sheet, not the .bin.'
-INSTALL_NOT_CUE = 'That is a %s. Give the .cue sheet beside it.'
+INSTALL_PICK = 'Give the .cue sheet or .mds file, not the .bin or .mdf.'
+INSTALL_NOT_CUE = 'That is a %s. Give the %s beside it.'
 INSTALL_NEEDS_DEST = 'Choose where to install it.'
 INSTALL_BUSY = 'Copying\u2026'
 INSTALL_CANCELLED = 'Cancelled. The folder holds a part-written copy.'
 INSTALL_OK = 'Installed %d files to %s.'
 INSTALL_DRIVE_ONLY = ('A drive can only be used for the soundtrack. Give a '
-                      '.cue sheet to install.')
+                      '.cue sheet or .mds file to install.')
 INSTALL_NO_PATH = 'There is nothing at that path.'
 INSTALL_NO_DRIVE = 'There is no such device on this machine.'
-INSTALL_NOT_A_CUE = 'Give the .cue sheet of a disc image.'
+INSTALL_NOT_A_CUE = 'Give the .cue sheet or .mds file of a disc image.'
 INSTALL_NO_AUDIO = ('This image has no audio tracks - the soundtrack is not '
                     'in it. Only the data half was ripped.')
 # The game asks for tracks by number, so a different count is a different
@@ -21961,7 +24020,7 @@ DDRAW_LINK = ('Windowing and scaling', 'cnc-ddraw',
               'https://github.com/FunkyFr3sh/cnc-ddraw',
               'Windowed and borderless modes, and the game scaled to your '
               'monitor without stretching, whatever size it runs at. '
-              'Install downloads it and puts it beside v_on.exe.')
+              'Install downloads it and puts it beside the game.')
 
 # Dropping the files in is not enough under Wine, and someone who misses
 # this sees no change at all, so it gets the accent colour rather than
@@ -21969,6 +24028,20 @@ DDRAW_LINK = ('Windowing and scaling', 'cnc-ddraw',
 DDRAW_WINE = ('Linux: also set ddraw to native in winecfg for this prefix, '
               'or run cnc-ddraw config.exe once. Without that step nothing '
               'changes.')
+
+SGL_LINK = ('PowerVR renderer', 'pvr-sgl-wrapper', SGL_URL,
+            'The PowerVR version needs this to run without a PowerVR card. It '
+            'replaces sgl.dll, which came with the card\'s driver, and '
+            'emulates the card on the CPU. Install downloads it and puts it '
+            'beside vonpvr.exe.')
+SGL_NEEDED = 'Needed: this version does not start without sgl.dll.'
+SGL_OFFER = ('PowerVR renderer needed',
+             'This version does not start without sgl.dll, which came with '
+             'the PowerVR card\'s driver and is not on the disc. '
+             'pvr-sgl-wrapper replaces it, so no card is needed.\n\n'
+             'Download it now? It goes beside vonpvr.exe.')
+SGL_ONLY = 'For the PowerVR version only: pick its vonpvr.exe above.'
+SGL_GONE = 'Removed.'
 
 DDRAW_BUSY = 'Downloading\u2026'
 DDRAW_GONE = 'Removed. ddraw.ini was left in place.'
@@ -21980,17 +24053,17 @@ NETPLAY_NOTE = ('The stock game finds opponents by broadcasting on the '
                 'other player types it in, and nobody forwards a port. The '
                 'original dpctrl.dll is kept as dpctrl.dll.stock.')
 NETPLAY_PORT = 'Direct IP is still there for LAN play; the host forwards UDP 47624.'
-NETPLAY_NEEDS_EXE = 'Pick v_on.exe first: this replaces a file beside it.'
+NETPLAY_NEEDS_EXE = 'Pick the game first: this replaces a file beside it.'
 NETPLAY_IN = 'Installed. Both players need this add-on.'
 NETPLAY_UPDATED = 'Updated to this build.'
 NETPLAY_OUT = 'Original dpctrl.dll restored.'
 NETPLAY_OLD = 'An older netplay DLL is installed. Install to update it.'
 # Only reachable for a file this patcher did not write: an older release let
 # the two simulation patches be unticked, and this build cannot.
-NETPLAY_NOSYNC = ('Installed. Note: this v_on.exe is missing a gameplay patch '
+NETPLAY_NOSYNC = ('Installed. Note: this game is missing a gameplay patch '
                   'online play needs, so matches will refuse to connect. '
                   'Restore original and apply again with this version.')
-DDRAW_NEEDS_EXE = 'Pick v_on.exe first: cnc-ddraw goes in the same folder.'
+DDRAW_NEEDS_EXE = 'Pick the game first: cnc-ddraw goes in the same folder.'
 DDRAW_LOCKED = ('Close the game first: Windows will not let the patcher '
                 'replace a DLL that is loaded.')
 
@@ -21999,7 +24072,7 @@ MUSIC_HINT = ('Rips the soundtrack to music\\ beside the game, where the '
 
 # %d is the number of patches written. The count is the one thing someone
 # can check against what they ticked, and it is what a bug report needs.
-DONE = 'Done - %d patches written. Restore original puts v_on.exe.bak back.'
+DONE = 'Done - %d patches written. Restore original puts the original back.'
 FAILED = 'Nothing was written and the game is untouched - see the log below.'
 # DONE_NOSYNC is gone: Apply can no longer leave a sync patch out.
 READY = 'READY - %s. %d patches selected. Press Apply patches.'
@@ -22319,6 +24392,7 @@ def run_tk():
             self.root = root
             self.core = Patcher()
             self.vars, self.checks = {}, {}
+            self.essential_lines = {}
             self._bodies = []
             self._openers = {}
             self._rip_thread, self._rip_dir = None, None
@@ -22806,7 +24880,7 @@ def run_tk():
             self.path_var = tk.StringVar()
             # Same grid and the same label width as the install card above,
             # so the two sets of boxes line up down the window.
-            self._field(grid, 0, 'v_on.exe', self.path_var,
+            self._field(grid, 0, 'Game file', self.path_var,
                         self._pick).state(['readonly'])
             self.file_note = _hint(parent, NO_FILE, self.dim, self.small,
                                    pady=(8, 0))
@@ -22916,8 +24990,9 @@ def run_tk():
 
         def _pick_disc(self):
             path = filedialog.askopenfilename(
-                title='Select the disc image cue sheet',
-                filetypes=[('Cue sheets', '*.cue *.CUE'), ('All files', '*')])
+                title='Select the disc image .cue or .mds',
+                filetypes=[('Disc images', '*.cue *.CUE *.mds *.MDS'),
+                           ('All files', '*')])
             if path:
                 self.disc_var.set(path)       # the trace runs the check
 
@@ -22949,9 +25024,11 @@ def run_tk():
                                 else PALETTE['bad'])
             elif not os.path.exists(source):
                 self._disc_note(INSTALL_NO_PATH, PALETTE['bad'])
-            elif extension != '.cue':
+            elif extension not in SHEETS:
                 kind = DISC_IMAGES.get(extension)
-                self._disc_note(INSTALL_NOT_CUE % kind if kind
+                sheet = ('.mds file' if extension == '.mdf'
+                         else '.cue sheet')
+                self._disc_note(INSTALL_NOT_CUE % (kind, sheet) if kind
                                 else INSTALL_NOT_A_CUE, PALETTE['bad'])
             else:
                 self._check_cue(source)
@@ -23008,6 +25085,8 @@ def run_tk():
                 self._log('disc: %s, %d files, %d MB'
                           % (info['form'], info['count'],
                              info['bytes'] >> 20))
+                if build['why']:
+                    self._log('disc: %s' % build['why'])
             else:
                 # The same panel the game file card uses, for the same
                 # reason: the numbers say more than "wrong version" does.
@@ -23021,8 +25100,8 @@ def run_tk():
                                 % (build['name'], info['count'],
                                    info['bytes'] >> 20),
                                 PALETTE['amber'])
-                self._log('disc: v_on.exe is the %s build (%s)'
-                          % (build['name'], build['md5']))
+                self._log('disc: %s is the %s build (%s)'
+                          % (build['exe'], build['name'], build['md5']))
 
         def _disc_note(self, text, colour):
             self.disc_note.config(text=text, foreground=colour)
@@ -23163,8 +25242,8 @@ def run_tk():
                       % (len(written), dest))
             # Hand the result straight to the next step rather than making
             # someone browse to a folder this window just created.
-            exe = os.path.join(dest, 'v_on.exe')
-            if os.path.exists(exe):
+            exe = game_exe(dest)
+            if exe:
                 self.path_var.set(exe)
                 self._check_file(exe)
             self._sync_buttons()
@@ -23330,7 +25409,65 @@ def run_tk():
             grid.columnconfigure(0, weight=1, uniform='addon')
             grid.columnconfigure(1, weight=1, uniform='addon')
             self._link_row(grid, *DDRAW_LINK)
+            self._sgl_row(grid, *SGL_LINK)
             self._netplay_row(grid)
+
+        def _sgl_row(self, parent, label, name, url, note):
+            """pvr-sgl-wrapper: somebody else's, so linked like cnc-ddraw.
+            Only the PowerVR version reads it, so the button waits for one."""
+            self.sgl_btn, text = self._addon_head(
+                parent, label, name, url, self._sgl_click)
+            _hint(text, note, self.dim, self.small, pady=(4, 0))
+            self.sgl_note = _hint(text, '', self.dim, self.small,
+                                  pady=(4, 0))
+            self._sgl_sync()
+
+        def _sgl_sync(self):
+            gamedir = self._ddraw_dir()
+            wanted = sgl_wanted(gamedir)
+            self.sgl_installed = wanted and sgl_status(gamedir)
+            self.sgl_btn.config(
+                text='Remove' if self.sgl_installed else 'Install')
+            self.sgl_btn.state(['!disabled'] if wanted else ['disabled'])
+            if not wanted:
+                self.sgl_note.config(text=SGL_ONLY, foreground=self.dim)
+
+        def _sgl_nudge(self):
+            """A PowerVR game without sgl.dll: say so where the fix is."""
+            if sgl_wanted(self._ddraw_dir()) and not self.sgl_installed:
+                self.sgl_note.config(text=SGL_NEEDED,
+                                     foreground=PALETTE['amber'])
+                self._openers['5  ADD-ONS']()
+            elif self.sgl_note.cget('text') == SGL_NEEDED:
+                self.sgl_note.config(text='')
+
+        def _sgl_offer(self):
+            """After Apply: offer the one thing the game still lacks."""
+            if sgl_wanted(self._ddraw_dir()) and not self.sgl_installed \
+                    and self._ask(*SGL_OFFER, (), 'Install it', 'Not now',
+                                  focus_yes=True):
+                self._sgl_click()
+
+        def _sgl_click(self):
+            gamedir = self._ddraw_dir()
+            if self.sgl_installed:
+                try:
+                    remove_sgl(gamedir)
+                except OSError as exc:
+                    self.sgl_note.config(text=DDRAW_LOCKED,
+                                         foreground=PALETTE['bad'])
+                    self._log('sgl: failed - %s' % exc)
+                else:
+                    self.sgl_note.config(text=SGL_GONE, foreground=self.dim)
+                    self._log('sgl: removed %s' % SGL_DLL)
+                self._sgl_sync()
+                return
+            self._fetch_addon(
+                'sgl', self.sgl_btn, self.sgl_note,
+                'fetching the latest release of %s' % SGL_REPO, install_sgl,
+                gamedir, self._sgl_sync,
+                lambda tag: ('Installed %s, %s, beside vonpvr.exe.' % (SGL_DLL, tag),
+                             'installed %s from %s' % (SGL_DLL, tag)))
 
         def _netplay_row(self, parent):
             """Ours, so there is nowhere to link: the explanation lives in
@@ -23374,7 +25511,7 @@ def run_tk():
                     if netplay_sync_ready(gamedir) is False:
                         self.net_note.config(text=NETPLAY_NOSYNC,
                                              foreground=PALETTE['amber'])
-                        self._log('netplay: installed, but this v_on.exe is '
+                        self._log('netplay: installed, but this game is '
                                   'missing a patch matches need')
                     else:
                         self.net_note.config(
@@ -23428,55 +25565,63 @@ def run_tk():
                                        foreground=PALETTE['cyan'])
                 return
 
-            self.ddraw_btn.state(['disabled'])
-            self.ddraw_note.config(text=DDRAW_BUSY, foreground=self.dim)
-            self._log('ddraw: fetching %s' % DDRAW_URL)
-            self._ddrawq = queue.Queue()
+            self._fetch_addon(
+                'ddraw', self.ddraw_btn, self.ddraw_note,
+                'fetching %s' % DDRAW_URL, install_ddraw, gamedir,
+                self._ddraw_sync,
+                lambda files: ('Installed %d files beside the game.' % len(files),
+                               'installed %s' % ', '.join(sorted(files)[:6])))
+
+        def _fetch_addon(self, log, btn, note, fetching, install, gamedir, sync,
+                         installed):
+            """Run an add-on's install off the UI thread and poll its queue,
+            as the rip does. installed(result) gives the note and the log line
+            for a success."""
+            btn.state(['disabled'])
+            note.config(text=DDRAW_BUSY, foreground=self.dim)
+            self._log('%s: %s' % (log, fetching))
+            work = queue.Queue()
 
             def progress(got, total):
-                self._ddrawq.put(('progress', got, total))
+                work.put(('progress', got, total))
 
-            def done(exc, files):
-                self._ddrawq.put(('done', exc, files))
+            def done(exc, result):
+                work.put(('done', exc, result))
 
-            install_ddraw_in_background(gamedir, progress, done)
-            self._drain_ddraw()
+            def drain():
+                try:
+                    while True:
+                        item = work.get_nowait()
+                        if item[0] == 'progress':
+                            _kind, got, total = item
+                            if total:
+                                note.config(text='%s %d%%' % (
+                                    DDRAW_BUSY, 100 * got // total))
+                            continue
+                        _kind, exc, result = item
+                        btn.state(['!disabled'])
+                        if isinstance(exc, PermissionError):
+                            note.config(text=DDRAW_LOCKED,
+                                        foreground=PALETTE['bad'])
+                            self._log('%s: failed - %s' % (log, DDRAW_LOCKED))
+                        elif exc:
+                            note.config(text='Download failed.',
+                                        foreground=PALETTE['bad'])
+                            self._log('%s: failed - %s' % (log, exc))
+                            self._log('%s: install it by hand from the link '
+                                      'in the add-on row' % log)
+                        else:
+                            said, logged = installed(result)
+                            note.config(text=said, foreground=PALETTE['ok'])
+                            self._log('%s: %s' % (log, logged))
+                        sync()
+                        return
+                except queue.Empty:
+                    pass
+                self.root.after(100, drain)
 
-        def _drain_ddraw(self):
-            """Poll the worker's queue on the UI thread, as the rip does."""
-            try:
-                while True:
-                    item = self._ddrawq.get_nowait()
-                    if item[0] == 'progress':
-                        _kind, got, total = item
-                        if total:
-                            self.ddraw_note.config(
-                                text='%s %d%%' % (DDRAW_BUSY,
-                                                  100 * got // total))
-                        continue
-                    _kind, exc, files = item
-                    self.ddraw_btn.state(['!disabled'])
-                    if isinstance(exc, PermissionError):
-                        self.ddraw_note.config(text=DDRAW_LOCKED,
-                                               foreground=PALETTE['bad'])
-                        self._log('ddraw: failed - %s' % DDRAW_LOCKED)
-                    elif exc:
-                        self.ddraw_note.config(text='Download failed.',
-                                               foreground=PALETTE['bad'])
-                        self._log('ddraw: failed - %s' % exc)
-                        self._log('ddraw: install it by hand from the link '
-                                  'in the add-on row')
-                    else:
-                        self.ddraw_note.config(
-                            text='Installed %d files beside v_on.exe.'
-                                 % len(files), foreground=PALETTE['ok'])
-                        self._log('ddraw: installed %s'
-                                  % ', '.join(sorted(files)[:6]))
-                    self._ddraw_sync()
-                    return
-            except queue.Empty:
-                pass
-            self.root.after(100, self._drain_ddraw)
+            addon_in_background(install, gamedir, progress, done)
+            drain()
 
         def _patch_body(self, parent, keys, hint):
             if hint:
@@ -23495,13 +25640,16 @@ def run_tk():
                     # A permanently ticked box that cannot be clicked reads
                     # like something is broken. A plain line does not, and
                     # the card's own heading says these are always applied.
-                    self._static_label(ttk.Label(
+                    line = self._static_label(ttk.Label(
                         row, text=label, style='Card.TLabel',
-                        padding=(2, 3))).pack(side='left')
+                        padding=(2, 3)))
+                    line.pack(side='left')
+                    self.essential_lines[key] = line
                 else:
                     check = self._static_label(ttk.Checkbutton(
                         row, text=label, variable=var,
-                        style='Card.TCheckbutton', command=self._retally))
+                        style='Card.TCheckbutton',
+                        command=lambda key=key: self._ticked(key)))
                     check.state(['disabled'])
                     check.pack(side='left')
                     self.checks[key] = check
@@ -23701,7 +25849,7 @@ def run_tk():
 
         def _pick(self):
             path = filedialog.askopenfilename(
-                title='Select v_on.exe',
+                title='Select the game (v_on.exe or vonpvr.exe)',
                 filetypes=[('Game executable', '*.exe'),
                            ('All files', '*.*')])
             if path:
@@ -23723,6 +25871,7 @@ def run_tk():
                 self.restore_btn.state(['disabled'])
                 self._sync_buttons()
                 self._ddraw_sync()
+                self._sgl_sync()
                 self._netplay_sync()
                 return
             level = (self.core.compare or {}).get('level', 'bad')
@@ -23736,6 +25885,20 @@ def run_tk():
             for key, check in self.checks.items():
                 self.vars[key].set(state[key] if ok else False)
                 check.state(['!disabled'] if ok else ['disabled'])
+            # A build that takes only some patches: the rest greyed and
+            # unticked, Essential ones it does not take dimmed.
+            build = self.core.build
+            for key, check in self.checks.items():
+                if unsupported(build, key):
+                    self.vars[key].set(False)
+                    check.state(['disabled'])
+                elif key in build.cautions:
+                    self.vars[key].set(False)
+            for key, line in self.essential_lines.items():
+                line.configure(foreground=self.dim
+                               if ok and unsupported(build, key) else '')
+            if ok and build.note:
+                self._log('file: %s' % build.note)
             if ok and 'hires' in self.checks \
                     and (self.core.stamp is None
                          or not hires_supported_stamp(self.core.stamp)):
@@ -23750,6 +25913,8 @@ def run_tk():
             # that cannot be patched - already patched, most likely.
             self._sync_buttons()
             self._ddraw_sync()
+            self._sgl_sync()
+            self._sgl_nudge()
             self._netplay_sync()
             if not ok:
                 self._log(note)
@@ -23759,7 +25924,8 @@ def run_tk():
         def _selected(self):
             """How many patches Apply would write right now."""
             return sum(1 for key, var in self.vars.items()
-                       if key in ESSENTIAL or var.get())
+                       if (key in ESSENTIAL or var.get())
+                       and not unsupported(self.core.build, key))
 
         def _sync_needs(self):
             """A box that needs another follows it: unticked and greyed
@@ -23776,6 +25942,96 @@ def run_tk():
                     self.vars[key].set(False)
                     self.checks[key].state(['disabled'])
 
+        def _ticked(self, key):
+            """A box was clicked. One this build cautions about stays off
+            unless the warning is accepted."""
+            caution = self.core.build.cautions.get(key)
+            if caution and self.vars[key].get() \
+                    and not self._caution(*caution):
+                self.vars[key].set(False)
+            self._retally()
+
+        def _caution(self, title, text, wanted, otherwise):
+            return self._ask(title, text, (
+                ('Recommended', wanted),
+                ('Your CPU', cpu_name() or 'Not detected'),
+                ('Its rating', None),
+                ('If too slow', otherwise)), 'Turn it on', 'Leave it off')
+
+        def _ask(self, title, text, rows, yes, no, focus_yes=False):
+            """A question in the window's own look. Rows are (key, value), a
+            value of None being the CPU chart's link. Whether yes was pressed;
+            Escape is no."""
+            close_info()
+            root = self.root
+            answer = []
+            win = tk.Toplevel(root)
+            win.withdraw()
+            win.wm_overrideredirect(True)
+            win.transient(root)
+            frame = tk.Frame(win, background=PALETTE['card'], borderwidth=0,
+                             highlightbackground=PALETTE['amber'],
+                             highlightcolor=PALETTE['amber'],
+                             highlightthickness=2)
+            frame.pack()
+            head = ttk.Frame(frame, style='Head.TFrame',
+                             padding=self.px((12, 8)))
+            head.pack(fill='x')
+            ttk.Label(head, text=title, style='Head.TLabel',
+                      foreground=PALETTE['amber'],
+                      font=self.head_font).pack(anchor='w')
+            body = ttk.Frame(frame, style='Card.TFrame',
+                             padding=self.px(12))
+            body.pack(fill='x')
+            ttk.Label(body, text=text, style='Card.TLabel', justify='left',
+                      wraplength=self.px(420)).pack(anchor='w')
+            table = ttk.Frame(body, style='Card.TFrame')
+            if rows:
+                table.pack(anchor='w', pady=self.px((12, 0)))
+            for line, (key, value) in enumerate(rows):
+                ttk.Label(table, text=key, style='Card.TLabel', font=self.bold,
+                          foreground=PALETTE['amber']).grid(
+                              row=line, column=0, sticky='nw',
+                              padx=self.px((0, 12)), pady=self.px(2))
+                if value:
+                    cell = ttk.Label(table, text=value, style='Card.TLabel',
+                                     justify='left',
+                                     wraplength=self.px(320))
+                else:
+                    cell = ttk.Label(table, text='cpubenchmark.net',
+                                     style='Link.TLabel', cursor='hand2')
+                    cell.bind('<Button-1>',
+                              lambda _e: webbrowser.open(CPU_CHART))
+                cell.grid(row=line, column=1, sticky='w', pady=self.px(2))
+            buttons = ttk.Frame(body, style='Card.TFrame')
+            buttons.pack(fill='x', pady=self.px((14, 0)))
+
+            def done(accepted):
+                answer.append(accepted)
+                win.grab_release()
+                win.destroy()
+            accept = ttk.Button(buttons, text=yes, style='Go.TButton',
+                                command=lambda: done(True))
+            accept.pack(side='right')
+            decline = ttk.Button(buttons, text=no, style='Vo.TButton',
+                                 command=lambda: done(False))
+            decline.pack(side='right', padx=self.px((0, 8)))
+            win.bind('<Escape>', lambda _e: done(False))
+            win.bind('<Return>', lambda _e: win.focus_get().invoke())
+            win.update_idletasks()
+            x = root.winfo_rootx() + (root.winfo_width()
+                                      - win.winfo_reqwidth()) // 2
+            y = root.winfo_rooty() + (root.winfo_height()
+                                      - win.winfo_reqheight()) // 2
+            win.wm_geometry('+%d+%d' % (max(4, x), max(4, y)))
+            win.deiconify()
+            win.wait_visibility()
+            win.grab_set()
+            win.lift()
+            (accept if focus_yes else decline).focus_force()
+            root.wait_window(win)
+            return bool(answer and answer[0])
+
         def _retally(self, *_args):
             """Keep the count honest as boxes are ticked."""
             self._sync_needs()
@@ -23784,6 +26040,7 @@ def run_tk():
                                           self._selected()), True)
 
         def _apply(self):
+            count = self._selected()
             wanted = {k: v.get() for k, v in self.vars.items()}
             wanted.update({key: True for key in ESSENTIAL})
             if wanted.get('hires'):
@@ -23804,7 +26061,8 @@ def run_tk():
             # them. netplay_sync_ready still checks the file on disk when
             # the add-on is installed, which catches a copy patched by an
             # older release.
-            self._set_status(DONE % sum(1 for v in wanted.values() if v), True)
+            self._set_status(DONE % count, True)
+            self._sgl_offer()
 
         def _restore(self):
             # Keep the selection across the reload only if the boxes were
@@ -23862,12 +26120,14 @@ def probe_tk():
 USAGE = """v-on-patcher.py %s - Virtual-On (PC, 1997) patcher
 
   v-on-patcher.py                     open the patcher
-  v-on-patcher.py --install CUE DIR   copy the game out of a disc image into DIR
-                                  (--language NAME picks the manual)
-  v-on-patcher.py --rip SOURCE DIR    rip the soundtrack; SOURCE is a .cue sheet
-                                  or, on Linux, a CD drive. DIR holds v_on.exe
+  v-on-patcher.py --install IMAGE DIR copy the game out of a .cue or .mds into
+                                  DIR (--language NAME picks the manual)
+  v-on-patcher.py --rip SOURCE DIR    rip the soundtrack; SOURCE is a .cue or .mds
+                                  or, on Linux, a CD drive. DIR holds the game
   v-on-patcher.py --rip               list the drives it can see (Linux)
-  v-on-patcher.py --ddraw DIR         download cnc-ddraw into DIR (holds v_on.exe)
+  v-on-patcher.py --ddraw DIR         download cnc-ddraw into DIR (holds the game)
+  v-on-patcher.py --sgl DIR           download the sgl.dll replacement into DIR
+                                  (the PowerVR version's folder)
   v-on-patcher.py --netplay DIR       install the UDP netplay DLL (--remove undoes)
   v-on-patcher.py --selfcheck         validate the patch tables and exit
   v-on-patcher.py --version
@@ -23884,7 +26144,9 @@ def selfcheck():
         sites, byte_count = _check_table(build)
         lines.append('%s: %d bytes, MD5 %s; %d patches, %d sites, %d bytes '
                      'of the executable touched'
-                     % (build.name, build.size, build.md5, len(BY_KEY),
+                     % (build.name, build.size, build.md5,
+                        sum(1 for key in BY_KEY
+                            if not unsupported(build, key)),
                         sites, byte_count))
     lines += [
              'CD audio blob: %d bytes of code, %d of data, %d placeholders'
@@ -23915,7 +26177,7 @@ def netplay_cli(argv):
             print('Netplay dpctrl.dll %s. Both players need it.'
                   % ('updated to this build' if updating else 'installed'))
             if netplay_sync_ready(gamedir) is False:
-                print('Warning: this v_on.exe is missing a gameplay patch '
+                print('Warning: this game is missing a gameplay patch '
                       'online play needs, so matches will refuse to connect. '
                       'Re-patch with Fix frame rate and Fix crash on round loss.')
             print('Matchcode needs no forwarding; direct IP needs UDP 47624 at the host.')
@@ -23924,10 +26186,11 @@ def netplay_cli(argv):
     return None
 
 
-def ddraw_cli(argv):
-    """--ddraw GAMEDIR, for a machine with no display."""
+def _addon_cli(argv, flag, label, install, report):
+    """--flag GAMEDIR, for a machine with no display. report(gamedir, result)
+    prints what was installed."""
     if len(argv) != 1:
-        return 'Usage: v-on-patcher.py --ddraw GAMEDIR'
+        return 'Usage: v-on-patcher.py %s GAMEDIR' % flag
     gamedir = argv[0]
     if not os.path.isdir(gamedir):
         return 'Not a directory: %s' % gamedir
@@ -23937,18 +26200,31 @@ def ddraw_cli(argv):
             sys.stderr.write('\r%5.1f%%  ' % (100.0 * got / total))
 
     try:
-        files = install_ddraw(gamedir, progress)
+        result = install(gamedir, progress)
     except Exception as exc:
-        return '\ncnc-ddraw failed: %s' % exc
+        return '\n%s failed: %s' % (label, exc)
     sys.stderr.write('\r')
-    print('Installed %d files into %s' % (len(files), gamedir))
-    print('On Linux, set ddraw to native in winecfg for that prefix.')
+    report(gamedir, result)
     return None
 
 
+def ddraw_cli(argv):
+    def report(gamedir, files):
+        print('Installed %d files into %s' % (len(files), gamedir))
+        print('On Linux, set ddraw to native in winecfg for that prefix.')
+    return _addon_cli(argv, '--ddraw', 'cnc-ddraw', install_ddraw, report)
+
+
+def sgl_cli(argv):
+    def report(gamedir, tag):
+        print('Installed %s from pvr-sgl-wrapper %s into %s'
+              % (SGL_DLL, tag, gamedir))
+    return _addon_cli(argv, '--sgl', 'pvr-sgl-wrapper', install_sgl, report)
+
+
 def install_cli(args):
-    """--install CUE DIR [--language NAME]"""
-    usage = 'Usage: --install CUE DIR [--language NAME]'
+    """--install IMAGE DIR [--language NAME]"""
+    usage = 'Usage: --install IMAGE DIR [--language NAME]'
     language = None
     if '--language' in args:
         at = args.index('--language')
@@ -23970,9 +26246,11 @@ def install_cli(args):
                                             info['default_language']))
     build = info['build']
     if not build['supported']:
-        print('This disc holds the %s build of v_on.exe (%s).\n%s\n'
+        print('This disc holds the %s build of %s (%s).\n%s\n'
               'It installs, but the patcher has no tables for it.'
-              % (build['name'], build['md5'], build['why']))
+              % (build['name'], build['exe'], build['md5'], build['why']))
+    elif build['why']:
+        print('%s build. %s' % (build['name'], build['why']))
     why, level = dest_problem(dest, info['bytes'])
     if level == 'bad':
         return why
@@ -24019,7 +26297,7 @@ def rip_cli(argv):
                          % (track, 100.0 * done / max(total, 1)))
 
     try:
-        if source.lower().endswith('.cue'):
+        if is_sheet(source):
             short = room_for(outdir_for(gamedir), rip_bytes(source),
                              'the soundtrack')
             if short:
@@ -24047,6 +26325,8 @@ def main():
         return netplay_cli(sys.argv[sys.argv.index('--netplay') + 1:])
     if '--ddraw' in args:
         return ddraw_cli(sys.argv[sys.argv.index('--ddraw') + 1:])
+    if '--sgl' in args:
+        return sgl_cli(sys.argv[sys.argv.index('--sgl') + 1:])
     if '--rip' in args:
         return rip_cli(sys.argv[sys.argv.index('--rip') + 1:])
     if '--install' in args:

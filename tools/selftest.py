@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Apply the patch tables to a real v_on.exe and report.
+"""Apply the patch tables to a real v_on.exe (or vonpvr.exe) and report.
 
     python3 tools/selftest.py /path/to/v_on.exe
 
@@ -19,17 +19,19 @@ import importlib.util
 import itertools
 import os
 import random
+import struct
 import sys
 
 # MD5 of the original with every patch applied. Update deliberately, and only
 # when a patch actually changed.
 # Everything ticked, per build: retail, the Japanese rerelease, the OEM,
-# the Japanese original.
+# the Japanese original, and the PowerVR build with what it takes.
 EXPECTED_ALL = {
-    'a464b0ff32d5bab499f265e45658504e': '8cbbe019408761f395e4b5c6f756d13a',
-    'd19320bdc3381a48228990907910a391': 'b490dcfd808b76420882ed5a30775070',
-    '4c70f780a7f0d98d74be62304fb99021': '7a643ba38dc3fbe064aff54e5d969990',
-    '9764d946ffc8cee94788707c91753478': '3462bccb29f800fff72864978f64e2b7',
+    'a464b0ff32d5bab499f265e45658504e': 'a1b0c04977d3d80b8e3abc4ac478c66c',
+    'd19320bdc3381a48228990907910a391': 'f2d5ae73f00828c73e27a0e60ee8252c',
+    '4c70f780a7f0d98d74be62304fb99021': '6a17c0632ede0a0ebb62962261452520',
+    '9764d946ffc8cee94788707c91753478': '553b1dc2b2fa4cb7630124e8a331cf5e',
+    '383d3bff66504954f84924a0b41dc3fa': 'a4666132a9dc66bd41704fda2b88f90c',
 }
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -89,9 +91,11 @@ def apply(vp, original, keys, build):
     buf, _applied, skipped = vp.apply_selected(bytearray(original),
                                                dict.fromkeys(keys, True),
                                                build)
-    # Skipped as it should be: a patch whose prerequisite is not ticked.
+    # Skipped as it should be: a patch whose prerequisite is not ticked,
+    # or one the build does not take.
     skipped = [(key, why) for key, why in skipped
-               if key not in vp.NEEDS or vp.NEEDS[key] in keys]
+               if (key not in vp.NEEDS or vp.NEEDS[key] in keys)
+               and not vp.unsupported(build, key)]
     if skipped:
         raise AssertionError('skipped %s: %s' % (skipped[0][0], skipped[0][1]))
     return buf
@@ -101,8 +105,8 @@ def f4_check(vp, original, keys, build, result):
     """The resolution patch's F4 table: its first byte set is what the
     file holds at every site, and the file with the second set copied in
     is a build made for the other size, outside the table itself."""
-    import struct
-    if not vp.hires_supported(bytearray(original)):
+    if not vp.hires_supported(bytearray(original)) \
+            or vp.by_key(build)['hires'][2] is not None:
         return 'no table for this build'
     pe = vp._PE(result)
     sec = [x for x in pe.sections if x['name'] == b'.vohr']
@@ -164,6 +168,29 @@ def port_identity(vp, original):
         if old is not None and bold != original[off:off + len(old)]:
             return 'site 0x%06x old bytes changed' % off
     return '%d sites, identity' % len(moved)
+
+
+def pvr_loader_check(vp, patched):
+    """The rules the PowerVR machine select's loader change has to keep: every
+    use of the old table and lists is gone, every row's shift and loop moved, the
+    lists fit the rows, and the clears still fit a signed byte."""
+    P, text = vp.PVR, patched[0x400:0x400 + 0x1f7800]
+    for old in list(range(0x825548, 0x825584, 4)) + [
+            0x1d2cf30, 0x1d2cf34, 0xb7c920, 0xb7c924]:
+        if struct.pack('<I', old) in text:
+            return 'still refers to 0x%x' % old
+    code = bytes(patched[P.off(0x57f03f):P.off(0x580172)])
+    for reg in range(0xe0, 0xe8):
+        if bytes((0xc1, reg, 0x04)) in code:
+            return 'a row is still 16 bytes'
+    cap = {patched[P.off(0x5c9be9)], patched[P.off(0x41e319)]}
+    slots = {patched[P.off(a)] for a in vp.PVR_LOADER_LOOPS}
+    if len(cap) != 1 or slots != {cap.pop() + 1}:
+        return 'the lists do not fit the rows: %s' % slots
+    clears = {patched[P.off(a)] for a in (0x57faf2, 0x57fc1a, 0x5800a6, 0x58018a)}
+    if clears != {0x7c} or min(slots) * 4 + 3 * 0x20 > 0x7c:
+        return 'the clears do not fit: %s' % clears
+    return 'as laid out'
 
 
 def main(path):
@@ -235,6 +262,11 @@ def main(path):
             print('F4 table: %s' % note)
             if not note.endswith('entries') and 'no table' not in note:
                 bad += 1
+            if build is vp.PVR:
+                note = pvr_loader_check(vp, result)
+                print('machine select loader: %s' % note)
+                if note != 'as laid out':
+                    bad += 1
             if build.md5 == vp.ORIGINAL_MD5:
                 note = port_identity(vp, original)
                 print('port identity: %s' % note)

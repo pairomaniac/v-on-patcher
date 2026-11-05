@@ -28,10 +28,15 @@ credit.
 """
 
 import atexit
+import hashlib
+import io
+import json
 import os
 import shutil
+import struct
 import sys
 import tempfile
+import zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -233,6 +238,219 @@ def main():
             if enabled('Install game'):
                 break
         check('and they come back when it finishes', enabled('Install game'))
+
+    # ---- an Alcohol 120% image takes the same path --------------------
+    mds, _spans = disctest.write_mds(here, 'ALCOHOL', disctest.build_iso(
+        disctest.retail_tree(exe)), audio=2)
+
+    def note_says(words):
+        return any(words in text_of(w) for w in walk(root)
+                   if isinstance(w, ttk.Label) and w.winfo_ismapped())
+
+    set_entry(entries[0], mds[:-4] + '.mdf')
+    for _ in range(100):
+        pump(20)
+        if note_says('.mds file beside it'):
+            break
+    check('an .mdf asks for the .mds beside it',
+          note_says('.mds file beside it') and not enabled('Rip soundtrack'))
+    set_entry(entries[0], mds)
+    for _ in range(200):
+        pump(20)
+        if enabled('Rip soundtrack'):
+            break
+    check('an .mds is offered for the rip', enabled('Rip soundtrack'))
+    check('and for the install', enabled('Install game'))
+
+    # ---- a patch the build warns about --------------------------------
+    for raw, want in (
+            ('AMD Ryzen 7 9800X3D 8-Core Processor', 'AMD Ryzen 7 9800X3D'),
+            ('AMD Ryzen 5 5600G with Radeon Graphics', 'AMD Ryzen 5 5600G'),
+            ('Intel(R) Core(TM) i5-12400F CPU @ 2.50GHz',
+             'Intel Core i5-12400F'),
+            ('13th Gen Intel(R) Core(TM) i7-13700K',
+             '13th Gen Intel Core i7-13700K')):
+        check('the CPU name %s tidies' % want, vp.tidy_cpu_name(raw) == want,
+              vp.tidy_cpu_name(raw))
+    # A stand-in the patcher takes for the PowerVR build, so this runs in CI.
+    # The real file, if there is one, is only for applying it.
+    pvr = None
+    if game:
+        pvr, source = selftest.pristine(os.path.join(game, 'vonpvr.exe'), vp)
+    stand_in = bytearray(0x200)
+    struct.pack_into('<I', stand_in, 0x3c, 0x80)
+    stand_in[0x80:0x84] = b'PE\0\0'
+    struct.pack_into('<I', stand_in, 0x88, vp.PVR.stamp)
+    vp.BUILDS[hashlib.md5(bytes(stand_in)).hexdigest()] = vp.PVR
+    from tkinter import filedialog
+    pvr_dir = os.path.join(tmp, 'pvr')
+    os.makedirs(pvr_dir)
+    path = os.path.join(pvr_dir, 'vonpvr.exe')
+    with open(path, 'wb') as fh:
+        fh.write(stand_in)
+    pick = filedialog.askopenfilename
+    filedialog.askopenfilename = lambda **_kw: path
+    if True:                            # keeps the block's indent
+        try:
+            buttons['Browse\u2026'][-1].invoke()
+            pump()
+            box = [w for w in walk(root) if isinstance(w, ttk.Checkbutton)
+                   and text_of(w) == 'Native widescreen'][0]
+            shown = []
+
+            def answer(label):
+                """Press a button of the warning once it has opened."""
+                popups = [w for w in root.winfo_children()
+                          if isinstance(w, tk.Toplevel) and w.winfo_viewable()]
+                if not popups:
+                    root.after(20, answer, label)
+                    return
+                shown.append(True)
+                said = ' '.join(text_of(w) for w in walk(popups[0])
+                                if isinstance(w, ttk.Label))
+                if label == 'Leave it off':
+                    check('the warning names the CPU and the chart',
+                          'Your CPU' in said and 'cpubenchmark.net' in said)
+                [w for w in walk(popups[0]) if isinstance(w, ttk.Button)
+                 and text_of(w) == label][0].invoke()
+
+            check('PowerVR widescreen starts unticked',
+                  not box.instate(['selected']))
+            root.after(20, answer, 'Leave it off')
+            box.invoke()
+            check('ticking it warns, and declining leaves it off',
+                  shown and not box.instate(['selected']))
+            root.after(20, answer, 'Turn it on')
+            box.invoke()
+            check('accepting ticks it', box.instate(['selected']))
+            del shown[:]
+            box.invoke()
+            pump(60)
+            check('unticking it does not warn',
+                  not shown and not box.instate(['selected']))
+
+            # ---- sgl.dll, which the game cannot start without ---------
+            check('a missing sgl.dll is flagged where it installs',
+                  note_says('does not start without sgl.dll'))
+
+            # ---- the add-ons' installs, with a server of our own ---------
+            def row_button(name):
+                for w in walk(root):
+                    if isinstance(w, ttk.Button) and text_of(w) in (
+                            'Install', 'Remove'):
+                        line = w.grid_info().get('row')
+                        for cell in w.master.winfo_children():
+                            if cell.grid_info().get('row') == line and any(
+                                    name in text_of(x) for x in walk(cell)
+                                    if isinstance(x, ttk.Label)):
+                                return w
+                return None
+
+            def archive(*names):
+                blob = io.BytesIO()
+                with zipfile.ZipFile(blob, 'w') as zf:
+                    for name in names:
+                        zf.writestr(name, b'stand-in ' + name.encode())
+                return blob.getvalue()
+
+            class Reply(io.BytesIO):
+                headers = {'Content-Length': '0'}
+
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, *_exc):
+                    self.close()
+
+            failure = [None]
+
+            def serve(req, timeout=30):
+                if failure[0]:
+                    raise failure[0]
+                url = req.full_url
+                if url == vp.SGL_API:
+                    return Reply(json.dumps({'tag_name': 'v9', 'assets': [{
+                        'name': 'w.zip', 'browser_download_url': 'https://stand-in/sgl.zip'
+                    }]}).encode())
+                if url.endswith('sgl.zip'):
+                    return Reply(archive('w/sgl.dll', 'w/readme.txt'))
+                return Reply(archive('ddraw.dll'))
+
+            def settled(btn):
+                for _ in range(300):
+                    pump(10)
+                    if not btn.instate(['disabled']):
+                        return True
+                return False
+
+            urlopen, vp._urlopen = vp._urlopen, serve
+            try:
+                for name, dll in (('Windowing', 'ddraw.dll'),
+                                  ('PowerVR renderer', 'sgl.dll')):
+                    btn = row_button(name)
+                    dest = os.path.join(pvr_dir, dll)
+                    for exc, says, how in (
+                            (OSError('no route'), 'Download failed.',
+                             'a failed download'),
+                            (PermissionError('in use'), 'in use', 'a locked file')):
+                        failure[0] = exc
+                        btn.invoke()
+                        check('%s: %s comes back' % (dll, how), settled(btn))
+                        check('%s: %s is said, and nothing written' % (dll, how),
+                              not os.path.exists(dest)
+                              and text_of(btn) == 'Install'
+                              and (how != 'a failed download' or note_says(says)),
+                              text_of(btn))
+                    failure[0] = None
+                    btn.invoke()
+                    check('%s: it installs' % dll, settled(btn)
+                          and os.path.exists(dest) and text_of(btn) == 'Remove')
+                    btn.invoke()
+                    pump()
+                    check('%s: and removes' % dll, not os.path.exists(dest)
+                          and text_of(btn) == 'Install')
+                failure[0] = OSError('no route')
+                check('--sgl says a failed download',
+                      'failed' in str(vp.sgl_cli([pvr_dir])))
+                check('--ddraw says a failed download',
+                      'failed' in str(vp.ddraw_cli([pvr_dir])))
+                failure[0] = None
+            finally:
+                vp._urlopen = urlopen
+
+            # ---- the offer after Apply, the patching itself stubbed ----
+            apply_all = vp.Patcher.apply
+            vp.Patcher.apply = lambda _self, _wanted: (True, [])
+            try:
+                del shown[:]
+                root.after(20, answer, 'Not now')
+                buttons['Apply patches'][0].invoke()
+                check('Apply offers to install sgl.dll, and it can be declined',
+                      shown and not os.path.exists(
+                          os.path.join(pvr_dir, 'sgl.dll')))
+            finally:
+                vp.Patcher.apply = apply_all
+
+            # ---- applying it for real needs the real file --------------
+            if pvr is not None:
+                real_dir = os.path.join(tmp, 'pvr-real')
+                os.makedirs(real_dir)
+                real = os.path.join(real_dir, 'vonpvr.exe')
+                with open(real, 'wb') as fh:
+                    fh.write(pvr)
+                shutil.copy(os.path.join(game, 'escrgame.bin.bak'),
+                            os.path.join(real_dir, 'escrgame.bin'))
+                filedialog.askopenfilename = lambda **_kw: real
+                buttons['Browse\u2026'][-1].invoke()
+                pump()
+                del shown[:]
+                root.after(20, answer, 'Not now')
+                buttons['Apply patches'][0].invoke()
+                check('the real file applies, and the offer comes after',
+                      shown and not os.path.exists(
+                          os.path.join(real_dir, 'sgl.dll')))
+        finally:
+            filedialog.askopenfilename = pick
 
     # ---- the layout --------------------------------------------------
     if inner.grid_size()[0] >= 2:

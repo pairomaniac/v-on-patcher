@@ -130,7 +130,9 @@ extern BS_SELFLAME              ; a machine's booster flames, per frame
 extern BS_SELSKY                ; the hangar's outside shown,
 extern BS_SELIN                 ; and its inside
 extern BS_SELTICKS
-extern BS_SLOTS                 ; files loaded: where, how much
+extern BS_SLOTJ                 ; a boss's file as loaded, and Raiden's
+extern BS_SLOTZ
+extern BS_SLOTR
 extern BS_LOADFILE              ; load a machine's (id, -1, 0, 1), as the select
 extern BS_MALLOC                ; the C library's, and its free
 extern BS_FREE
@@ -709,7 +711,7 @@ SEL_NECKX   equ -3775 + 3778        ; the head's turn from the chest's
 selpart_a:
         cmp     byte [seljagdraw], 0
         je      BS_MESHA
-        cmp     dword [ebp - 0x18], SEL_CHEST
+        cmp     dword [ebp + SEL_BONE], SEL_CHEST
         jne     BS_MESHA
 %rep 4
         push    dword [esp + 16]
@@ -870,7 +872,7 @@ selzdraw:
         jne     .done
         cmp     eax, SEL_LAUNCH
         jle     .done
-        cmp     dword [BS_SLOTS + SEL_RAIFILE * 4], 0 ; the flames are
+        cmp     dword [BS_SLOTR], 0 ; the flames are
         jne     .lit                ; meshes of Raiden's fight model, which
         push    1                   ; the select loads as it draws Raiden:
         push    0                   ; not yet on a continue, the cursor
@@ -1939,20 +1941,23 @@ sel_slotsin:
 %rep 2
   %if k
     %define SLOT SEL_ZFILE
+    %define SLOTP BS_SLOTZ
   %else
     %define SLOT SEL_JAGFILE
+    %define SLOTP BS_SLOTJ
   %endif
         cmp     byte [sel_rbin + k], 0
         jne     .k%[k]
         mov     eax, [sel_rbbuf + SLOT * 4]
         test    eax, eax
         jz      .k%[k]
-        push    dword [BS_SLOTS + SLOT * 4]
+        push    dword [SLOTP]
         pop     dword [sel_rbsave + k * 4]
-        mov     [BS_SLOTS + SLOT * 4], eax
+        mov     [SLOTP], eax
         mov     byte [sel_rbin + k], 1
 .k%[k]:
   %undef SLOT
+  %undef SLOTP
 %assign k k + 1
 %endrep
         popad
@@ -1963,12 +1968,12 @@ sel_slotsout:
         je      .z
         mov     byte [sel_rbin], 0
         push    dword [sel_rbsave]
-        pop     dword [BS_SLOTS + SEL_JAGFILE * 4]
+        pop     dword [BS_SLOTJ]
 .z:     cmp     byte [sel_rbin + 1], 0
         je      .out
         mov     byte [sel_rbin + 1], 0
         push    dword [sel_rbsave + 4]
-        pop     dword [BS_SLOTS + SEL_ZFILE * 4]
+        pop     dword [BS_SLOTZ]
 .out:   ret
 
 ; In place of the calls to the select's text for the cursor (cdecl, the
@@ -2630,6 +2635,8 @@ UNL_PROMPTH equ 2                   ; covers, cleared
 UNL_NJ      equ 0x22 * 2            ; the names' tiles, Jaguarandi's
 UNL_NZ      equ 0x1a * 3            ; and Z-Gradt's
 UNL_TILE    equ 0x80                ; a tile's bytes
+UNL_BANK2   equ 0x4000              ; a map entry's mark for the other bank; its
+                                    ; count is the dword before BS_ARTCOUNT
 ST_SELECT   equ 4                   ; A's state on the select
 UNL_BUTTONS equ 0x10110             ; the buttons that end the report, as
                                     ; held (BS_PADEDGE is held, not pressed):
@@ -2887,6 +2894,27 @@ unl_grab:
 ; past the art holds textures, which, the tiles written there, kept them
 ; (seen on the ground behind the initials). unl_map the boss's name's map
 ; there. CF set if they are out of the art's reach.
+; eax a bank's start -> edi unl_area at a whole tile from it, ebp its first
+; tile's number, eax the number past the names. CF set if out of its reach.
+unl_reach:
+        push    eax
+        mov     edi, unl_area
+        sub     eax, edi
+        and     eax, UNL_TILE - 1
+        add     edi, eax
+        mov     ebp, edi
+        pop     eax
+        sub     ebp, eax
+        jb      .far
+        shr     ebp, 7
+        lea     eax, [ebp + UNL_NJ + UNL_NZ]
+        cmp     eax, 0x4000
+        jae     .far
+        clc
+        ret
+.far:   stc
+        ret
+
 unl_place:
         pushad
         cld
@@ -2894,27 +2922,25 @@ unl_place:
         je      .no
         cmp     byte [unl_placed], 0
         jne     .map
-        mov     edi, unl_area       ; a whole tile on from the art's start
-        mov     eax, [BS_ARTPOOL]
-        sub     eax, edi
-        and     eax, UNL_TILE - 1
-        add     edi, eax
-        mov     ebp, edi
-        sub     ebp, [BS_ARTPOOL]
-        jb      .no
-        shr     ebp, 7              ; its first tile's number
-        lea     eax, [ebp + UNL_NJ + UNL_NZ]
-        cmp     eax, 0x4000
-        jae     .no
-        mov     esi, unl_tiles
+        mov     eax, [BS_ARTPOOL]   ; in reach of the art's bank, or the other's
+        call    unl_reach
+        mov     ebx, BS_ARTCOUNT
+        jnc     .reach
+        mov     eax, [BS_ARTPOOL2]
+        call    unl_reach
+        jc      .no
+        mov     ebx, BS_ARTCOUNT - 4
+        or      ebp, UNL_BANK2
+.reach: mov     esi, unl_tiles
         mov     ecx, (UNL_NJ + UNL_NZ) * UNL_TILE / 4
         rep movsd
         mov     [unl_first], ebp
-        mov     ecx, [BS_ARTCOUNT]
+        mov     [unl_countp], ebx
+        mov     ecx, [ebx]
         mov     [unl_count], ecx
         cmp     eax, ecx
         jbe     .in
-        mov     [BS_ARTCOUNT], eax
+        mov     [ebx], eax
 .in:    mov     byte [unl_placed], 1
 .map:   mov     ebp, [unl_first]
         xor     ebx, ebx            ; the map: the name's own entries,
@@ -2945,9 +2971,12 @@ unl_unplace:
         cmp     byte [unl_placed], 0
         je      .out
         push    eax
+        push    ebx
+        mov     ebx, [unl_countp]
         mov     eax, [unl_count]
-        mov     [BS_ARTCOUNT], eax
+        mov     [ebx], eax
         mov     byte [unl_placed], 0
+        pop     ebx
         pop     eax
 .out:   ret
 
@@ -4647,7 +4676,7 @@ zring_a:
 ; one bucket. Sorted to the far end, the segments vanish behind the
 ; body, and nothing else changes (seen). The eight use the group too, so
 ; only Jaguarandi's are moved: a polygon within its file, in the slot
-; the loader gives it (BS_SLOTS, its size in BS_RBNAMES), where the
+; the loader gives it (BS_SLOTJ, its size in BS_RBNAMES), where the
 ; select puts its own copy as it draws (sel_slotsin). In place of the
 ; key's store in the mesh draw's four-sided path, wherever a mesh is
 ; drawn: a luminous polygon of Jaguarandi's has its key one bucket
@@ -4658,7 +4687,7 @@ KEY_BUCKET  equ 0x8000
 jlum_a:
         push    edx
         mov     edx, [ebp + 0x10]
-        sub     edx, [BS_SLOTS + SEL_JAGFILE * 4] ; its place in the file,
+        sub     edx, [BS_SLOTJ] ; its place in the file,
         cmp     edx, [BS_RBNAMES + SEL_JAGFILE * 8 + 4] ; if in it (no file:
         jae     .store              ; nothing is)
         mov     edx, [ebp + 0x10]
@@ -5084,6 +5113,7 @@ unl_got: dd     0                   ; the names' tiles taken
 unl_placed: dd  0                   ; and placed: their first tile, and
 unl_first: dd   0                   ; the art's count before
 unl_count: dd   0
+unl_countp: dd  0                   ; and where it is
 unl_x1: dd      0x29                ; the unlock's layout: YOU UNLOCKED,
                                     ; column and row,
 unl_y1: dd      0x13

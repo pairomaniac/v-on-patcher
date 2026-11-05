@@ -370,6 +370,107 @@ texture bank the fights had loaded is reloaded.
   passes Raiden. After a continue the cursor starts on Z-Gradt, so the
   launch loads the file as the select would (`BS_LOADFILE`).
 
+## The PowerVR build
+
+The bosses work on this build as on the others, with the differences below. Its
+machines' colours and textures go through the card, so its select does more of the work
+itself.
+
+The fight code, the palette RAM (`0x1e159a0`) and its expansion (`0x5753a1`) work as
+on the other builds. Addresses come from retail, checked against the rerelease, whose
+stack frames and AI state (at `0xd68910`) this build shares. Its clone's frame is
+retail's, 0x44.
+
+How its select differs:
+
+- **The slots.** A mesh pointer's top nibble goes through `0x825514`, the same scheme
+  as retail's, but by machine id: Jaguarandi's slot is `0x825538`, Z-Gradt's
+  `0x82553c`. Retail's go by the file's name.
+- **The loader.** The select's loader (`0x57f03f`, mode 1) reads each machine's
+  `BSel_*.bin`, which the bosses do not have, so `loader` takes them off its list.
+- **The textures.** A model's polygons differ from its file once loaded, in paired
+  fields, which look like texture references being rewritten. So `fclose`, when
+  `sel_loadrb` closes a boss's file, runs the game's routine (`0x57d7c0`) on the block.
+  `drop` lets the textures and block go at the next load that is not the select's, and
+  when the game frees every model's textures (`0x57e29d`, `freeall`). The routine has two
+  places for these models (`0x824d6c`, `0x824d70`), and the attract demo leaves its two
+  machines in them, so `vacate` frees any of the eight first. Without that the bosses
+  drew flat after a reset, which runs the demo. The game's free (`0x57e02e`) takes the first
+  place holding a machine, and a fight's loader does not load the player's machine again
+  between stages. So `fclose` notes which place its load took, and `drop` frees only that
+  place, while it still holds the boss. Before that, the report's load went in the second
+  place and `drop` freed the player's Jaguarandi in the first, so its colours changed in
+  every stage after the report.
+- **Jaguarandi's colours.** This build keeps them in texture files, not palettes:
+  `RJAG.VRB` and one per opponent, `RJAGTEM.VRB` and so on, picked in `0x56d4f0` by the
+  other machine's id. The player's and the select's use `RJAG.VRB` (`ownside`). The
+  CPU's keeps the stock choice.
+- **The launch camera.** Its table is at `0x6428a8`, and this build reads it before the
+  player's field where the others read the field first, so its sites are not the others'
+  order.
+- **Z-Gradt's launch flames.** They are in Raiden's select file, so `loader` keeps that
+  listed with the cursor on Z-Gradt or Z-Gradt taken, and `BS_LOADFILE` does nothing
+  here. A flame record here has a fourth field, for the other mode, so `flames` gives
+  Raiden's in the other builds' shape.
+- **The draw.** `0x5c9ba3` has a bigger frame than the other builds', which `selmdl`
+  makes up, and its bone is at `SEL_BONE`, -0x10.
+- **The report.** The select's draw stops at a full list of machines (`0x84c5f4`), and
+  only the select's frame empties the list, so `selmdl` empties it in state 0x1e.
+- **The unlock screen.** The card renders a frame only with the top bit of `0x24a0640`
+  set, and the rest of that word is the background's colour. The report's handler sets
+  it, and the unlock screen runs in place of that handler, so `repmodel` sets it to
+  black, `0x8000`.
+- **The arena under Z-Gradt's unlock.** The report's start, `0x487ca9`, loads scene 5 by
+  `0x58062a`, which frees the arena's textures on the card. Nothing loads the arena again
+  for the name entry, so the floor and machines drew with the wrong textures. Z-Gradt's
+  screen draws on black, so `repscene` skips that load for it. Jaguarandi's keeps it, since
+  the next fight loads its own scene.
+- **The bosses' names on the unlock screen.** This build's `.vobs` is out of reach of the
+  art's bank, so `unl_place` puts the names in the other bank, whose count is the dword
+  before `BS_ARTCOUNT`.
+
+Not done:
+
+- **The hangar's picture.** Played, it shows polygon pop-in or fighting and looks
+  unstable. In the rig, parked on Temjin, Jaguarandi and Z-Gradt, nothing flips but the
+  ceiling lights, weapon edges, text and cursor frame, and the bosses add nothing on
+  Temjin. Not looked at while the camera moves, and not compared with retail. The cause
+  is not known.
+- **Stand-ins.** `BS_MTSELMEM` and `BS_LOADTEX` hold stand-ins. `BS_MTSELMEM`,
+  `0x2470000`, is not where this build reads `MT_sel.bin`. It is a place in `.data` that
+  the 0x2cdc4 bytes of the save and restore fit in.
+
+Played: the portraits, both bosses in fights, their models, launches and cameras, their
+textures after a reset, Z-Gradt's flames, laser, gauge and turn, and the arena's edges.
+Jaguarandi's red segments are steady in the hangar with `jlum_a`, and flickered there
+without it. Jaguarandi has no launch flames, by design. Neither boss shows on the
+continue screen, as on retail.
+
+Seen in the rig, with a hidden display and the debug kill:
+
+- Both bosses through the row with their models, the launch, a round, a KO, its
+  replay, a loss, the continue screen and `GAME OVER`.
+- Both bosses back on the select after a continue, textured, and Z-Gradt after a game
+  over and a new game, and after the reset (writing -1 to the mode word) and the attract
+  demo. Jaguarandi in `RJAG.VRB`'s colours, on the select and in a round.
+- A whole game as Jaguarandi and as Z-Gradt to the name entry, with the models: every
+  stage, the report with its model, and the ending. Jaguarandi keeps `RJAG.VRB`'s colours
+  in the stages after the report.
+
+- Both unlock screens, earned in a game on Very Hard: the boss turning, YOU UNLOCKED, its
+  name, PRESS BUTTON TO CONTINUE, and `bosses.bin` going from 0 to 2. After Z-Gradt's, the
+  name entry on the arena, the scoreboard and the next game's first four rounds. Jaguarandi on the
+  report, with its name, times and rank, and a fight after Jaguarandi's screen.
+
+Seen and not explained:
+
+- The `again` scene hung once: two faults at `0x53921f`, reading address 3 with `ebp` 3,
+  as a state handler returned. It has not hung in 15 later runs, 7 with the commit that
+  fixed the unlock screens and 8 without, so it has not been tied to anything.
+- On `cacf28d`, one `fullj` run exited at the last round after two exceptions at
+  `0x41555452`. No run of the current code has shown this.
+
+
 ## Testing it
 
 - `bosses.bin` beside the game: delete it to start locked, or write the

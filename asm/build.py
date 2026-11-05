@@ -242,8 +242,13 @@ def check_link(vp, blobs):
     for build in vp.BUILDS.values():
         anywhere |= carried(build)
     for build in vp.BUILDS.values():
+        # A build that takes only some patches links only the blobs those
+        # write or name; the rest keep their place, zeroed.
+        needed = vp.build_blobs(build)
         for name in blobs:
             if name in anywhere and name not in carried(build):
+                continue
+            if needed is not None and name not in needed:
                 continue
             try:
                 vp.link(name, build, blobs=blobs)
@@ -281,6 +286,8 @@ SOURCES = [
     ('CAMSKIP', 'camskip.asm'), ('OVERLAY', 'overlay.asm'),
     ('TITLEVER', 'titlever.asm'), ('ACTIVATE', 'activate.asm'),
     ('LOCKLINE', 'lockline.asm'), ('BOSSES', 'bosses.asm'),
+    ('PVRWIDE', 'pvrwide.asm'), ('PVRBOSS', 'pvrboss.asm'),
+    ('PVRHOLD', 'pvrhold.asm'),
 ]
 
 
@@ -305,6 +312,9 @@ def main(check=False):
      blobs['PAD_DEVLIST'], blobs['PAD_SIMPLEDEF'],
      blobs['PAD_INIKEYS'], blobs['PAD_PROFILES']) = padtables.build()
     _inc, extras_tpl, blobs['EXTRAS_DATA'] = dialogs.build_extras()
+    # The PowerVR build's F5 dialog with the frame rate labels, whole: it
+    # cannot grow in place, so it goes in that build's annex.
+    blobs['F5_PVR'] = (dialogs.build_f5_pvr(dialogs.F5_NEW), [], {})
 
     vocd_out = ['VOCD_MAGICS = {\n']
     for name, value, note in MAGICS:
@@ -324,7 +334,10 @@ def main(check=False):
                   hexblob('EXTRAS_TPL', extras_tpl) + '\n'
                   + hexblob('F5_STOCK', dialogs.build_f5(dialogs.F5_STOCK))
                   + '\n'
-                  + hexblob('F5_FPS', dialogs.build_f5(dialogs.F5_NEW)))
+                  + hexblob('F5_FPS', dialogs.build_f5(dialogs.F5_NEW))
+                  + '\n'
+                  + hexblob('PVR_F5_STOCK',
+                            dialogs.build_f5_pvr(dialogs.F5_STOCK)))
 
     # Import the patcher as it will be written, which links every blob for
     # the retail build on the way in.
@@ -340,12 +353,14 @@ def main(check=False):
 
     sizes = ', '.join('%s %d' % (name.lower(), len(code))
                       for name, (code, _f, _l) in blobs.items()
-                      if not name.startswith('PAD_') and name != 'EXTRAS_DATA')
+                      if not name.startswith('PAD_')
+                      and name not in ('EXTRAS_DATA', 'F5_PVR'))
     sizes = 'vocd %d + %d bytes, %s, tables %d, dialogs %d' % (
         len(vocd[0]), len(data), sizes,
         sum(len(blobs[n][0]) for n in ('PAD_COND', 'PAD_BINDS', 'PAD_NAMES',
                                        'PAD_DEVLIST')),
-        len(extras_tpl) + len(blobs['EXTRAS_DATA'][0]) + 2 * dialogs.F5_LEN)
+        len(extras_tpl) + len(blobs['EXTRAS_DATA'][0]) + 2 * dialogs.F5_LEN
+        + len(blobs['F5_PVR'][0]))
     if check:
         if new != src:
             raise SystemExit('asm/ does not match the blobs in '

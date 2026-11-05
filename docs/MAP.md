@@ -13,6 +13,8 @@ table (NOTES.md, *The builds*).
 | `v-on-patcher.py` | the patcher: tables, blobs, installer, ripper, netplay setup, window, CLI |
 | `asm/` | assembly sources for the blobs, `build.py` links them into `v-on-patcher.py` |
 | `asm/ui.asm` | the widescreen blob, built separately by `tools/uibuild.py` |
+| `asm/pvrwide.asm` | the PowerVR build's widescreen glue, on top of `asm/ui.asm` |
+| `asm/pvrboss.asm` | the PowerVR build's bosses glue, on top of `asm/bosses.asm` |
 | `net/` | `dpctrl.c` the netplay DLL, `rendezvous.py` the matchcode server |
 | `tools/` | the checks (`check.py` runs them all), the generators (`uibuild`, `hiresport`, `assets`, `portraits`, `map`), the by-hand tools, `bundle.py`, which assembles the Windows release's `_internal/`, and `package.py`, which CI uses to zip a build into the two release zips |
 | `launcher/` | the Windows release's `v-on-patcher.exe`: `launcher.c` runs `_internal\pythonw.exe _internal\v-on-patcher.py` and reports a crash, `build.bat` compiles it with MSVC, and `v-on-patcher.exe`, when present, is the signed copy every release ships |
@@ -30,20 +32,20 @@ is stale, so the line numbers are current.
 <!-- REGIONS BEGIN: tools/map.py -->
 | Lines | Region | Starts with |
 | --- | --- | --- |
-| 1–38 | header, imports, PE helpers | `#!/usr/bin/env python3` |
-| 39–2640 | widescreen: the layouts, `UI_CODE`, the port tables, the site builder | `# The resolution patch: the` |
-| 2641–2783 | widescreen apply: `hires_install`, section append, F4 table | `def hires_install(buf, width` |
-| 2784–2880 | disc images table, `Build` class, annex order | `DISC_IMAGES = {` |
-| 2881–4436 | the four builds: symbols, caves, site maps | `RETAIL = Build('English reta` |
-| 4437–5841 | generated site maps for the other three builds (`tools/buildsites.py`) | `# SITES JPRE BEGIN` |
-| 5842–17420 | the blobs, `BLOBS`, and `link()` | `BLOBS = {` |
-| 17421–18199 | banner and credit bitmaps, tile expansion | `LEVERS_CODE = link('LEVERS',` |
-| 18200–19247 | the patch table: `FEATURES`, `BY_KEY`, labels, tips, apply order | `FEATURES = [` |
-| 19248–20095 | ripping (`RAW = 2352`) and installing (`LOGICAL = 2048`) | `# --- ripping --------------` |
-| 20096–20944 | netplay setup, `SYNC_SITES`, cnc-ddraw, CD audio | `# --- netplay --------------` |
-| 20945–21469 | `Patcher`: reading a file, applying, restoring | `class Patcher:` |
-| 21470–22037 | the logo and icon (`tools/assets.py`), then the window strings | `# ASSETS BLOB BEGIN - tools/` |
-| 22038–24069 | the window (`run_tk`), the CLI, `main` | `def run_tk():` |
+| 1–41 | header, imports, PE helpers | `#!/usr/bin/env python3` |
+| 42–2676 | widescreen: the layouts, `UI_CODE`, the port tables, the site builder | `# The resolution patch: the` |
+| 2677–3040 | widescreen apply: `hires_install`, section append, F4 table | `def hires_install(buf, width` |
+| 3041–3152 | disc images table, `Build` class, annex order | `DISC_IMAGES = {` |
+| 3153–5304 | the five builds: symbols, caves, site maps, `unsupported()` | `RETAIL = Build('English reta` |
+| 5305–7079 | generated site maps for three builds (`tools/buildsites.py`), the PowerVR one by hand | `# SITES JPRE BEGIN` |
+| 7080–18877 | the blobs, `BLOBS`, and `link()` | `BLOBS = {` |
+| 18878–19946 | banner and credit bitmaps, tile expansion | `LEVERS_CODE = link('LEVERS',` |
+| 19947–21026 | the patch table: `FEATURES`, `BY_KEY`, labels, tips, apply order | `FEATURES = [` |
+| 21027–22043 | ripping (`RAW = 2352`) and installing (`LOGICAL = 2048`) | `# --- ripping --------------` |
+| 22044–22991 | netplay setup, `SYNC_SITES`, cnc-ddraw, CD audio | `# --- netplay --------------` |
+| 22992–23527 | `Patcher`: reading a file, applying, restoring | `class Patcher:` |
+| 23528–24110 | the logo and icon (`tools/assets.py`), then the window strings | `# ASSETS BLOB BEGIN - tools/` |
+| 24111–26349 | the window (`run_tk`), the CLI, `main` | `def run_tk():` |
 <!-- REGIONS END -->
 
 ## 3. `v_on.exe`
@@ -64,8 +66,7 @@ is stale, so the line numbers are current.
 What the patches needed to find, in address order. The rest of `.text` -
 most of it - has no name yet: the 3D geometry, physics, AI, the ending
 cutscene, the sound engine's core and the DirectPlay session code are
-untouched and unmapped. The fourteen functions the widescreen patch
-once wrapped and no longer does are listed with their addresses in
+untouched and unmapped. The fourteen functions the widescreen patch does not wrap are listed with their addresses in
 HIRES.md, *The pass functions*. `maps/` has the per-build function maps for the
 region around each site.
 
@@ -119,7 +120,7 @@ region around each site.
 | `0x6bf560–0x6bf5c0` | framebuffer: mode (`0x6bf560`), surfaces-exist (`0x6bf570`), picture origin and size (`0x6bf578`, `0x6bf5b8`), flags (`0x6bf598`), viewport 2 base (`0x6bf5b0`) | activate, hires |
 | `0x6c84c8`–`0x6c8600` | draw-skip flags, `0x6c84d0` frames per draw, `0x6c854c` viewport origins | framerate, hires |
 | `0x6c866c` | the font cache | hires (F4) |
-| `0x92f8ba`, `0x940168`, `0x941968` | the three photo backdrops' tile maps (64x48 words), byte-identical in all four builds | hires (recognised, not written) |
+| `0x92f8ba`, `0x940168`, `0x941968` | the three photo backdrops' tile maps (64x48 words), byte-identical in all four builds of `v_on.exe` | hires (recognised, not written) |
 | `0xbe4308` | the F5 speed choice | framerate |
 | `0x1ad0964`, `0x1ad09f0` | credits phase, ending frame counter | credits |
 | `0x1add128` | the inactive flag the loop idles on | activate |

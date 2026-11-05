@@ -107,11 +107,12 @@ python3 tools/check.py --only asm,net         # just those
 
 `~/.vo-test` is yours and not in the repository; `tools/vo-test.example`
 is its template. It names the game folder of each build
-(`VO_GAME_RETAIL`, `VO_GAME_OEM`, `VO_GAME_JP`, `VO_GAME_JPRE`). Folders
-on the command line come first, then `VO_GAME` from the environment, then
+(`VO_GAME_RETAIL`, `VO_GAME_OEM`, `VO_GAME_JP`, `VO_GAME_JPRE`,
+`VO_GAME_PVR`). Folders on the command line come first, then `VO_GAME` from the environment, then
 the file. A folder or any file inside one will do. The checks that need the game run once per folder
 given and are named by build - `offsets/jpre` - because a table can only be
-wrong on the build it is for; before tagging, give all four.
+wrong on the build it is for; before tagging, give all five. `uiemu` runs on
+the retail exe only.
 
 | Name | What it proves |
 | --- | --- |
@@ -121,7 +122,7 @@ wrong on the build it is for; before tagging, give all four.
 | `net` | `net/dpctrl.dll` was built from the current `net/dpctrl.c`, by hash - two mingw versions do not produce identical bytes - and is the file `v-on-patcher.py` expects |
 | `portraits` | `portraits.py --check`: the bosses' select portraits in `v-on-patcher.py` are what `assets/portrait_*.png` bake to. Without Pillow it says so and passes, having tested nothing; CI has Pillow |
 | `disc` | `disctest.py`: the disc reader, on ISO9660 images the test builds itself - one per sector layout, plus a cue that names the wrong one. Extraction is byte-exact, the `ssp.ini` rules give the retail and OEM file lists, and every refusal names what is wrong. Needs no game and no disc, so CI runs it |
-| `gui` | `guitest.py`: the window, opened under xvfb and driven without its loop - which button is offered for which source, that a copy holds both down until it finishes, and that the two columns end level whatever is open. None of these raise on their own, so each asserts the property. Needs a display; with none it skips and prints a note rather than passing quietly |
+| `gui` | `guitest.py`: the window, opened under xvfb and driven without its loop - which button is offered for which source, the PowerVR warning and renderer prompt on a stand-in file, both add-ons' installs and failures against a stand-in server, that a copy holds both down until it finishes, and that the two columns end level whatever is open. None of these raise on their own, so each asserts the property. Needs a display; with none it skips and prints a note rather than passing quietly |
 | `lint` | pyflakes |
 | `map` | `map.py --check`: the region table in MAP.md matches the script's line numbers; `map.py --write` regenerates it |
 | `tree` | nothing regenerated was left uncommitted. Skipped outside CI, where it would fail on every edit in progress |
@@ -184,6 +185,112 @@ and commit the result.
 ```bash
 python3 tools/assets.py
 ```
+
+## The PowerVR rig
+
+`tools/pvrrig.py` plays the PowerVR build without anyone at the keyboard, on a hidden
+display with the sound off. It answers questions like "does this screen draw its model"
+without a play-through. It does not judge anything: someone has to look at what it leaves.
+
+```bash
+python3 tools/pvrrig.py lastu              # a scene, on the working tree's patches
+python3 tools/pvrrig.py lastu --tag try2   # keeps its output under another name
+python3 tools/pvrrig.py lastu --exe FILE   # on that executable instead
+```
+
+It needs `VO_GAME_PVR` in `~/.vo-test`, with `vonpvr.exe.bak` and `sgl.dll` in that
+folder, and wine, xvfb-run, xdotool, ffmpeg, i686-w64-mingw32-gcc and Pillow. Xvfb's
+socket fails inside a sandbox, so run it outside one. One game runs at a time.
+
+### How a run works
+
+The rig works in `~/.cache/vo-pvr-rig`, or `$VO_PVR_RIG`. Its `game` folder holds links to
+the install and its own copies of what the game writes, so the install is not touched.
+The rig does these things in order:
+
+1. It applies the patches to a copy of the executable, or takes `--exe`.
+2. It writes `bosses.bin`, `v_on.ini` and `ddraw.ini` with the GDI renderer.
+3. It starts the game under Wine and follows the scene's events: key presses, memory
+   writes and the debug menu's commands, through the helper `tools/pvrrig.c`.
+4. It reports how many exceptions `pvrsgl.log` holds, and what the scene collected.
+
+If the game hangs, the run is cut off 120 seconds after the scene's time, with no line saying
+how the game ended.
+
+A scene collects in one of two ways, and its output is in `shots/` under the scene's name.
+
+- **Screenshots.** The scene follows the game's state and logs each change in
+  `states.txt`. It takes a screenshot at set times in a state, or when the report's frame
+  counter shows the whole card, and captions them on `sheet.jpg`. It stops when it has
+  them all, and says so if any were missed.
+- **A recording.** The scene keeps to fixed times and records at 60 FPS to `cap.mkv`. It
+  reports nearly black frames and flat red or blue at the right edge. Screen changes show
+  as black, and the flat-colour count only means something on the machine select. The
+  recording and its frames take gigabytes, so delete them when done.
+
+### The scenes
+
+The times are one run's, setup included.
+
+| Scene | What it does | Collects | Time |
+| --- | --- | --- | --- |
+| `unlj` | Jaguarandi's unlock screen, written to the state | screenshots | 1 min |
+| `lastu` | Z-Gradt's unlock screen, the name entry and the scoreboard, the stage written to the last | screenshots | 2 min |
+| `lastz` | The last stage as Z-Gradt, the stage written, to the name entry | screenshots | 2 min |
+| `report` | Jaguarandi through five stages and its stage to its report | screenshots | 3 min |
+| `unlock` | Very Hard from nothing unlocked: a whole game, both unlock screens, the report, the name entry and the scoreboard | screenshots | 5 min |
+| `fullj`, `fullz` | A whole game as Jaguarandi or Z-Gradt, to the name entry | screenshots | 5, 6 min |
+| `title` | The title screen and its menu | recording | 40 s |
+| `sweep`, `bounce` | The 1P select: rightward, or Apharmd and Bal-Bas-Bow | recording | 40 s |
+| `select2p` | The 2P select with the 3D hangar | recording | 40 s |
+| `round` | A 1P match | recording | 1 min |
+| `hold0`, `hold`, `holdz` | Parked on Temjin, Jaguarandi or Z-Gradt | recording | 1, 1.5 min |
+| `split` | A 2P round, a live layout switch and a loss | recording | 1.5 min |
+| `bbb`, `apharmd` | 1P, a lost round and the continue | recording | 1.5 min |
+| `roll` | The ending credits | recording | 2.5 min |
+| `jag`, `zgradt` | 1P as a boss, a lost round | recording | 2.5 min |
+| `igr`, `igrj` | Z-Gradt or Jaguarandi, the reset, the attract demo, and the select again | recording | 2.5 min |
+| `again` | Z-Gradt, game over, and Z-Gradt again | recording | 3 min |
+
+### What the rig cannot do
+
+- **Only this build.** It runs only the PowerVR build, so a change to shared code still
+  needs the other builds played.
+- **Written shortcuts.** A scene that writes the stage or the state skips what the game
+  would have done before it. `lastu` and `unlj` are quick, and only a whole game proves
+  the real path.
+- **Playing.** It cannot steer a machine or reach P2's view of the select.
+- **Judging.** A clean result is not proof, since the rig has missed what a player saw.
+  The captures use the GDI renderer, and F12 under the wrapper shows only what the card
+  drew. The counts of black and flat-colour frames say little without someone watching.
+- **Recorded scenes.** They keep to fixed times and log no states, so a hang in one cannot
+  be placed. Their times were set by hand on one machine.
+- **Timing.** In every scene, the first key presses and the walk along the row keep to fixed
+  times, so a slower machine may miss them.
+- **Addresses.** State, stage, cursor, difficulty and the report's frame come from the
+  patcher's table. The rest are written in the rig and belong to this build.
+
+### Things the rig works around
+
+- **The cursors.** The keyboard does not move the title's or the select's cursor in Xvfb.
+  The 2P scenes force the title's choice in the rig's executable, and cursor moves are
+  written to memory one machine at a time, because the camera slides between them.
+- **Jaguarandi's stage.** The game skips it when the missions so far average 1680 units of
+  time or less, about 33.6 seconds, and the debug kill's take about 5. The rig raises the
+  time during the fifth mission, so the report's times and rank are not a player's.
+- **Very Hard and a clean run.** The rig writes the difficulty and `unl_clean` at the select.
+  A write of the difficulty alone came too late for the first game to unlock anything.
+- **The kill.** Jaguarandi kills a standing machine in about 5 seconds, which loses the
+  run, so a round is killed after 2. It waits 6 on the last stage, where an early kill has
+  stuck the game once, and 12 as Z-Gradt, which flies in first.
+- **Labels.** A scene can write a label of `asm/bosses.asm` by name. The rig takes its place
+  from the working tree, so with `--exe` that file has to be built from the same tree.
+
+### Adding a scene
+
+A scene is one entry in `SCENES`, a `Scene` with its most seconds and its events. Use
+`state_scene` for anything that plays through rounds, with `shots` saying when to take
+each screenshot in which state. Use `capture=` only for what happens between screenshots.
 
 ## Where the blobs live
 
@@ -251,6 +358,22 @@ committed:
    pin its all-patches MD5 in `EXPECTED_ALL`; `bannertest.py` and
    `credittest.py` on an install of it once its artwork MD5 is in `art`.
    Then someone has to play it.
+
+A build that takes only some patches uses these `Build` arguments:
+
+- `patches=` names the patches it takes, and `reasons=` gives a better word than
+  "not ported" for a row. `unsupported()` is what the window, the apply and the
+  selftest ask.
+- `annex=` is `ANNEX_BLOBS` plus any blob only it carries, like the PowerVR F5
+  template, so the layout matches. `build_blobs()` names the blobs it links.
+- `fixed_ini=` holds a `v_on.ini` value the game gives no way to set.
+- `cautions=` holds a warning for a patch. The patch starts unticked, and ticking
+  it asks first.
+
+Its site map needs only those patches' sites. `buildsites.py` skips the rest, and
+what the map cannot place goes in `HAND` in `tools/votrans.py`, as for any build.
+The PowerVR map is the exception. It is kept by hand, and `buildsites.py PVR` stops
+on the bosses' 80 sites, so new rows go straight into `PVR.sites`.
 
 Two things to check by eye before anyone runs it. A site placed by its
 bytes may be in the wrong function: ten bytes of `cmp [ebp-8], 0x1a; jge`
@@ -657,7 +780,7 @@ that our bytes overwrote; a fault inside a blob is the blob's.
 
 ```bash
 python3 v-on-patcher.py --help
-python3 v-on-patcher.py --install CUE DIR  # install the game from a disc image
+python3 v-on-patcher.py --install IMAGE DIR  # install the game from a .cue or .mds
 python3 v-on-patcher.py --rip          # list CD drives (Linux)
 python3 v-on-patcher.py --netplay DIR  # install the UDP netplay DLL
 python3 tools/check.py --list      # what the checks are

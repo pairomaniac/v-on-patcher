@@ -8,6 +8,8 @@ VO_GAME_RETAIL=$HOME/games/VIRTUAL-ON
 VO_GAME_OEM=$HOME/games/VIRTUAL-ON-OEM
 VO_GAME_JP=$HOME/games/VIRTUAL-ON-JP
 VO_GAME_JPRE=$HOME/games/VIRTUAL-ON-JP-RE
+# The PowerVR version: the credit and portrait checks do not run on it.
+VO_GAME_PVR=$HOME/games/VIRTUAL-ON-PVR
 
 # tools/vo-dll.sh installs into VO_GAME, or VO_GAME_RETAIL when it is unset.
 #VO_GAME=$HOME/games/VIRTUAL-ON

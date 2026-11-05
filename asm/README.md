@@ -37,11 +37,14 @@ and release workflow see [DEVELOPING.md](../docs/DEVELOPING.md).
 | `credits.asm` | ending screens: ends the credits once the button has been held a second |
 | `overlay.asm` | ending screens: draws HOLD TO SKIP over the credits while it is held |
 | `titlever.asm` | credit: prints the patcher's version on the title screen |
+| `pvrhold.asm` | ending screens: on PowerVR, the store of the time that HOLD TO SKIP's hook replaces |
 | `nameentry.asm` | ending screens: adds A to the initials screen, beside the triggers |
 | `camskip.asm` | gamepad: lets A skip the win and lose screens, as Select does |
 | `lockline.asm` | Fix the lock-on line: the clippers project 2D quads with the 2D scale |
 | `bosses.asm` | Playable bosses: the bosses in the select's row once unlocked, the unlocks and their screen, the boss's colour, and every place the game only handled the eight machines |
 | `ui.asm` | Native widescreen: the resolution blob, built by `tools/uibuild.py` (see below) |
+| `pvrwide.asm` | Native widescreen on the PowerVR build: what it needs on top of `ui.asm`, which it runs as the other builds do |
+| `pvrboss.asm` | Playable bosses on the PowerVR build: what it needs on top of `bosses.asm` |
 | `layout.py` | data blob layout and string table, shared by `vocd.asm` and the blob |
 | `padtables.py` | gamepad: what each pad input is, what it is called, the F7 device list |
 | `dialogs.py` | the F11 Extras template and its tables, and the F5 frame rate labels |
@@ -207,18 +210,17 @@ reference the file shows, and both have crashed the game before. Two
 runs, at `0x5f80e0` and `0x623d98`, are `qword` constants that scan as
 zeros; `0x5fb140` is a scoreboard template the attract loop copies.
 
-Four patches append a section of their own rather than use the annex,
-because what they carry is too big for it and only exists once the patch
-is applied. `.vobs` is **Playable bosses**' (`bosses.asm`, below): built
-and linked like the annex's blobs, since its place follows from the
-annex's, but written only when ticked and only as far as its last byte
-that is not zero - the buffers at its end are the section's virtual size.
-The fourth, `.vohr`, is **Native widescreen**'s: its code is
-`ui.asm` here, the same nasm as everything else, but built by
-`tools/uibuild.py` rather than `build.py` - it is position independent
-(no `org`) and carries its own address list, so the blob and its offset
-constants go between their own markers. See
-[HIRES.md](../docs/HIRES.md).
+Four patches append a section of their own rather than use the annex, because what they
+carry is too big for it and only exists once the patch is applied.
+
+`.vobs` is **Playable bosses**' (`bosses.asm`, below). It is built and linked like the annex's
+blobs, since its place follows from the annex's. It is written only when ticked, and only as far
+as its last byte that is not zero, because the buffers at its end are the section's virtual size.
+
+The fourth, `.vohr`, is **Native widescreen**'s. Its code is `ui.asm` here, the same nasm as
+everything else, but built by `tools/uibuild.py` rather than `build.py`. It is position independent
+(no `org`) and carries its own address list, so the blob and its offset constants go between their
+own markers. See [HIRES.md](../docs/HIRES.md).
 
 **`vocd.asm`** is the CD audio routine, in a new `.vocd` section that
 `apply_cdaudio` appends to the executable. The code starts with two thunks:
@@ -333,21 +335,20 @@ and opens the template from the `.voxt` section
 the same patch appends; `f11pause.asm` holds a placeholder for its address,
 filled at apply time.
 
-**The dialog procedure** ticks each check box from the game's own flag on
-`WM_INITDIALOG` (through the loop in `f11pause.asm`'s tail), shows both
-players' deadzone digits, and forwards clicks. Close, Defaults and Quit go
-to `voxt.asm`, at the tail of the `.voxt` section. On close it reads the deadzone boxes back:
-two digits per player, clamped to 5-95, written into the thresholds the
-tick compares and out to the v_on.ini lines through `iniparse.asm`'s
-tail; a rejected entry is re-seeded to the percent in force. Defaults
-seeds both boxes to 40. The routine also says whether the click should
-be posted on. Every
-control's id is the game's own command id, so a click is posted straight to
-the main window as `WM_COMMAND` and needs no lookup table; the deadzone
-edits are the exception, their notifications being the dialog's own.
-Closing writes the boxes back and, when the gamepad patch's `iniparse.asm`
-is in place - its first byte says - calls the write-back in its tail,
-so the values land in their v_on.ini lines.
+**The dialog procedure** ticks each check box from the game's own flag on `WM_INITDIALOG` (through
+the loop in `f11pause.asm`'s tail), shows both players' deadzone digits, and forwards clicks. Every
+control's id is the game's own command id, so a click is posted straight to the main window as
+`WM_COMMAND` and needs no lookup table. The deadzone edits are the exception, as their notifications
+are the dialog's own.
+
+Close, Defaults and Quit go to `voxt.asm`, at the tail of the `.voxt` section, which also says whether
+the click should be posted on.
+
+- **Close** reads the deadzone boxes back: two digits per player, clamped to 5-95, written into the
+  thresholds the tick compares. A rejected entry is re-seeded to the percent in force. When the gamepad
+  patch's `iniparse.asm` is in place (its first byte says), it also calls the write-back in that file's
+  tail, so the values land in their v_on.ini lines.
+- **Defaults** seeds both boxes to 40.
 
 Credits is the exception to the rule. There is no menu item behind it, so the
 procedure acts on it rather than posting it: `0x1f` into the sub-state at
@@ -422,15 +423,12 @@ keyboard handler, because the handler is what reads them. Then it walks
 the twelve bind slots, testing each against the condition table and
 clearing the lever bits its mask names.
 
-**padpoll** decides which XInput slot a side reads, since slots are not
-player numbers: the sides on a pad profile, 1P first, take the connected
-slots in ascending order. So two pads on 0 and 1 serve 1P and 2P, and one
-pad on slot 0 serves 2P alone when 1P is on the keyboard - which the fixed
-0/1 of earlier versions could not do. The map (`PADIDX`, slot + 1 per side,
-5 for none) is built on the first poll and rebuilt when a cached slot
-stops answering, when a side without a pad has missed 256 polls (so a pad
-plugged in later is found within seconds), and on a device change, which
-`commitdev.asm` clears it for.
+**padpoll** decides which XInput slot a side reads, since slots are not player numbers. The sides on
+a pad profile, 1P first, take the connected slots in ascending order. So two pads on 0 and 1 serve 1P
+and 2P, and one pad on slot 0 serves 2P alone when 1P is on the keyboard. The map (`PADIDX`, slot + 1 per
+side, 5 for none) is built on the first poll. It is rebuilt when a cached slot stops answering, when a
+side without a pad has missed 256 polls (so a pad plugged in later is found within seconds), and on a
+device change, which `commitdev.asm` clears it for.
 
 Not every slot is live in every game state. The stock keyboard handler at
 `0x443074` runs all twelve only when `[0x1ae3594]` is 4 and `[0x1ae3690]` is
@@ -484,7 +482,7 @@ bit means pushed - `0x80` left, `0x40` right, `0x20` up, `0x10` down.
 The XInput tick ORs every active input into those words, so a held direction
 left `up` set alongside the jump bits and the result read as two diagonals
 rather than a spread. This runs in place of the tick's epilogue and strips the
-contamination back off, but only when a pad was actually read that tick, so
+contamination back off, but only when a pad was read that tick, so
 the keyboard path is untouched.
 
 Because it replaces the epilogue, its site overlaps the end of the XInput
@@ -532,7 +530,7 @@ The first is the duplicate-key test. The page refuses a key for 2P if 1P
 already holds it, which is right when both are on the keyboard and
 needlessly strict when 1P is on a pad and its keys are dormant.
 
-The stub runs the test only when 1P is actually on the keyboard profile.
+The stub runs the test only when 1P is on the keyboard profile.
 
 It governs what may be entered and nothing more: if 1P later switches back,
 both sides can hold the same key and one press drives both mechs. Catching
@@ -591,12 +589,10 @@ numbers themselves stay what the executable and `v_on.ini` always used.
 
 ## f11pause.asm
 
-The F11 Extras dialog's runner. The built-in F-key dialogs pause the game
-and the music around their DialogBox call and resume after; the F11 hook
-in `debugbox.asm` had no room left for the same calls, so the whole
-DialogBox block moved here and gained them. The tail is the dialog's
-check-box init, moved for the same reason. Ships with **Disable menu bar**,
-not the gamepad patch.
+The F11 Extras dialog's runner. The built-in F-key dialogs pause the game and the music around their
+DialogBox call and resume after. This holds the same block for the F11 hook in `debugbox.asm`, which has
+no room for it. The tail is the dialog's check-box init, here for the same reason. Ships with **Disable
+menu bar**, not the gamepad patch.
 
 ## movie.asm
 
@@ -605,13 +601,10 @@ using an offset out of two globals that are each a hardcoded centre for one
 movie size in a 640x480 picture, so under any upscaler the movie ends up
 small and in a corner.
 
-The obvious fix is to read the window's real size, and the obvious call for
-that is the `GetClientRect` the routine already makes and discards. It does
-not work: cnc-ddraw hooks `GetClientRect` and answers with the game's own
-640x480 whenever it is asked about the game window, which is the whole point
-of the hook. `GetWindowRect`, `GetSystemMetrics`, `MoveWindow` and
-`SetWindowPos` are hooked with it, so no call the game can make tells the
-truth.
+The window's real size cannot come from the `GetClientRect` the routine already makes and discards.
+cnc-ddraw hooks `GetClientRect` and answers with the game's own 640x480 whenever it is asked about the
+game window. `GetWindowRect`, `GetSystemMetrics`, `MoveWindow` and `SetWindowPos` are hooked with it, so
+no call the game can make tells the truth.
 
 cnc-ddraw exports `DDGetProcAddress` for this, forwarding to the real
 `GetProcAddress`. So this resolves `ddraw.dll`, asks it for user32's
@@ -619,20 +612,17 @@ cnc-ddraw exports `DDGetProcAddress` for this, forwarding to the real
 imported one, which without cnc-ddraw is the real function anyway and gives
 what the game did before.
 
-The movie's shape comes from the file, not the game: the size the game
-passes is its window for the movie, 640x400 or 320x200, while `von.avi`
-is 320x240 with the picture letterboxed inside it (rows 30..209). So the
-stub asks mciavi for the frame size with `MCI_WHERE`, `WHERE_SOURCE` plus
-`WHERE_MAX` (without MAX the answer is the source rect set on the last
-run), and fits the picture band rather than the frame. It takes the
-biggest rectangle of that shape that fits the real client rect, centres
-it, and writes the result into the caller's frame, so the game's own
-`MoveWindow` a few instructions later uses the new values. mciavi does not
-follow the window, so the stub then sends two `MCI_PUT`s: the band as the
-source rect and the fitted rectangle as the destination. If the size
-query fails it fits the game's
-16:10 numbers and sends no source rect, which is what the stub did
-before. The game sends no `MCI_PUT` of its own.
+The movie's shape comes from the file, not the game. The size the game passes is its window for the
+movie, 640x400 or 320x200, while `von.avi` is 320x240 with the picture letterboxed inside it (rows 30..209).
+
+1. The stub asks mciavi for the frame size with `MCI_WHERE`, `WHERE_SOURCE` plus `WHERE_MAX` (without MAX
+   the answer is the source rect set on the last run), and fits the picture band rather than the frame.
+2. It takes the biggest rectangle of that shape that fits the real client rect, centres it, and writes the
+   result into the caller's frame, so the game's own `MoveWindow` a few instructions later uses it.
+3. mciavi does not follow the window, so the stub sends two `MCI_PUT`s: the band as the source rect and the
+   fitted rectangle as the destination. The game sends none of its own.
+
+If the size query fails, it fits the game's 16:10 numbers and sends no source rect.
 
 It reaches `mciSendCommandA` through a register rather than the six-byte
 indirect call, because `apply_cdaudio` counts those and aborts on anything
@@ -707,17 +697,56 @@ camera, and A is jump by default, so it is gated on `MODE` 4 with `SUBMODE`
 branch that has already established A is held, with `ebx` still holding the
 parameter block the camera slot comes out of.
 
+## pvrwide.asm
+
+Runs `ui.asm` on the PowerVR build, which draws the 2D layer before it sets the
+next frame's viewport and renders.
+
+- `frame` replaces every call to the viewport setup. It takes the layout from the
+  F5 split radios and refreshes `ui.asm`'s copies of the view centres and size.
+- `region1` and `region2` give a renderer the whole frame when `ui.asm` shows one
+  engine.
+- `nodither` turns the card's dither off before each render, and notes the render.
+- `waitcard` records whether a render started since the last wait, which `nodither`
+  notes, and turns `(0,4,0)` to true black if one did.
+- `clearsurface`, on a frame the card did not render, clears the surface on a 2D
+  screen, and with 3D behind sets the game's skip flag so the newest picture stays.
+- `drawn3d` answers the blob's 3D-behind question from the hide bit of the plane of
+  the engine on screen (`behind3d`).
+- `fill1` and `fill2` start the backdrop's fill at the canvas's left edge.
+- `insert2` takes the second viewport's origin off around the blob's record hook.
+
+`pvr_wide_sites` and `pvr_ui_install` in the script write the hooks and the
+pointers that need the blob's section. [HIRES.md](../docs/HIRES.md), *The PowerVR
+build*, has the reasons.
+
+## pvrboss.asm
+
+Runs `bosses.asm` on the PowerVR build, whose select lists a machine for the card's
+loader where the other builds' draw loads the file.
+
+- `selmdl` gives the select's draw this build's frame.
+- `fclose`, when `sel_loadrb` closes a boss's file, runs the game's texture routine on
+  the block, after `vacate` frees any of the eight from the routine's two places.
+- `loader` takes the bosses off the select's list, and `drop` lets their textures and
+  blocks go when the select is over, or `freeall` when the game frees every model's.
+- `ownside` gives the player's Jaguarandi its own textures, not its opponent's set.
+- `rbnames` is the table `sel_loadrb` reads, by the slots its names have elsewhere.
+- `flames` is Raiden's booster flames in the record shape `bosses.asm` reads, for
+  Z-Gradt's launch.
+
+`pvr_boss_sites` in the script writes the hooks. [BOSSES.md](../docs/BOSSES.md), *The
+PowerVR build*, has the reasons.
+
 ## overlay.asm
 
 Draws `HOLD TO SKIP` over the credits while the button is down.
 
-The tile font was the obvious way and the wrong one: that layer is what the
-roll scrolls, so anything printed into it climbs the screen with the
-credits. `0x5c991c` takes screen pixels instead, the same call the pause
-text uses. The point is 320, 440 of the picture, computed from the origin
-and size globals at `0x6bf578`/`0x6bf5b8`, so any mode places it the same
-way; `0x5c88ac` halves those globals itself for 320x240, so unlike the
-pause text's constants nothing here halves again at `0x5c9a98`.
+It does not use the tile font, because that layer is what the roll scrolls, so anything printed into it
+climbs the screen with the credits. `0x5c991c` takes screen pixels instead, the same call the pause text
+uses. The point is 320, 440 of the picture, computed from the origin and size globals at
+`0x6bf578`/`0x6bf5b8`, so any mode places it the same way. `0x5c88ac` halves those globals itself for
+320x240, so unlike the pause text's constants nothing here halves again at `0x5c9a98`.
 
 Two things about when and where it paints.
 
@@ -734,6 +763,11 @@ buffer, `0x1ae5f5c`, across the call and put back after.
 The gate is `MODE` 4, `SUBMODE` `0x20` and phase 2, and only then the hold
 count. `HELD` only means anything while the roll is running, where
 `credits.asm` owns it.
+
+On the PowerVR build, the matching call at `0x498178` runs only behind a toggle.
+The hook there is the store of the time at `0x498186`, which runs every frame
+after the drawing and ahead of the flip at `0x4981a9`. `pvrhold.asm` holds that
+store, and it is what the stub calls first in place of the displaced call.
 
 ## activate.asm
 
@@ -777,14 +811,11 @@ picture's edges or splits an edge longer than the subdivision threshold,
 and does so with the 3D slot, focal length included - 600 times the size.
 The leader line is the one quad that gets long enough.
 
-Four hooks and twenty-two call sites, per renderer: `quad2d_a`/`b` run in
-place of the submits' seven-byte prologues and raise the renderer's flag;
-`walk_a`/`b` do the same at the mesh walkers, the only other callers of
-the clippers, and drop it; the clippers' eleven `fdivr dword [PROJ]`
-sites each call `clipproj_a`/`b`, which divides by the aspect slot while
-the flag is up and the 3D slot otherwise. Two renderers, two flags, two
-pairs of projection slots. How it was found is in
-[HIRES.md](../docs/HIRES.md), *The lock-on line*.
+There are four hooks and twenty-two call sites, per renderer. `quad2d_a`/`b` run in place of the submits'
+seven-byte prologues and raise the renderer's flag. `walk_a`/`b` do the same at the mesh walkers, the only
+other callers of the clippers, and drop it. The clippers' eleven `fdivr dword [PROJ]` sites each call
+`clipproj_a`/`b`, which divides by the aspect slot while the flag is up and the 3D slot otherwise. Two
+renderers, two flags, two pairs of projection slots. See [HIRES.md](../docs/HIRES.md), *The lock-on line*.
 
 ## bosses.asm
 

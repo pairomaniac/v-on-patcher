@@ -7,8 +7,8 @@
     VO_GAME=/path/to/VIRTUAL-ON python3 tools/check.py
 
 ~/.vo-test (template: tools/vo-test.example) names the game folder per
-build: VO_GAME_RETAIL, VO_GAME_OEM, VO_GAME_JP and VO_GAME_JPRE. Folders
-on the command line come first, then VO_GAME from the environment, then
+build: VO_GAME_RETAIL, VO_GAME_OEM, VO_GAME_JP, VO_GAME_JPRE and VO_GAME_PVR.
+Folders on the command line come first, then VO_GAME from the environment, then
 the file.
 
 The game is not in the repository, so CI can only run the first form. The
@@ -17,7 +17,7 @@ given: selftest.py, the only thing that catches a wrong offset, the
 banner and credit tests, the only proof that those read back as written,
 and uiemu, which runs the resolution blob on the retail file. They are why
 the manual step before tagging still exists. Give every build's folder and
-each of those runs once per build, named; the patcher has tables for four,
+each of those runs once per build, named; the patcher has tables for five,
 and a table can only be wrong on the build it is for.
 
 Each check stays a script of its own; this only decides what to run and
@@ -34,7 +34,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 PY = sys.executable or 'python3'
 CONF = os.path.expanduser('~/.vo-test')
-BUILDS = ('RETAIL', 'OEM', 'JP', 'JPRE')
+BUILDS = ('RETAIL', 'OEM', 'JP', 'JPRE', 'PVR')
+UNKNOWN = 'no build the patcher knows', 'unknown'
 
 
 def config():
@@ -90,13 +91,13 @@ CHECKS = [
       'tools/uibuild.py', 'tools/hiresport.py', 'tools/vonpatcher_hires.py',
       'tools/rvload.py', 'tools/uiemu.py', 'tools/portaudit.py',
       'tools/assets.py', 'tools/map.py', 'tools/portraits.py',
-      'tools/portraittest.py', 'net/rendezvous.py'], False,
+      'tools/portraittest.py', 'tools/pvrrig.py', 'net/rendezvous.py'], False,
      False),
     ('map', 'docs/MAP.md region table matches the script',
      [PY, 'tools/map.py', '--check'], False, False),
     ('tree', 'no uncommitted generated files',
      ['git', 'diff', '--exit-code', '--stat'], False, True),
-    ('offsets', 'every patch against a real v_on.exe',
+    ('offsets', 'every patch against the real executable',
      [PY, 'tools/selftest.py', '{exe}'], True, False),
     ('banner', 'the title prompt reads back as written',
      [PY, 'tools/bannertest.py', '{game}'], True, False),
@@ -111,7 +112,8 @@ CHECKS = [
 
 def find_games(args):
     """The game folders, from folders or from any file inside one, each
-    with its v_on.exe and the name of the build it holds.
+    with its executable (v_on.exe, or vonpvr.exe for the PowerVR build) and
+    the name of the build it holds.
 
     Naming a file is convenient and every checker wants the folder anyway -
     the banner needs the artwork as well - so the file name itself is not
@@ -125,23 +127,28 @@ def find_games(args):
         if not given and conf.get('VO_GAME'):
             given = [conf['VO_GAME']]
     out = []
+    vp = load_patcher() if given else None
     for game in given:
         if os.path.isfile(game):
             game = os.path.dirname(game) or '.'
-        exe = os.path.join(game, 'v_on.exe')
-        name, short = build_name(exe)
-        out.append((game, exe if os.path.exists(exe) else None, name, short))
+        exe = vp.game_exe(game)
+        name, short = build_name(vp, exe) if exe else UNKNOWN
+        out.append((game, exe, name, short))
     return out
 
 
-def build_name(exe):
-    """Which build a v_on.exe, or the original beside it, is."""
-    import hashlib
+def load_patcher():
     import importlib.util
     spec = importlib.util.spec_from_file_location(
         'vonpatcher', os.path.join(ROOT, 'v-on-patcher.py'))
     vp = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(vp)
+    return vp
+
+
+def build_name(vp, exe):
+    """Which build an executable, or the original beside it, is."""
+    import hashlib
     for candidate in (exe, exe + '.bak'):
         try:
             with open(candidate, 'rb') as fh:
@@ -150,7 +157,7 @@ def build_name(exe):
             continue
         if build:
             return build.name, build.short
-    return 'no build the patcher knows', 'unknown'
+    return UNKNOWN
 
 
 def main():
@@ -173,7 +180,8 @@ def main():
     games = find_games(args.game)
     for game, exe, _name, _short in games:
         if not exe:
-            print('%sno v_on.exe in %s%s' % (c['bad'], game, c['off']))
+            print('%sno v_on.exe or vonpvr.exe in %s%s'
+                  % (c['bad'], game, c['off']))
             return 2
     for game, _exe, name, _short in games:
         print('%sgame%s %s  %s(%s)%s'

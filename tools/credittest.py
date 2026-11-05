@@ -56,6 +56,10 @@ def blocks(exe, vp, build):
     """(flag, width, height) per entry, read the way the renderer does.
     The credit site starts one entry into the table; the table's own start
     is that much before it in every build."""
+    roll = vp.roll_of(build)
+    if roll.table is not None:
+        return [struct.unpack_from('<3I', exe, roll.table + (i - 1) * 12)
+                for i in range(200)]
     site = next(off for off, _o, _n in vp.by_key(vp.RETAIL)['credits'][2]
                 if not isinstance(off, (vp.At, vp.In))
                 and vp.RETAIL.va(off) > vp.CREDIT_TABLE
@@ -110,23 +114,27 @@ def main(folder):
     vp = load_patcher()
     tmp = tempfile.mkdtemp(prefix='vo-credit-')
     build = None
-    for candidate in ('v_on.exe', 'v_on.exe.bak'):
-        try:
-            with open(os.path.join(folder, candidate), 'rb') as fh:
-                build = vp.BUILDS.get(hashlib.md5(fh.read()).hexdigest())
-        except OSError:
-            continue
+    for exe_name in ('v_on.exe', 'vonpvr.exe'):
+        for candidate in (exe_name, exe_name + '.bak'):
+            try:
+                with open(os.path.join(folder, candidate), 'rb') as fh:
+                    build = vp.BUILDS.get(hashlib.md5(fh.read()).hexdigest())
+            except OSError:
+                continue
+            if build:
+                break
         if build:
             break
     if build is None:
-        print('v_on.exe: no build with tables in %s' % folder)
+        print('no executable of a build with tables in %s' % folder)
         return 1
     art_name, _size, art_md5 = build.art
-    names = ('v_on.exe', vp.SCRSTFCG, vp.SCRSTFMP, art_name)
+    roll = vp.roll_of(build)
+    names = (build.exe, vp.SCRSTFCG, vp.SCRSTFMP, art_name)
     try:
-        wanted = {'v_on.exe': build.md5,
-                  vp.SCRSTFCG: vp.SCRSTFCG_MD5,
-                  vp.SCRSTFMP: vp.SCRSTFMP_MD5,
+        wanted = {build.exe: build.md5,
+                  vp.SCRSTFCG: roll.cg_md5,
+                  vp.SCRSTFMP: roll.mp_md5,
                   art_name: art_md5}
         for name in names:
             src = os.path.join(folder, name)
@@ -142,7 +150,7 @@ def main(folder):
                 fh.write(data)
 
         patcher = vp.Patcher()
-        note, ok = patcher.load(os.path.join(tmp, 'v_on.exe'))
+        note, ok = patcher.load(os.path.join(tmp, build.exe))
         if not ok:
             print('patcher refused the copy: %s' % note)
             return 1
@@ -152,13 +160,14 @@ def main(folder):
         if not ok:
             return 1
 
-        exe = open(os.path.join(tmp, 'v_on.exe'), 'rb').read()
+        exe = open(os.path.join(tmp, build.exe), 'rb').read()
 
         # Read the files the way the game does: to the byte counts held at
         # 0x5fdac8 and 0x5fdacc, not to their size on disk. A grown file
         # loads truncated unless the patch grows the constant with it.
-        cg_size = struct.unpack_from('<I', exe, vp.site_in(0x1fcec8, build))[0]
-        mp_size = struct.unpack_from('<I', exe, vp.site_in(0x1fcecc, build))[0]
+        counts = (roll.counts if roll.counts is not None
+                  else vp.site_in(0x1fcec8, build))
+        cg_size, mp_size = struct.unpack_from('<2I', exe, counts)
         sheet = open(os.path.join(tmp, vp.SCRSTFCG), 'rb').read()
         raw = open(os.path.join(tmp, vp.SCRSTFMP), 'rb').read()
         if (cg_size, mp_size) != (len(sheet), len(raw)):
@@ -184,14 +193,18 @@ def main(folder):
         table = blocks(exe, vp, build)
         want = wanted_pixels(vp)
 
-        # Walk to each new block exactly as the renderer accumulates.
-        # The five spacers become: gap, line 1, gap, line 2, gap - so the
-        # text blocks sit one and three entries past the placement point.
+        # Walk to each new block exactly as the renderer accumulates. The
+        # spacers become gap, line 1, gap, line 2, gap; the middle gap is
+        # inside line 1's block where the build has no entry to spare for it.
         at, bad = 0, 0
+        lines = (vp.CREDIT_AFTER + 1,
+                 vp.CREDIT_AFTER + (3 if roll.gaps[1] else 2))
         for i, (_flag, width, height) in enumerate(table):
-            if i in (vp.CREDIT_AFTER + 1, vp.CREDIT_AFTER + 3):
-                which = 0 if i == vp.CREDIT_AFTER + 1 else 1
+            if i in lines:
+                which = lines.index(i)
                 exp_w, exp_h, exp_lit = want[which]
+                if which == 0:
+                    exp_h += roll.pad
                 if width != exp_w or height != exp_h:
                     print('block %d is %dx%d, expected %dx%d'
                           % (i, width, height, exp_w, exp_h))

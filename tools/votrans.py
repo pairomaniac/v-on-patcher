@@ -206,6 +206,61 @@ HAND = {'d19320bdc3381a48228990907910a391': ({           # Japanese rerelease
 }, {
     0x004977c6: 0x00497764,                           # kbpage: the 2P-key accept label,
                                                       # its two loads the other way round
+}), '383d3bff66504954f84924a0b41dc3fa': ({            # PowerVR
+    # What the map could not place when this build's sites were generated. Its
+    # site map is now kept by hand in v-on-patcher.py, so this is a record.
+    0x000000a8: 0x000000a8,                           # PE header: the entry point field
+    0x001c5900: 0x0009759c,                           # titlever: the load before the flip
+    0x001fcec8: None, 0x001fcecc: None,               # the roll's byte counts and block
+    0x002bbb54: None,                                 # list: PowerVR has In() sites
+    0x006035ac: None, 0x0060c064: None,               # retail's F5 resource: the
+                                                      # PowerVR one has In() sites
+    0x0010afbe: 0x0016d234, 0x0010afeb: 0x0016d261,   # Motion= fallbacks: the ini
+    0x0010b002: 0x0016d278,                           # loader does not align
+    0x001c6941: None, 0x001c6950: None,               # no reset of Motion at start-up
+    0x001c8bc4: None, 0x001c8bd3: None,               # or after a mode change
+    # continuefix: the same ten blocks in the same order, [ebp-0x14] for
+    # retail's [ebp-4], in functions the map does not match
+    0x00077f5a: 0x00009e07, 0x00078b1c: 0x0000a9c9,
+    0x00079bb6: 0x0000ba63, 0x00079f3f: 0x0000bdec,
+    0x0007d04a: 0x0000eef7, 0x000bb9ea: 0x000651c7,
+    0x000bc5ac: 0x00065d89, 0x000bd646: 0x00066e23,
+    0x000bd9cf: 0x000671ac, 0x000c0ada: 0x0006a2b7,
+    # sound: Fei-Yen's hypermode test, twice, in functions the map does not
+    # match; told apart by the callee after each (retail 0x597311 is 0x574f41)
+    0x00058189: 0x000ba24d, 0x00170dc9: 0x001049cd,
+    # defaults: the ini loader does not align. Sky, ScrSize, the three
+    # Texture flags; Field Graphic is an In() site, its fallback being two
+    # stores where retail's is one
+    0x0010acd7: 0x0016cf4d, 0x0010b088: 0x0016d2fe,
+    0x0010b131: None,
+    0x0010b1b0: 0x0016d444, 0x0010b1ba: 0x0016d44e,
+    0x0010b1c4: 0x0016d458,
+    # movie: the PE header's .rsrc characteristics, the same field; the
+    # initials screen's trigger tests, the same code and jump distances
+    0x0000023f: 0x0000023f, 0x000d60c8: 0x0007a353,
+    # the call before the flip that HOLD TO SKIP hooks: not placed (the one
+    # at 0x498178 runs only behind a toggle), so the build goes without it
+    0x001c58e7: None,
+    # padxinput: the bind page fill, which the map does not match; its loop
+    # counter is [ebp-0x18] here, which also put "raw unique" for 0x9703f
+    # in the wrong function
+    0x000970bf: 0x001264bb, 0x000970d5: 0x001264d1, 0x0009703f: 0x0012643b,
+    0x000958aa: 0x00124cb3,                           # the ini load loop's exit
+    # switch-table entries, paired entry by entry with retail's through
+    # each function's alignment: the 2P profile switch (0x54b457), the
+    # startup check (0x525229), the F7 OK spend (0x52672f), the F7 page
+    # (0x525bdc) and the save switch (0x526257)
+    0x001bc13b: 0x0014a85b, 0x001bc13f: 0x0014a85f, 0x001bc143: 0x0014a863,
+    0x00095213: 0x0012462d, 0x00095217: 0x00124631,
+    0x00096731: 0x00125b2f, 0x00096735: 0x00125b33,
+    0x00095bdc: 0x00124fe4, 0x00095be0: 0x00124fe8,
+    0x00096253: 0x0012565b, 0x0009625b: 0x00125663,
+    # the startup check spends joysticks per device here, Keyboard (Simple)
+    # among them, and has no last check for devices 3 and 7: the two table
+    # entries above cover it
+    0x0009522e: None, 0x00095248: None,
+}, {
 })}
 
 import hashlib                                                  # noqa: E402

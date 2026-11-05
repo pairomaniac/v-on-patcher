@@ -1456,6 +1456,7 @@ static const struct { unsigned long stamp, divisor, cont; } fp_builds[] = {
     { 0x345107FAu, 0x0050834au, 0x0047770au },   /* Japanese rerelease  */
     { 0x3317246Au, 0x0050b734u, 0x00478a5au },   /* USA OEM             */
     { 0x33120494u, 0x0050b124u, 0x00478a5au },   /* Japanese original   */
+    { 0x33B3B0AEu, 0x0056de3au, 0x0040aa07u },   /* PowerVR             */
 };
 
 static unsigned char sync_fingerprint(void)
