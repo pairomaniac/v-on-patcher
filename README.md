@@ -566,6 +566,19 @@ Settings.
 It runs on Proton without [cnc-ddraw](#windowing-and-scaling-cnc-ddraw); if the game
 cannot set the mode, add cnc-ddraw.
 
+<details>
+<summary>Screenshots</summary>
+
+<p align="center">
+  <img src="assets/readme/powervr-match-ruins.png" alt="A match on the PowerVR version at 1024x576, in the ruins" width="49.5%" />
+  <img src="assets/readme/powervr-match-forest.png" alt="A match on the PowerVR version at 1024x576, in the forest" width="49.5%" />
+  <br />
+  <img src="assets/readme/powervr-match-arena.png" alt="A match on the PowerVR version at 1024x576, in a dark arena" width="49.5%" />
+  <img src="assets/readme/powervr-match-dock.png" alt="A match on the PowerVR version at 1024x576, on the docks" width="49.5%" />
+</p>
+
+</details>
+
 ### PowerVR renderer (pvr-sgl-wrapper)
 
 The game draws through `sgl.dll`, which came with the card's driver and is not on the
