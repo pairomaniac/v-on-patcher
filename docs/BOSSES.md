@@ -415,6 +415,11 @@ How its select differs:
   set, and the rest of that word is the background's colour. The report's handler sets
   it, and the unlock screen runs in place of that handler, so `repmodel` sets it to
   black, `0x8000`.
+- **The arena under Z-Gradt's unlock.** The report's start, `0x487ca9`, loads scene 5 by
+  `0x58062a`, which frees the arena's textures on the card. Nothing loads the arena again
+  for the name entry, so the floor and machines drew with the wrong textures. Z-Gradt's
+  screen draws on black, so `repscene` skips that load for it. Jaguarandi's keeps it, since
+  the next fight loads its own scene.
 - **The bosses' names on the unlock screen.** This build's `.vobs` is out of reach of the
   art's bank, so `unl_place` puts the names in the other bank, whose count is the dword
   before `BS_ARTCOUNT`.
@@ -429,9 +434,6 @@ Not done:
 - **Stand-ins.** `BS_MTSELMEM` and `BS_LOADTEX` hold stand-ins. `BS_MTSELMEM`,
   `0x2470000`, is not where this build reads `MT_sel.bin`. It is a place in `.data` that
   the 0x2cdc4 bytes of the save and restore fit in.
-- **The name entry after Z-Gradt's unlock screen.** In the rig its floor and machines
-  show the wrong textures. After the same last stage with no unlock they are right. The
-  cause is not known. Skipping `BS_SCNEND` on that path did not change it.
 
 Played: the portraits, both bosses in fights, their models, launches and cameras, their
 textures after a reset, Z-Gradt's flames, laser, gauge and turn, and the arena's edges.
@@ -450,14 +452,23 @@ Seen in the rig, with a hidden display and the debug kill:
   stage, the report with its model, and the ending.
 
 - Both unlock screens, earned in a game on Very Hard: the boss turning, YOU UNLOCKED, its
-  name, PRESS BUTTON TO CONTINUE, and `bosses.bin` going from 0 to 2. Jaguarandi on the
+  name, PRESS BUTTON TO CONTINUE, and `bosses.bin` going from 0 to 2. After Z-Gradt's, the
+  name entry on the arena, the scoreboard and the next game's first four rounds. Jaguarandi on the
   report, with its name, times and rank, and a fight after Jaguarandi's screen.
 
 Seen and not explained:
 
+- **The player's Jaguarandi after the report.** In the `fullj` scene its colours are right
+  through the report, and in the rounds after it they change each round: yellow, pink,
+  grey, then a dotted grey on the last stage. The same scene on `cacf28d` shows it too.
+  `boss` stays 8 throughout, and the game opens `rjag.vrb` at the select, at the first
+  round and at the report's start, and no per-opponent `RJAG` file, so those files are not
+  the source. `fullz` does not show it. A fix is not tried.
 - The `again` scene hung once: two faults at `0x53921f`, reading address 3 with `ebp` 3,
-  as a state handler returned. Three later runs were clean, two of them without the
-  commit that fixed the unlock screens, so it has not been tied to anything.
+  as a state handler returned. It has not hung in 15 later runs, 7 with the commit that
+  fixed the unlock screens and 8 without, so it has not been tied to anything.
+- On `cacf28d`, one `fullj` run exited at the last round after two exceptions at
+  `0x41555452`. No run of the current code has shown this.
 
 
 ## Testing it

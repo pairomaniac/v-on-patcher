@@ -5063,6 +5063,8 @@ PVR = Build('PowerVR', 'pvr', PVR_MD5, PVR_SIZE, 0x33b3b0ae, sections=(
     'BS_REPTEXTA': 0x00488d08,
     'BS_REPMODELA': ('PVRBOSS', 'repmodel'),
     'PVR_REPMODEL': 0x00488273,
+    'PVR_SCENE': 0x0058062a,
+    'UNLON': ('BOSSES', 'unl_on'),
     'BS_REPCNT': 0x024a08c0,
     'BS_TCLRALL': 0x00410e14,
     'BS_TRESET': 0x004108b7,
@@ -5107,6 +5109,7 @@ PVR = Build('PowerVR', 'pvr', PVR_MD5, PVR_SIZE, 0x33b3b0ae, sections=(
     'RBTRY': ('BOSSES', 'sel_rbtry'),
     'RBBUF': ('BOSSES', 'sel_rbbuf'),
     'PVRLOADER': ('PVRBOSS', 'loader'),
+    'PVRREPSCENE': ('PVRBOSS', 'repscene'),
     'SELCURSOR': 0x01df6738,
     'BS_RBDIR': 0x01df4e80,
     'BS_PATHFMT': 0x006548c0,
@@ -18429,64 +18432,68 @@ BLOBS = {
     }),
     'PVRBOSS': (bytes.fromhex(
         '909090909090833db0c500021e750ac705f4c584000000000083ec34e9fcffff'
-        'ff66c70540064a020080e9fcffffff813c24000000000f82fcffffff813c2400'
-        '0000000f83fcffffff837c2408010f85fcffffff608b0d6c4d8200e846000000'
-        '8b0d704d8200e83b000000b808000000bf0000000083fd05740ab809000000bf'
-        '00000000c680a001000001ff3789376a006a08506a01e8fcffffff83c4108f07'
-        '61e9fcffffff83f908730b516a01e8fcffffff83c408c3837c240c017553608b'
-        '7424248b4c242889f731d283cbffa10000000085c07505a10000000083f80975'
-        '05bb0300000085c9741749ad83f80874f583f80974f039d8750383cbffab42eb'
-        'e583fbff740489d8ab428954242861eb0760e836000000615589e581ec240100'
-        '00e9fcffffff60e821000000615589e583ec04e9fcffffff8b85e0feffff833d'
-        '00000000087505b808000000c3b808000000bb05000000e80a000000b8090000'
-        '00bb0900000080b8a0010000007438c680a001000000506a01e8fcffffff83c4'
-        '08c68300000000008b0c9d00000000c7049d000000000000000085c9740951e8'
-        'fcffffff83c404c3000000000000000000000000000000000000000000000000'
-        '0000000000000000000000000000000000006053820038d80000000000000000'
-        '00000000000000000000000000000000000054538200a45f0600000000000000'
-        '0000000000000a02000058130040e815004094fd0040b810004048130040c0f6'
-        '0040180e0040a8100040ecef0040780b0040080e004018e90040'
+        'ff66c70540064a020080e9fcffffff833d00000000090f85fcffffffc3813c24'
+        '000000000f82fcffffff813c24000000000f83fcffffff837c2408010f85fcff'
+        'ffff608b0d6c4d8200e8460000008b0d704d8200e83b000000b808000000bf00'
+        '00000083fd05740ab809000000bf00000000c680ae01000001ff3789376a006a'
+        '08506a01e8fcffffff83c4108f0761e9fcffffff83f908730b516a01e8fcffff'
+        'ff83c408c3837c240c017553608b7424248b4c242889f731d283cbffa1000000'
+        '0085c07505a10000000083f8097505bb0300000085c9741749ad83f80874f583'
+        'f80974f039d8750383cbffab42ebe583fbff740489d8ab428954242861eb0760'
+        'e836000000615589e581ec24010000e9fcffffff60e821000000615589e583ec'
+        '04e9fcffffff8b85e0feffff833d00000000087505b808000000c3b808000000'
+        'bb05000000e80a000000b809000000bb0900000080b8ae010000007438c680ae'
+        '01000000506a01e8fcffffff83c408c68300000000008b0c9d00000000c7049d'
+        '000000000000000085c9740951e8fcffffff83c404c300000000000000000000'
+        '0000000000000000000000000000000000000000000000000000000000000000'
+        '6053820038d80000000000000000000000000000000000000000000000000000'
+        '54538200a45f06000000000000000000000000001802000058130040e8150040'
+        '94fd0040b810004048130040c0f60040180e0040a8100040ecef0040780b0040'
+        '080e004018e90040'
     ), (
         (0x1d, 'rel', 'PVR_SELDRAW', -4),
         (0x2b, 'rel', 'PVR_REPMODEL', -4),
-        (0x32, 'abs', 'RBLOAD', 0),
-        (0x38, 'rel', 'PVR_FCLOSE', -4),
-        (0x3f, 'abs', 'RBLOADEND', 0),
-        (0x45, 'rel', 'PVR_FCLOSE', -4),
-        (0x50, 'rel', 'PVR_FCLOSE', -4),
-        (0x71, 'abs', 'BS_SLOTJ', 0),
-        (0x80, 'abs', 'BS_SLOTZ', 0),
-        (0x86, 'abs', '.', 416),
-        (0x97, 'rel', 'PVR_TEXLOAD', -4),
-        (0xa2, 'rel', 'PVR_FCLOSE', -4),
-        (0xaf, 'rel', 'PVR_TEXFREE', -4),
-        (0xcf, 'abs', 'BOSSID', 0),
-        (0xd8, 'abs', 'SELCURSOR', 0),
-        (0x122, 'rel', 'PVR_LOADER', -4),
-        (0x134, 'rel', 'PVR_FREEALL', -4),
-        (0x140, 'abs', 'BOSSID', 0),
-        (0x168, 'abs', '.', 416),
-        (0x171, 'abs', '.', 416),
-        (0x17a, 'rel', 'PVR_TEXFREE', -4),
-        (0x183, 'abs', 'RBTRY', 0),
-        (0x18b, 'abs', 'RBBUF', 0),
-        (0x192, 'abs', 'RBBUF', 0),
-        (0x1a0, 'rel', 'BS_FREE', -4),
-        (0x206, 'abs', '.', 522),
+        (0x31, 'abs', 'UNLON', 0),
+        (0x38, 'rel', 'PVR_SCENE', -4),
+        (0x40, 'abs', 'RBLOAD', 0),
+        (0x46, 'rel', 'PVR_FCLOSE', -4),
+        (0x4d, 'abs', 'RBLOADEND', 0),
+        (0x53, 'rel', 'PVR_FCLOSE', -4),
+        (0x5e, 'rel', 'PVR_FCLOSE', -4),
+        (0x7f, 'abs', 'BS_SLOTJ', 0),
+        (0x8e, 'abs', 'BS_SLOTZ', 0),
+        (0x94, 'abs', '.', 430),
+        (0xa5, 'rel', 'PVR_TEXLOAD', -4),
+        (0xb0, 'rel', 'PVR_FCLOSE', -4),
+        (0xbd, 'rel', 'PVR_TEXFREE', -4),
+        (0xdd, 'abs', 'BOSSID', 0),
+        (0xe6, 'abs', 'SELCURSOR', 0),
+        (0x130, 'rel', 'PVR_LOADER', -4),
+        (0x142, 'rel', 'PVR_FREEALL', -4),
+        (0x14e, 'abs', 'BOSSID', 0),
+        (0x176, 'abs', '.', 430),
+        (0x17f, 'abs', '.', 430),
+        (0x188, 'rel', 'PVR_TEXFREE', -4),
+        (0x191, 'abs', 'RBTRY', 0),
+        (0x199, 'abs', 'RBBUF', 0),
+        (0x1a0, 'abs', 'RBBUF', 0),
+        (0x1ae, 'rel', 'BS_FREE', -4),
+        (0x214, 'abs', '.', 536),
     ), {
         'selmdl': 0x0,
         'repmodel': 0x21,
-        'fclose': 0x2f,
-        'vacate': 0xa6,
-        'loader': 0xb7,
-        'freeall': 0x126,
-        'ownside': 0x138,
-        'dropall': 0x14d,
-        'drop': 0x166,
-        'ready': 0x1a8,
-        'rbnames': 0x1aa,
-        'flames': 0x1fa,
-        'flames3': 0x20a,
+        'repscene': 0x2f,
+        'fclose': 0x3d,
+        'vacate': 0xb4,
+        'loader': 0xc5,
+        'freeall': 0x134,
+        'ownside': 0x146,
+        'dropall': 0x15b,
+        'drop': 0x174,
+        'ready': 0x1b6,
+        'rbnames': 0x1b8,
+        'flames': 0x208,
+        'flames3': 0x218,
     }),
     'PVRHOLD': (bytes.fromhex(
         'a300000000c3'
@@ -19928,6 +19935,8 @@ def pvr_boss_sites():
              'e9' + rel(0x57e29d, 'PVRFREEALL') + '90'),
             (In(PVR_MD5, PVR.off(0x57f7d0)), '8b85e0feffff',
              'e8' + rel(0x57f7d0, 'PVROWNSIDE') + '90'),
+            (In(PVR_MD5, PVR.off(0x487ca9)), 'e87c890f00',
+             'e8' + rel(0x487ca9, 'PVRREPSCENE')),
             (In(PVR_MD5, PVR.off(cave_va('PVRBOSS', PVR))),
              '00' * len(code), code.hex())]
 

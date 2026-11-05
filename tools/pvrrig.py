@@ -67,7 +67,8 @@ MISSION_TIME = 0x200b69c
 COMMAND, KILL_1P, KILL_2P = 0x111, 0x9c61, 0x9c62
 
 # The game's states and values.
-ROUNDS, ROUND_START, ROLL_START, REPORT, ROLL, NAMES = (0xa, 0xb), 0xa, 0x1f, 0x1e, 0x20, 0x17
+ROUNDS, ROUND_START, ROLL_START, REPORT, ROLL = (0xa, 0xb), 0xa, 0x1f, 0x1e, 0x20
+NAMES, SCOREBOARD = 0x17, 0x18
 VERY_HARD, MIDDLE_STAGE, LAST_STAGE = 2, 4, 9
 # Jaguarandi's stage is skipped when the missions so far average 1680 units of the time or
 # less, as the debug kill's do. A unit is about 1/50 second, and this is over that.
@@ -187,9 +188,10 @@ SCENES = {
                          kill=Z_KILL),
     'report': state_scene(8, 200, {REPORT: (CARD,)}),
     # The unlocks: bosses.bin says what is unlocked already.
-    'unlock': state_scene(0, 330, {REPORT: (2, 6, CARD), NAMES: NAME_ENTRY}, can_unlock=True,
+    'unlock': state_scene(0, 330, {REPORT: (2, 6, CARD), NAMES: NAME_ENTRY, SCOREBOARD: (2,)}, can_unlock=True,
                           unlocks=0),
-    'lastu': state_scene(0, 120, {REPORT: (2, 6), NAMES: NAME_ENTRY}, can_unlock=True, last=True,
+    'lastu': state_scene(0, 120, {REPORT: (2, 6), NAMES: NAME_ENTRY, SCOREBOARD: (2,)},
+                         can_unlock=True, last=True,
                          unlocks=1),
     'unlj': Scene(70, walk_to(8)[0] + [(t, 'key', 'space') for t in (33, 36, 39)] + [
         (44, 'poke', 'unl_on', 8), (44, 'poke', 'unl_t', 0), (44, 'poke', STATE, REPORT)],

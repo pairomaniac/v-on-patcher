@@ -7,6 +7,8 @@ bits 32
 ; game's texture routine, which the other machines go through as they load, is run
 ; on that block here. Without it the model draws flat.
 
+extern PVR_SCENE                 ; a scene's load
+extern UNLON                     ; asm/bosses.asm: the boss an unlock shows
 extern PVR_REPMODEL             ; the report's model
 extern PVR_SELDRAW              ; the select's draw of a machine, past its prologue
 extern PVR_TEXLOAD              ; (1, machine, the other's, 0): a model's textures
@@ -54,6 +56,14 @@ selmdl:
 repmodel:
     mov     word [RENDERW], 0x8000
     jmp     PVR_REPMODEL
+
+; The report's start loads its scene, which frees the arena's textures on the card. After
+; the credits nothing loads the arena again for the initials, so before Z-Gradt's unlock,
+; which draws on black, the scene stays.
+repscene:
+    cmp     dword [UNLON], ZGRADT
+    jne     PVR_SCENE
+    ret
 
 ; bosses.asm's fclose. When it closes a boss's file after reading it whole, the
 ; block goes through the texture routine, with the boss's slot pointing at the

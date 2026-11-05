@@ -235,10 +235,10 @@ The times are one run's, setup included.
 | Scene | What it does | Collects | Time |
 | --- | --- | --- | --- |
 | `unlj` | Jaguarandi's unlock screen, written to the state | screenshots | 1 min |
-| `lastu` | Z-Gradt's unlock screen and the name entry, the stage written to the last | screenshots | 2 min |
+| `lastu` | Z-Gradt's unlock screen, the name entry and the scoreboard, the stage written to the last | screenshots | 2 min |
 | `lastz` | The last stage as Z-Gradt, the stage written, to the name entry | screenshots | 2 min |
 | `report` | Jaguarandi through five stages and its stage to its report | screenshots | 3 min |
-| `unlock` | Very Hard from nothing unlocked: a whole game, both unlock screens, the report | screenshots | 5 min |
+| `unlock` | Very Hard from nothing unlocked: a whole game, both unlock screens, the report, the name entry and the scoreboard | screenshots | 5 min |
 | `fullj`, `fullz` | A whole game as Jaguarandi or Z-Gradt, to the name entry | screenshots | 5, 6 min |
 | `title` | The title screen and its menu | recording | 40 s |
 | `sweep`, `bounce` | The 1P select: rightward, or Apharmd and Bal-Bas-Bow | recording | 40 s |
@@ -258,8 +258,7 @@ The times are one run's, setup included.
   needs the other builds played.
 - **Written shortcuts.** A scene that writes the stage or the state skips what the game
   would have done before it. `lastu` and `unlj` are quick, and only a whole game proves
-  the real path. `lastu` did reproduce the wrong textures of `unlock`'s name entry, so it
-  is enough for that fault.
+  the real path.
 - **Playing.** It cannot steer a machine or reach P2's view of the select.
 - **Judging.** A clean result is not proof, since the rig has missed what a player saw.
   The captures use the GDI renderer, and F12 under the wrapper shows only what the card
