@@ -126,9 +126,9 @@ not for the install; see [Music](#music).
 
 ## What the patches do
 
-Every patch works with every other, on all four [builds](#builds) of `v_on.exe`, and
-with cnc-ddraw. [The PowerVR version](#the-powervr-version) takes most of them. How
-each works inside the game is in [NOTES.md](docs/NOTES.md).
+Every patch works with every other, on every [build](#builds) including
+[the PowerVR version](#the-powervr-version), and with cnc-ddraw. How each works inside
+the game is in [NOTES.md](docs/NOTES.md).
 
 ### Essential
 
@@ -484,7 +484,7 @@ the game asks for tracks by number.
 | --- | --- |
 | **Widescreen machine select** | Cosmetic only. The hangar floor does not reach the bottom left corner. After a continue on a space stage in one player, the gap shows a slice of stars. On 2P's full machine select it is black, on every version. |
 | **Widescreen machine select** | Cosmetic only. On 2P's full machine select, machines pop in at the edges of the view on the four `v_on.exe` versions. |
-| **PowerVR version** | 60 FPS at 1024x576 needs a fast CPU; see [The PowerVR version](#the-powervr-version). It has not been tried on Windows or on a real PowerVR card. |
+| **PowerVR version** | It has not been tried on Windows or on a real PowerVR card. |
 | **Playable bosses** | The CPU's Z-Gradt may get stuck at the arena's edge, and its movement and attacks can differ from the unpatched game. Under investigation. |
 
 ## Troubleshooting internet play
@@ -539,15 +539,9 @@ This version is a separate program, `vonpvr.exe`, made for PowerVR PCX1 and PCX2
 cards. Redump has not verified its disc. The only known dump is on the Internet
 Archive.
 
-| Feature | `v_on.exe` versions | PowerVR version |
-| --- | --- | --- |
-| **Renderer** | Built in | Needs the [add-on](#powervr-renderer-pvr-sgl-wrapper), unless you have the card |
-| **Native widescreen** | 1920x1080, on by default | 1024x576, off by default, needs a fast CPU |
-| **Playable bosses**, **Pre-unlock the bosses** | Yes | Yes |
-| **Fix the lock-on line** | Yes | Not needed |
-| **Internet play** | Yes | Yes, including against the other versions |
-
-Rows it does not take are greyed out in the window.
+Every patch works on it, and it plays online against the other versions. It needs the
+[renderer add-on](#powervr-renderer-pvr-sgl-wrapper) unless you have the card, and its
+native widescreen differs, below.
 
 ### Native widescreen on this version
 
