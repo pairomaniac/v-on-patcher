@@ -543,7 +543,7 @@ Archive.
 | --- | --- | --- |
 | **Renderer** | Built in | Needs the [add-on](#powervr-renderer-pvr-sgl-wrapper), unless you have the card |
 | **Native widescreen** | 1920x1080, on by default | 1024x576, off by default, needs a fast CPU |
-| **Playable bosses**, **Pre-unlock the bosses** | Yes | Yes; Jaguarandi's colours go wrong after the report at the end of the fifth stage |
+| **Playable bosses**, **Pre-unlock the bosses** | Yes | Yes |
 | **Fix the lock-on line** | Yes | Not needed |
 | **Internet play** | Yes | Yes, including against the other versions |
 

@@ -38,14 +38,14 @@ is stale, so the line numbers are current.
 | 3041–3152 | disc images table, `Build` class, annex order | `DISC_IMAGES = {` |
 | 3153–5304 | the five builds: symbols, caves, site maps, `unsupported()` | `RETAIL = Build('English reta` |
 | 5305–7079 | generated site maps for three builds (`tools/buildsites.py`), the PowerVR one by hand | `# SITES JPRE BEGIN` |
-| 7080–18874 | the blobs, `BLOBS`, and `link()` | `BLOBS = {` |
-| 18875–19943 | banner and credit bitmaps, tile expansion | `LEVERS_CODE = link('LEVERS',` |
-| 19944–21023 | the patch table: `FEATURES`, `BY_KEY`, labels, tips, apply order | `FEATURES = [` |
-| 21024–22040 | ripping (`RAW = 2352`) and installing (`LOGICAL = 2048`) | `# --- ripping --------------` |
-| 22041–22988 | netplay setup, `SYNC_SITES`, cnc-ddraw, CD audio | `# --- netplay --------------` |
-| 22989–23524 | `Patcher`: reading a file, applying, restoring | `class Patcher:` |
-| 23525–24107 | the logo and icon (`tools/assets.py`), then the window strings | `# ASSETS BLOB BEGIN - tools/` |
-| 24108–26346 | the window (`run_tk`), the CLI, `main` | `def run_tk():` |
+| 7080–18877 | the blobs, `BLOBS`, and `link()` | `BLOBS = {` |
+| 18878–19946 | banner and credit bitmaps, tile expansion | `LEVERS_CODE = link('LEVERS',` |
+| 19947–21026 | the patch table: `FEATURES`, `BY_KEY`, labels, tips, apply order | `FEATURES = [` |
+| 21027–22043 | ripping (`RAW = 2352`) and installing (`LOGICAL = 2048`) | `# --- ripping --------------` |
+| 22044–22991 | netplay setup, `SYNC_SITES`, cnc-ddraw, CD audio | `# --- netplay --------------` |
+| 22992–23527 | `Patcher`: reading a file, applying, restoring | `class Patcher:` |
+| 23528–24110 | the logo and icon (`tools/assets.py`), then the window strings | `# ASSETS BLOB BEGIN - tools/` |
+| 24111–26349 | the window (`run_tk`), the CLI, `main` | `def run_tk():` |
 <!-- REGIONS END -->
 
 ## 3. `v_on.exe`

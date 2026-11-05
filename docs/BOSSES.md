@@ -395,7 +395,12 @@ How its select differs:
   when the game frees every model's textures (`0x57e29d`, `freeall`). The routine has two
   places for these models (`0x824d6c`, `0x824d70`), and the attract demo leaves its two
   machines in them, so `vacate` frees any of the eight first. Without that the bosses
-  drew flat after a reset, which runs the demo.
+  drew flat after a reset, which runs the demo. The game's free (`0x57e02e`) takes the first
+  place holding a machine, and a fight's loader does not load the player's machine again
+  between stages. So `fclose` notes which place its load took, and `drop` frees only that
+  place, while it still holds the boss. Before that, the report's load went in the second
+  place and `drop` freed the player's Jaguarandi in the first, so its colours changed in
+  every stage after the report.
 - **Jaguarandi's colours.** This build keeps them in texture files, not palettes:
   `RJAG.VRB` and one per opponent, `RJAGTEM.VRB` and so on, picked in `0x56d4f0` by the
   other machine's id. The player's and the select's use `RJAG.VRB` (`ownside`). The
@@ -449,7 +454,8 @@ Seen in the rig, with a hidden display and the debug kill:
   over and a new game, and after the reset (writing -1 to the mode word) and the attract
   demo. Jaguarandi in `RJAG.VRB`'s colours, on the select and in a round.
 - A whole game as Jaguarandi and as Z-Gradt to the name entry, with the models: every
-  stage, the report with its model, and the ending.
+  stage, the report with its model, and the ending. Jaguarandi keeps `RJAG.VRB`'s colours
+  in the stages after the report.
 
 - Both unlock screens, earned in a game on Very Hard: the boss turning, YOU UNLOCKED, its
   name, PRESS BUTTON TO CONTINUE, and `bosses.bin` going from 0 to 2. After Z-Gradt's, the
@@ -458,12 +464,6 @@ Seen in the rig, with a hidden display and the debug kill:
 
 Seen and not explained:
 
-- **The player's Jaguarandi after the report.** In the `fullj` scene its colours are right
-  through the report, and in the rounds after it they change each round: yellow, pink,
-  grey, then a dotted grey on the last stage. The same scene on `cacf28d` shows it too.
-  `boss` stays 8 throughout, and the game opens `rjag.vrb` at the select, at the first
-  round and at the report's start, and no per-opponent `RJAG` file, so those files are not
-  the source. `fullz` does not show it. A fix is not tried.
 - The `again` scene hung once: two faults at `0x53921f`, reading address 3 with `ebp` 3,
   as a state handler returned. It has not hung in 15 later runs, 7 with the commit that
   fixed the unlock screens and 8 without, so it has not been tied to anything.

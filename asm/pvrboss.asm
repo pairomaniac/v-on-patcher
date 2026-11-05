@@ -88,7 +88,15 @@ fclose:
     mov     eax, ZGRADT
     mov     edi, BS_SLOTZ
 .boss:
-    mov     byte [ready+eax-JAG], 1
+    mov     ecx, 1              ; the place it goes in: the first free one, or none (3)
+    cmp     dword [TEXSLOT1], 0
+    jl      .place
+    inc     ecx
+    cmp     dword [TEXSLOT2], 0
+    jl      .place
+    inc     ecx
+.place:
+    mov     [ready+eax-JAG], cl
     push    dword [edi]
     mov     [edi], esi
     push    0
@@ -199,15 +207,37 @@ dropall:
     mov     ebx, RB_Z
     ; fall through
 
-; eax the boss, ebx its file slot.
+; eax the boss, ebx its file slot. The routine frees the first place holding the machine,
+; and the game's own copy of the boss can be in the other, as the player's after a fight.
+; The game does not load the player's machine again between stages, so only the place
+; fclose filled is freed, and only while it still holds the boss.
 drop:
-    cmp     byte [ready+eax-JAG], 0
+    movzx   ecx, byte [ready+eax-JAG]
+    test    ecx, ecx
     je      .out
     mov     byte [ready+eax-JAG], 0
+    cmp     ecx, 1
+    jne     .second
+    cmp     [TEXSLOT1], eax
+    jne     .block
     push    eax
     push    1
     call    PVR_TEXFREE
     add     esp, 8
+    jmp     .block
+.second:
+    cmp     ecx, 2
+    jne     .block
+    cmp     [TEXSLOT2], eax
+    jne     .block
+    push    dword [TEXSLOT1]
+    mov     dword [TEXSLOT1], -1 ; the first passed over meanwhile
+    push    eax
+    push    1
+    call    PVR_TEXFREE
+    add     esp, 8
+    pop     dword [TEXSLOT1]
+.block:
     mov     byte [RBTRY+ebx], 0
     mov     ecx, [RBBUF+ebx*4]
     mov     dword [RBBUF+ebx*4], 0
